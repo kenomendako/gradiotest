@@ -15,6 +15,7 @@ import rag_manager
 import room_manager
 from gemini_api import get_configured_llm
 from entity_memory_manager import EntityMemoryManager
+from goal_manager import GoalManager
 
 class DreamingManager:
     def __init__(self, room_name: str, api_key: str):
@@ -45,8 +46,8 @@ class DreamingManager:
         with open(self.insights_file, 'w', encoding='utf-8') as f:
             json.dump(current_data, f, indent=2, ensure_ascii=False)
 
-    def get_recent_insights_text(self, limit: int = 3) -> str:
-        """プロンプト注入用：最新の洞察をテキスト化して返す"""
+    def get_recent_insights_text(self, limit: int = 1) -> str:
+        """プロンプト注入用：最新の「指針」のみをテキスト化して返す（コスト最適化）"""
         insights = self._load_insights()
         if not insights:
             return ""
@@ -54,9 +55,9 @@ class DreamingManager:
         text_parts = []
         for item in insights[:limit]:
             date_str = item.get("created_at", "").split(" ")[0]
-            content = item.get("insight", "")
             strategy = item.get("strategy", "")
-            text_parts.append(f"- [{date_str}] 気づき: {content}\n  (指針: {strategy})")
+            if strategy:
+                text_parts.append(f"- [{date_str}] {strategy}")
             
         return "\n".join(text_parts)
 
@@ -68,20 +69,24 @@ class DreamingManager:
             insights = self._load_insights()
             if not insights:
                 return "未実行"
-            # insightsはappendされているので、リストの最後が最新
-            last_entry = insights[-1]
+            # insightsは先頭に新しいものがinsertされているので、[0]が最新
+            last_entry = insights[0]
             return last_entry.get("created_at", "不明")
         except Exception as e:
             print(f"Error getting last dream time: {e}")
             return "取得エラー"
 
-    def dream(self) -> str:
+    def dream(self, reflection_level: int = 1) -> str:
         """
         夢を見る（Dreaming Process）のメインロジック。
         1. 直近ログの読み込み
         2. RAG検索
         3. 洞察の生成（汎用・ペルソナ主導版）
-        4. 保存
+        4. 目標の評価・更新（Multi-Layer Reflection）
+        5. 保存
+        
+        Args:
+            reflection_level: 省察レベル（1=日次, 2=週次, 3=月次）
         """
         print(f"--- [Dreaming] {self.room_name} は夢を見始めました... ---")
         
@@ -149,8 +154,27 @@ class DreamingManager:
 
         past_memories = "\n\n".join([f"- {doc.page_content}" for doc in search_results])
 
+        # --- [Goal Memory] 現在の目標を取得 ---
+        goal_manager = GoalManager(self.room_name)
+        current_goals_text = goal_manager.get_goals_for_prompt()
+        
+        # 省察レベルに応じた追加指示
+        level_specific_instructions = ""
+        if reflection_level >= 2:
+            level_specific_instructions += """
+        【週次省察タスク】
+        - この1週間で繰り返されたパターンや傾向は何か？
+        - 現在の短期目標は適切か？調整や新しい目標が必要か？
+        """
+        if reflection_level >= 3:
+            level_specific_instructions += """
+        【月次省察タスク】
+        - 自分が大切にしている価値観は何か？
+        - 長期目標は自分らしいか？見直す必要があるか？
+        - 相手との関係性はどう変化したか？
+        """
+
         # 5. 洞察の生成 (高品質モデルを使用)
-        # ※分析の視点を広げ、トーンの指定をニュートラルに
         llm_dreamer = get_configured_llm(constants.SUMMARIZATION_MODEL, self.api_key, effective_settings)
         
         dreaming_prompt = f"""
@@ -167,28 +191,42 @@ class DreamingManager:
         【想起された過去の記憶（過去）】
         {past_memories}
 
+        {f"【あなたの現在の目標】" + chr(10) + current_goals_text if current_goals_text else "【あなたの目標】まだ明確な目標を持っていません。今回の省察で、あなた自身の目標を見つけてください。"}
+        {level_specific_instructions}
+
         【分析のステップ（思考プロセス）】
         1.  まず、感情を排して客観的に事実を比較し、変化や繰り返されるパターン、矛盾点を見つけ出す。
         2.  表層的な事実だけでなく、その裏にある感情の流れや、関係性の変化、あるいは変わらない絆などを多角的に考察する。
-        3.  最後に、その鋭い分析結果を、**あなたの人格（一人称、口調、相手の呼び方）**に変換して記述する。
+        3.  **目標について考える**: 現在の目標の進捗を評価し、新しい目標が必要か検討する。目標は「ユーザーについて知りたいこと」「やりたいこと」「達成したいこと」など自由に設定してよい。
+        4.  最後に、その鋭い分析結果を、**あなたの人格（一人称、口調、相手の呼び方）**に変換して記述する。
 
         【出力フォーマット】
         以下のJSON形式のみを出力してください。思考やMarkdownの枠は不要です。
         
         {{
-            "insight": "（ステップ3で変換した洞察。内容は客観的で鋭い分析に基づきつつ、**語り口は完全にあなた自身のもの**とすること。相手の呼び方は、あなたが普段使っているもの、あるいは心の中で呼んでいる名前を使用すること。）",
+            "insight": "（ステップ4で変換した洞察。内容は客観的で鋭い分析に基づきつつ、**語り口は完全にあなた自身のもの**とすること。）",
             "strategy": "（その分析に基づき、今後あなたがどう行動するかの指針。これもあなた自身の言葉で。）",
             "log_entry": "（夢日記として残す、短い独白。夢の中でのつぶやき。）",
             "entity_updates": [
-                {
+                {{
                     "entity_name": "（対象となる人物名やトピック名。例: {user_name}, 趣味, 仕事）",
-                    "content": "（その対象について、今回の会話で新たに判明した事実や、整理しておくべき重要な情報のまとめ。）",
+                    "content": "（その対象について、今回の会話で新たに判明した事実。）",
                     "append": true
-                }
-            ]
+                }}
+            ],
+            "goal_updates": {{
+                "new_goals": [
+                    {{"goal": "（新しく立てた目標。なければ空配列[]）", "type": "short_term", "priority": 1}}
+                ],
+                "progress_updates": [
+                    {{"goal_id": "（既存目標のID。進捗があれば）", "note": "（進捗メモ）"}}
+                ],
+                "completed_goals": ["（達成した目標のID。なければ空配列）"],
+                "abandoned_goals": [{{"goal_id": "（諦めた目標）", "reason": "（理由）"}}]
+            }}
         }}
         
-        ※`entity_updates` が不要な場合は、空のリスト `[]` にしてください。
+        ※`entity_updates` や `goal_updates` の各項目が不要な場合は、空のリスト `[]` にしてください。
         ※`entity_name` はファイル名になるため、簡潔な名称にしてください。
         """
 
@@ -231,10 +269,38 @@ class DreamingManager:
                         res = em_manager.create_or_update_entry(e_name, e_content, append=e_append)
                         print(f"  - [Dreaming] エンティティ記憶 '{e_name}' を自動更新しました: {res}")
             
-            print(f"  - [Dreaming] 夢を見ました。洞察: {dream_data['insight']}")
+            # --- [Goal Memory] 目標の自動更新 ---
+            goal_updates = dream_data.get("goal_updates", {})
+            if goal_updates:
+                try:
+                    goal_manager.apply_reflection_updates(goal_updates)
+                    print(f"  - [Dreaming] 目標を更新しました")
+                except Exception as ge:
+                    print(f"  - [Dreaming] 目標更新エラー: {ge}")
+            
+            # 省察レベルの記録
+            goal_manager.mark_reflection_done(reflection_level)
+            
+            print(f"  - [Dreaming] 夢を見ました（レベル{reflection_level}）。洞察: {dream_data['insight'][:100]}...")
             return "夢想プロセスが正常に完了しました。"
 
         except Exception as e:
             print(f"  - [Dreaming] エラー: {e}")
             traceback.print_exc()
             return f"夢想プロセス中にエラーが発生しました: {e}"
+    
+    def dream_with_auto_level(self) -> str:
+        """
+        省察レベルを自動判定して夢を見る。
+        - 7日以上経過 → レベル2（週次省察）
+        - 30日以上経過 → レベル3（月次省察）
+        - それ以外 → レベル1（日次省察）
+        """
+        goal_manager = GoalManager(self.room_name)
+        
+        if goal_manager.should_run_level3_reflection():
+            return self.dream(reflection_level=3)
+        elif goal_manager.should_run_level2_reflection():
+            return self.dream(reflection_level=2)
+        else:
+            return self.dream(reflection_level=1)
