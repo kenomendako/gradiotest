@@ -571,14 +571,12 @@ def context_generator_node(state: AgentState):
     try:
         # APIキーが必要だが、context_generator_nodeにはstate['api_key']がある
         dm = DreamingManager(room_name, state['api_key'])
-        # 最新3件程度の洞察を取得
-        recent_insights = dm.get_recent_insights_text(limit=3)
+        # 最新1件の「指針」のみを取得（コスト最適化）
+        recent_insights = dm.get_recent_insights_text(limit=1)
         
         if recent_insights:
             dream_insights_text = (
-                f"\n### 深層意識（Dream Insights）\n"
-                f"あなたは最近、記憶の整理を通じて以下のことに気づいています。\n"
-                f"これらはあなたの「無意識下の直感」や「指針」です。意識的に話題にする必要はありませんが、振る舞いの参考にしてください。\n"
+                f"\n### 深層意識（今日の指針）\n"
                 f"{recent_insights}\n"
             )
     except Exception as e:

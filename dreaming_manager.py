@@ -46,8 +46,8 @@ class DreamingManager:
         with open(self.insights_file, 'w', encoding='utf-8') as f:
             json.dump(current_data, f, indent=2, ensure_ascii=False)
 
-    def get_recent_insights_text(self, limit: int = 3) -> str:
-        """プロンプト注入用：最新の洞察をテキスト化して返す"""
+    def get_recent_insights_text(self, limit: int = 1) -> str:
+        """プロンプト注入用：最新の「指針」のみをテキスト化して返す（コスト最適化）"""
         insights = self._load_insights()
         if not insights:
             return ""
@@ -55,9 +55,9 @@ class DreamingManager:
         text_parts = []
         for item in insights[:limit]:
             date_str = item.get("created_at", "").split(" ")[0]
-            content = item.get("insight", "")
             strategy = item.get("strategy", "")
-            text_parts.append(f"- [{date_str}] 気づき: {content}\n  (指針: {strategy})")
+            if strategy:
+                text_parts.append(f"- [{date_str}] {strategy}")
             
         return "\n".join(text_parts)
 
