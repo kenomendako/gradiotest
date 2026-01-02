@@ -9226,11 +9226,11 @@ def handle_refresh_internal_state(room_name: str):
         
         mm = MotivationManager(room_name)
         
-        # 各動機を計算
-        boredom = mm.calculate_boredom()
-        curiosity = mm.calculate_curiosity()
-        goal_achievement = mm.calculate_goal_achievement()
-        devotion = mm.calculate_devotion()
+        # 各動機を計算（小数点2桁に丸め）
+        boredom = round(mm.calculate_boredom(), 2)
+        curiosity = round(mm.calculate_curiosity(), 2)
+        goal_achievement = round(mm.calculate_goal_achievement(), 2)
+        devotion = round(mm.calculate_devotion(), 2)
         
         # 内部状態ログを生成
         motivation_log = mm.generate_motivation_log()
@@ -9238,7 +9238,11 @@ def handle_refresh_internal_state(room_name: str):
         drive_level = motivation_log.get("drive_level", 0.0)
         narrative = motivation_log.get("narrative", "")
         
-        dominant_text = f"**{dominant_drive}** (レベル: {drive_level:.2f})\n\n{narrative}"
+        # Markdown記法を使わずプレーンテキストで表示（Textbox用）
+        if narrative:
+            dominant_text = f"🎯 {dominant_drive} (レベル: {drive_level:.2f})\n\n{narrative}"
+        else:
+            dominant_text = f"🎯 {dominant_drive} (レベル: {drive_level:.2f})"
         
         # 未解決の問いをDataFrame形式に変換
         state = mm._load_state()
@@ -9246,17 +9250,30 @@ def handle_refresh_internal_state(room_name: str):
         
         questions_data = []
         for q in open_questions:
+            # 日時を読みやすくフォーマット
+            asked_at = q.get("asked_at", "")
+            if asked_at:
+                try:
+                    dt = datetime.datetime.fromisoformat(asked_at)
+                    asked_at = dt.strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    pass
+            
             questions_data.append([
                 q.get("topic", ""),
                 q.get("context", ""),
-                q.get("priority", 0.5),
-                q.get("asked_at", "")
+                round(q.get("priority", 0.5), 2),
+                asked_at if asked_at else "未回答"
             ])
         
-        # 最終更新を取得
+        # 最終更新を読みやすくフォーマット
         last_interaction = state.get("drives", {}).get("boredom", {}).get("last_interaction", "")
         if last_interaction:
-            last_update_text = f"最終対話: {last_interaction}"
+            try:
+                dt = datetime.datetime.fromisoformat(last_interaction)
+                last_update_text = f"最終対話: {dt.strftime('%Y-%m-%d %H:%M:%S')}"
+            except ValueError:
+                last_update_text = f"最終対話: {last_interaction}"
         else:
             last_update_text = "最終更新: データなし"
         

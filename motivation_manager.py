@@ -176,9 +176,10 @@ class MotivationManager:
             # 最高優先度の目標を特定
             top_goal = min(active_goals, key=lambda g: g.get("priority", 999))
             
-            # 優先度が高いほど欲求が強い（priority=1 → 0.8, priority=3 → 0.4）
+            # 優先度が高いほど欲求が強い
+            # priority=1 → 0.8, priority=2 → 0.6, priority=3 → 0.4, priority=4 → 0.2
             priority = top_goal.get("priority", 3)
-            drive_level = max(0.2, 1.0 - (priority - 1) * 0.2)
+            drive_level = max(0.2, 1.0 - priority * 0.2)
             
             self._state["drives"]["goal_achievement"]["level"] = drive_level
             self._state["drives"]["goal_achievement"]["active_goal_id"] = top_goal.get("id")
