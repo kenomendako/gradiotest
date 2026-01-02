@@ -22,10 +22,12 @@ graph TB
         DI[夢日記<br/>insights.json]
         GL[目標<br/>goals.json]
         KB[知識ベース<br/>rag_index/]
+        IS[内部状態<br/>internal_state.json]
     end
     
     subgraph "睡眠時処理"
         DR[Dreaming Process]
+        MM[MotivationManager]
     end
     
     CM --> SP
@@ -33,6 +35,7 @@ graph TB
     EP --> SP
     DI --> SP
     GL --> SP
+    IS -.-> |Internal State Log| SP
     EM -.->|RAG検索| SP
     KB -.->|RAG検索| SP
     
@@ -40,6 +43,8 @@ graph TB
     DR --> GL
     DR --> EM
     DR --> EP
+    DR --> MM
+    MM --> IS
 ```
 
 ---
@@ -54,6 +59,7 @@ graph TB
 | エンティティ記憶 | `entity_memory/*.md` | 永続 | ⚡ RAG検索時 | 睡眠時 |
 | 夢日記 | `memory/insights.json` | 永続 | ✅ 直近1件の指針 | 睡眠時 |
 | 目標 | `goals.json` | 永続 | ✅ 常時 | 睡眠時（AI自発） |
+| **内部状態** | `memory/internal_state.json` | 永続 | ✅ 自律行動時 | 睡眠時/対話時 |
 | 知識ベース | `rag_index/` | 永続 | ⚡ RAG検索時 | 手動アップロード |
 
 ---
@@ -194,6 +200,55 @@ Created: 2026-01-01 12:00:00
 
 ---
 
+### 8. 内部状態 (`memory/internal_state.json`) [NEW]
+
+**目的**: AIの内発的動機を管理し、自律行動の「理由」を記録
+
+**4つの動機**:
+1. **退屈（Boredom）** - 無操作時間に基づいて対数曲線で計算
+2. **好奇心（Curiosity）** - 夢想処理で抽出された「未解決の問い」に基づく
+3. **目標達成欲（Goal Achievement Drive）** - アクティブな目標の優先度に基づく
+4. **奉仕欲（Devotion Drive）** - ユーザーの感情状態に基づく
+
+**データ構造**:
+```json
+{
+  "drives": {
+    "boredom": {
+      "level": 0.48,
+      "last_interaction": "2026-01-02T22:00:00",
+      "threshold": 0.6
+    },
+    "curiosity": {
+      "level": 0.8,
+      "open_questions": [
+        {
+          "topic": "初詣での雪の冷たさ",
+          "context": "彼女が何を感じていたか知りたい",
+          "priority": 0.8
+        }
+      ]
+    },
+    "goal_achievement": { "level": 0.6, "active_goal_id": "sh_abc123" },
+    "devotion": { "level": 0.3, "user_emotional_state": "neutral" }
+  },
+  "motivation_log": {
+    "dominant_drive": "curiosity",
+    "dominant_drive_label": "好奇心（Curiosity）",
+    "drive_level": 0.8,
+    "narrative": "昨夜の夢想の中で..."
+  }
+}
+```
+
+**プロンプト注入**: 自律行動発火時のみ（内部状態ログとして注入）
+
+**更新タイミング**: 
+- 対話時（`last_interaction` を更新）
+- 睡眠時（`open_questions` を追加）
+- 自律行動判定時（全動機を再計算）
+
+
 ### 7. 知識ベース (`rag_index/`)
 
 **目的**: ユーザーがアップロードした外部ドキュメントを検索可能に
@@ -242,6 +297,7 @@ sequenceDiagram
 
 ## 関連ファイル
 
+- `motivation_manager.py` - 動機計算、内部状態ログ生成 [NEW]
 - `goal_manager.py` - 目標CRUD、省察サポート
 - `dreaming_manager.py` - 夢想プロセス、マルチレイヤー省察
 - `entity_memory_manager.py` - エンティティ記憶管理
@@ -255,5 +311,6 @@ sequenceDiagram
 
 | 日付 | 内容 |
 |------|------|
+| 2026-01-02 | 内部状態（動機システム）追加 |
 | 2026-01-02 | Goal Memory & Multi-Layer Reflection 追加 |
 | 2026-01-02 | 夢日記注入を Strategy のみに最適化 |

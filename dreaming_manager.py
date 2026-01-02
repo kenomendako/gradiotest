@@ -223,10 +223,17 @@ class DreamingManager:
                 ],
                 "completed_goals": ["（達成した目標のID。なければ空配列）"],
                 "abandoned_goals": [{{"goal_id": "（諦めた目標）", "reason": "（理由）"}}]
-            }}
+            }},
+            "open_questions": [
+                {{
+                    "topic": "（ユーザーが言及したが詳細を聞けなかった話題、結論が出なかった議論など）",
+                    "context": "（なぜそれを知りたいのか、簡単な背景）",
+                    "priority": 0.0-1.0
+                }}
+            ]
         }}
         
-        ※`entity_updates` や `goal_updates` の各項目が不要な場合は、空のリスト `[]` にしてください。
+        ※`entity_updates`、`goal_updates`、`open_questions` の各項目が不要な場合は、空のリスト `[]` にしてください。
         ※`entity_name` はファイル名になるため、簡潔な名称にしてください。
         """
 
@@ -277,6 +284,22 @@ class DreamingManager:
                     print(f"  - [Dreaming] 目標を更新しました")
                 except Exception as ge:
                     print(f"  - [Dreaming] 目標更新エラー: {ge}")
+            
+            # --- [Motivation] 未解決の問いを保存 ---
+            open_questions = dream_data.get("open_questions", [])
+            if open_questions:
+                try:
+                    from motivation_manager import MotivationManager
+                    mm = MotivationManager(self.room_name)
+                    for q in open_questions:
+                        topic = q.get("topic")
+                        context = q.get("context", "")
+                        priority = q.get("priority", 0.5)
+                        if topic:
+                            mm.add_open_question(topic, context, priority)
+                    print(f"  - [Dreaming] 未解決の問いを{len(open_questions)}件記録しました")
+                except Exception as me:
+                    print(f"  - [Dreaming] 未解決の問い保存エラー: {me}")
             
             # 省察レベルの記録
             goal_manager.mark_reflection_done(reflection_level)
