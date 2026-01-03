@@ -16,6 +16,7 @@ import room_manager
 from gemini_api import get_configured_llm
 from entity_memory_manager import EntityMemoryManager
 from goal_manager import GoalManager
+import summary_manager
 
 class DreamingManager:
     def __init__(self, room_name: str, api_key: str):
@@ -91,6 +92,7 @@ class DreamingManager:
         print(f"--- [Dreaming] {self.room_name} は夢を見始めました... ---")
         
         # 1. 必要なファイルパスと設定の取得
+        summary_manager.clear_today_summary(self.room_name)
         log_path, system_prompt_path, _, _, _ = room_manager.get_room_files_paths(self.room_name)
         if not log_path or not os.path.exists(log_path):
             return "ログファイルがありません。"

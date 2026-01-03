@@ -755,6 +755,15 @@ def agent_node(state: AgentState):
         print("\n" + "="*30 + " [DEBUG MODE: FINAL SYSTEM PROMPT] " + "="*30)
         print(final_system_prompt_text)
         print("="*85 + "\n")
+        
+        # --- 自動会話要約のデバッグ表示 ---
+        hist = state.get('messages', [])
+        if hist and len(hist) > 0:
+            first_msg = hist[0]
+            if hasattr(first_msg, 'content') and isinstance(first_msg.content, str) and "【本日のこれまでの会話の要約】" in first_msg.content:
+                print("="*30 + " [DEBUG MODE: AUTO CONVERSATION SUMMARY] " + "="*30)
+                print(first_msg.content)
+                print("="*85 + "\n")
     # ▲▲▲【復活ここまで】▲▲▲
     
     all_participants = state.get('all_participants', [])

@@ -791,6 +791,22 @@ try:
                                 interactive=True
                             )
                             
+                            # --- 自動会話要約設定 ---
+                            room_auto_summary_checkbox = gr.Checkbox(
+                                label="本日分が長くなったら自動で要約する",
+                                info="閾値を超えると、古い会話を要約してAPIコストを削減します。",
+                                interactive=True
+                            )
+                            room_auto_summary_threshold_slider = gr.Slider(
+                                minimum=constants.AUTO_SUMMARY_MIN_THRESHOLD,
+                                maximum=constants.AUTO_SUMMARY_MAX_THRESHOLD,
+                                step=1000,
+                                value=constants.AUTO_SUMMARY_DEFAULT_THRESHOLD,
+                                label="要約閾値（文字数）",
+                                info="この文字数を超えたら要約を開始します。",
+                                interactive=True,
+                                visible=False  # チェックボックスONで表示
+                            )
 
                             room_episode_memory_days_dropdown = gr.Dropdown(
                                 choices=list(constants.EPISODIC_MEMORY_OPTIONS.values()),
@@ -1906,9 +1922,14 @@ try:
             room_send_core_memory_checkbox,
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
+            room_auto_summary_checkbox,
         ]
         
-        context_token_calc_inputs = [current_room_name, current_api_key_name_state, api_history_limit_state] + context_checkboxes
+        context_token_calc_inputs = [
+            current_room_name, current_api_key_name_state, api_history_limit_state
+        ] + context_checkboxes + [
+            room_auto_summary_threshold_slider
+        ]
 
         attachment_change_token_calc_inputs = [
             current_room_name,
@@ -2039,7 +2060,9 @@ try:
             entity_dropdown,
             entity_content_editor,
             embedding_mode_radio, # [Phase 16 追加] エンベディングモード同期用
-            dream_status_display  # [Phase 17 追加] 睡眠時記憶整理ステータス
+            dream_status_display,  # [Phase 17 追加] 睡眠時記憶整理ステータス
+            room_auto_summary_checkbox,
+            room_auto_summary_threshold_slider,
         ]
 
         initial_load_outputs = [
@@ -2440,6 +2463,8 @@ try:
             sleep_consolidation_current_log_cb,
             sleep_consolidation_entity_memory_cb,
             sleep_consolidation_compress_cb,
+            room_auto_summary_checkbox,
+            room_auto_summary_threshold_slider,
         ]
 
         # 個別設定の即時保存対応: 各コンポーネントに変更イベントを登録
@@ -2569,6 +2594,22 @@ try:
         ]
         for checkbox in other_context_checkboxes:
              checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
+
+        # 自動要約設定のイベント
+        room_auto_summary_checkbox.change(
+            fn=lambda is_checked: gr.update(visible=is_checked),
+            inputs=[room_auto_summary_checkbox],
+            outputs=[room_auto_summary_threshold_slider]
+        ).then(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        )
+        room_auto_summary_threshold_slider.change(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        )
 
         # model_dropdownのイベント
         model_dropdown.change(fn=ui_handlers.update_model_state, inputs=[model_dropdown], outputs=[current_model_name]).then(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)

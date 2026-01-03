@@ -32,6 +32,13 @@ SUMMARIZATION_MODEL = "gemini-2.5-flash"          # 高品質（要約、文章�
 EMBEDDING_MODEL = "gemini-embedding-001"
 SUPERVISOR_MODEL = "gemma-3-12b-it"
 
+# --- 自動会話要約設定 ---
+AUTO_SUMMARY_DEFAULT_THRESHOLD = 20000  # デフォルト閾値（文字数）
+AUTO_SUMMARY_MIN_THRESHOLD = 5000       # 最小閾値
+AUTO_SUMMARY_MAX_THRESHOLD = 100000     # 最大閾値
+AUTO_SUMMARY_KEEP_RECENT_TURNS = 5      # 要約せず保持する直近往復数
+AUTO_SUMMARY_TARGET_LENGTH = 2500       # 要約の目標トークン数
+
 # --- ツール専用AIモデル ---
 SEARCH_MODEL = "gemini-2.5-flash"
 

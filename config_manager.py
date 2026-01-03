@@ -822,6 +822,9 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         "safety_block_threshold_sexually_explicit": "BLOCK_ONLY_HIGH",
         "safety_block_threshold_dangerous_content": "BLOCK_ONLY_HIGH",
         "api_history_limit": constants.DEFAULT_API_HISTORY_LIMIT_OPTION,
+        # 自動会話要約
+        "auto_summary_enabled": False,
+        "auto_summary_threshold": constants.AUTO_SUMMARY_DEFAULT_THRESHOLD,
         "sleep_consolidation": {
             "update_episodic_memory": True,
             "update_memory_index": True,

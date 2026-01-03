@@ -419,7 +419,6 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
     for cand in candidates:
         path = os.path.join(image_dir, cand)
         if os.path.exists(path):
-            print(f"  - [Scenery Match] Found: {cand}")
             return path
 
     # 2. ワイルドカード検索（接頭辞一致。例: '書斎_night_2.png' なども許容）
@@ -436,7 +435,6 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
         for prefix in search_prefixes:
             for f in files:
                 if f.lower().startswith(prefix.lower()) and f.lower().endswith('.png'):
-                    print(f"  - [Scenery Match] Prefix Match: {f}")
                     return os.path.join(image_dir, f)
     except Exception as e:
         print(f"警告: 情景画像検索中にエラー: {e}")

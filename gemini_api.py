@@ -242,6 +242,128 @@ def _filter_raw_history_from_today(raw_history: list, today_str: str) -> list:
     
     return raw_history[today_start_index:]
 
+def _apply_auto_summary(
+    messages: list, 
+    room_name: str, 
+    api_key: str,
+    threshold: int,
+    allow_generation: bool = True
+) -> list:
+    """
+    自動会話要約を適用する。
+    閾値を超えている場合、直近N往復を除いた部分を要約に置き換える。
+    """
+    import summary_manager
+    from langchain_core.messages import HumanMessage, AIMessage
+    
+    # メッセージの総文字数を計算
+    total_chars = sum(
+        len(msg.content) if isinstance(msg.content, str) else 0 
+        for msg in messages
+    )
+    
+    if total_chars <= threshold:
+        # 閾値以下なら何もしない
+        return messages
+    
+    if allow_generation:
+        print(f"  - [Auto Summary] 閾値超過: {total_chars:,} > {threshold:,}文字")
+    
+    # 直近N往復を保持
+    keep_count = constants.AUTO_SUMMARY_KEEP_RECENT_TURNS * 2  # 往復なので×2
+    
+    if len(messages) <= keep_count:
+        # メッセージ数が少なすぎる場合は要約しない
+        return messages
+    
+    recent_messages = messages[-keep_count:]
+    older_messages = messages[:-keep_count]
+    
+    # 既存の要約を読み込み
+    existing_data = summary_manager.load_today_summary(room_name)
+    existing_summary = existing_data.get("summary") if existing_data else None
+    chars_summarized = existing_data.get("chars_summarized", 0) if existing_data else 0
+    
+    # 1. メッセージを分類
+    # older_messages: 直近以外 (要約対象候補), recent_messages: 直近 (常に生で送る)
+    recent_messages = messages[-keep_count:]
+    older_messages = messages[:-keep_count]
+    
+    # older_messages 内で「すでに要約に含まれている分」と「まだ含まれていない分 (pending)」を分ける
+    pending_messages = []
+    cumulative_len = 0
+    for msg in older_messages:
+        msg_content = msg.content if isinstance(msg.content, str) else str(msg.content)
+        msg_len = len(msg_content)
+        if cumulative_len >= chars_summarized:
+            pending_messages.append(msg)
+        cumulative_len += msg_len
+
+    # 2. 要約の実行判断
+    pending_chars = sum(len(m.content) if isinstance(m.content, str) else 0 for m in pending_messages)
+    
+    # 判定A: 初めて閾値を超えた場合、または pending 分が閾値を超えた場合に要約/マージを実行
+    should_summarize = False
+    if not existing_summary:
+        if total_chars > threshold:
+            should_summarize = True
+    else:
+        if pending_chars > threshold:
+            should_summarize = True
+
+    new_summary = existing_summary
+    if should_summarize:
+        if not allow_generation:
+            # トークン計算時は生成しない
+            new_summary = existing_summary or "（要約生成待ち...）"
+        else:
+            # pending 分を辞書形式に変換
+            to_summarize_dicts = []
+            for msg in pending_messages:
+                c_str = msg.content if isinstance(msg.content, str) else str(msg.content)
+                role = "USER" if isinstance(msg, HumanMessage) else "AGENT"
+                resp = getattr(msg, 'name', room_name) if role == "AGENT" else "user"
+                to_summarize_dicts.append({"role": role, "responder": resp, "content": c_str})
+            
+            print(f"  - [Auto Summary] 要約/マージ実行: pending {pending_chars:,}文字 > 閾値 {threshold:,}文字")
+            # 新しい要約を生成 (内部で既存要約とマージされる)
+            new_summary = summary_manager.generate_summary(
+                to_summarize_dicts, existing_summary, room_name, api_key
+            )
+            
+            if new_summary:
+                # 累計要約文字数を更新して保存
+                # older_messages 全体が要約済みとなったとみなす
+                total_older_len = sum(len(m.content) if isinstance(m.content, str) else 0 for m in older_messages)
+                summary_manager.save_today_summary(room_name, new_summary, total_older_len)
+                # 要約が更新されたので、pending は空になる
+                pending_messages = []
+            else:
+                new_summary = existing_summary or "（要約生成失敗）"
+
+    # 3. メッセージリストの構築
+    result_messages = []
+    
+    # 要約が存在すれば最初に入れる
+    if new_summary:
+        summary_message = HumanMessage(
+            content=f"【本日のこれまでの会話の要約】\n{new_summary}\n\n---\n（以下は、要約以降および直近の会話です）"
+        )
+        result_messages.append(summary_message)
+        # 要約された後に残っている未要約分 (pending) を追加
+        result_messages.extend(pending_messages)
+    else:
+        # 初回閾値到達前なら、すべて生で送る
+        result_messages.extend(older_messages)
+        
+    # 常に直近分を追加
+    result_messages.extend(recent_messages)
+    
+    if should_summarize and allow_generation:
+        print(f"  - [Auto Summary] 要約更新完了: 累計 {cumulative_len:,}文字を圧縮")
+    
+    return result_messages
+
 # --- 履歴構築 (Dual-Stateの核心) ---
 def convert_raw_log_to_lc_messages(raw_history: list, responding_character_id: str, add_timestamp: bool, send_thoughts: bool, provider: str = "google") -> list:
     """
@@ -608,6 +730,18 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         # 本日分: エピソード記憶の有無に応じて適切な日付でフィルタ
         cutoff_date = _get_effective_today_cutoff(room_to_respond)
         messages = _filter_messages_from_today(messages, cutoff_date)
+        
+        # 【自動会話要約】閾値を超えていたら要約処理
+        auto_summary_enabled = effective_settings.get("auto_summary_enabled", False)
+        if auto_summary_enabled:
+            messages = _apply_auto_summary(
+                messages, 
+                room_to_respond, 
+                api_key,
+                effective_settings.get("auto_summary_threshold", constants.AUTO_SUMMARY_DEFAULT_THRESHOLD),
+                allow_generation=True
+            )
+        
         print(f"  - [History Limit] 本日分モード: {len(messages)}件のメッセージを送信")
     elif api_history_limit.isdigit():
         limit = int(api_history_limit)
@@ -820,6 +954,17 @@ def count_input_tokens(**kwargs):
                     messages.append(AIMessage(content=content_for_api))
             else:
                  messages.append(HumanMessage(content=content))
+
+        # 【自動会話要約】閾値を超えていたら要約処理
+        auto_summary_enabled = effective_settings.get("auto_summary_enabled", False)
+        if api_history_limit == "today" and auto_summary_enabled:
+            messages = _apply_auto_summary(
+                messages,
+                room_name,
+                api_key,
+                effective_settings.get("auto_summary_threshold", constants.AUTO_SUMMARY_DEFAULT_THRESHOLD),
+                allow_generation=False
+            )
 
         # --- [Step 5: 現在の入力の追加] ---
         if parts:

@@ -755,11 +755,13 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(choices=entity_choices, value=None), # entity_dropdown
         gr.update(value=""), # entity_content_editor
         gr.update(value=effective_settings.get("embedding_mode", "api")), # embedding_mode_radio
-        gr.update(value=last_dream_time) # dream_status_display
+        gr.update(value=last_dream_time), # dream_status_display
+        gr.update(value=effective_settings.get("auto_summary_enabled", False)), # room_auto_summary_checkbox
+        gr.update(value=effective_settings.get("auto_summary_threshold", constants.AUTO_SUMMARY_DEFAULT_THRESHOLD), visible=effective_settings.get("auto_summary_enabled", False)), # room_auto_summary_threshold_slider
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 154):
+def handle_initial_load(room_name: str = None, expected_count: int = 156):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -932,9 +934,15 @@ def handle_save_room_settings(
     sleep_update_entity: bool = True,
     sleep_update_compress: bool = False,
     sleep_extract_questions: bool = True,  # NEW: 未解決の問い抽出
+    auto_summary_enabled: bool = False,
+    auto_summary_threshold: int = constants.AUTO_SUMMARY_DEFAULT_THRESHOLD,
     silent: bool = False,
     force_notify: bool = False
 ):
+    # 初期化中は保存処理を完全にスキップする（無駄な I/O と通知を防ぐ）
+    if not _initialization_completed:
+        return
+
     if not room_name: gr.Warning("設定を保存するルームが選択されていません。"); return
 
     safety_value_map = {
@@ -1008,6 +1016,8 @@ def handle_save_room_settings(
             "compress_old_episodes": bool(sleep_update_compress),
             "extract_open_questions": bool(sleep_extract_questions)  # NEW
         },
+        "auto_summary_enabled": bool(auto_summary_enabled),
+        "auto_summary_threshold": int(auto_summary_threshold),
     }
     result = room_manager.update_room_config(room_name, new_settings)
     if not silent:
@@ -1034,7 +1044,11 @@ def handle_context_settings_change(
     enable_auto_retrieval: bool,
     add_timestamp: bool, send_current_time: bool, 
     send_notepad: bool, use_common_prompt: bool, send_core_memory: bool, 
-    enable_scenery_system: bool, *args, **kwargs
+    enable_scenery_system: bool,
+    auto_memory_enabled: bool,
+    auto_summary_enabled: bool,
+    auto_summary_threshold: int,
+    *args, **kwargs
 ):
     """
     【v2: 修正版】
@@ -1053,7 +1067,9 @@ def handle_context_settings_change(
         send_notepad=send_notepad,
         use_common_prompt=use_common_prompt, 
         send_core_memory=send_core_memory,
-        send_scenery=enable_scenery_system
+        send_scenery=enable_scenery_system,
+        auto_summary_enabled=auto_summary_enabled,
+        auto_summary_threshold=auto_summary_threshold
     )
 
 def update_token_count_on_input(
@@ -4569,7 +4585,7 @@ def handle_world_builder_load(room_name: str):
         gr.update(choices=place_choices_for_selected_area, value=current_location)
     )
 
-def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 144):
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 146):
     """
     【v11: 最終契約遵守版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
