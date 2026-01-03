@@ -62,7 +62,6 @@ def _apply_creative_notes_edits(instructions: List[Dict[str, Any]], room_name: s
         # 差分指示を適用するロジック (notepad_tools.py と同じ)
         line_plan = {}
         insertions = {}
-        timestamp = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}]"
         
         for inst in instructions:
             op = inst.get("operation", "").lower()
@@ -87,16 +86,11 @@ def _apply_creative_notes_edits(instructions: List[Dict[str, Any]], room_name: s
             final_content = inst.get("content", "")
             # opが'replace'または'insert_after'で、かつcontentに実質的な内容がある場合のみ処理
             if op in ["replace", "insert_after"] and final_content.strip():
-                # content内の各行を処理する（メモ帳と同様にタイムスタンプを付与）
-                lines_in_content = final_content.strip().split('\n')
-                processed_lines = []
-                for line in lines_in_content:
-                    # 正しい正規表現でタイムスタンプの有無をチェック
-                    if line.strip() and not re.match(r"^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\]", line.strip()):
-                        processed_lines.append(f"{timestamp} {line.strip()}")
-                    else:
-                        processed_lines.append(line)
-                final_content = "\n".join(processed_lines)
+                # セクションヘッダー方式：コンテンツ全体の先頭に仕切り線とタイムスタンプを1つ追加
+                # （各行にタイムスタンプを付けない）
+                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+                section_header = f"---\n📝 {timestamp}\n"
+                final_content = section_header + "\n" + final_content.strip()
 
             if op == "delete":
                 line_plan[target_index] = {"operation": "delete"}

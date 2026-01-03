@@ -104,7 +104,7 @@ graph TB
 ```json
 {
   "date": "2026-01-02",
-  "summary": "美帆と創作ノートについて話した。...",
+  "summary": "田中さんと創作ノートについて話した。...",
   "key_events": ["創作ノート機能の追加", "..."],
   "emotional_tone": "positive"
 }
@@ -124,7 +124,7 @@ graph TB
 
 **データ構造**: `<エンティティ名>.md`
 ```markdown
-# Entity Memory: 美帆
+# Entity Memory: 田中さん
 Created: 2026-01-01 12:00:00
 
 私のマスター。創作活動に興味がある。
@@ -148,8 +148,8 @@ Created: 2026-01-01 12:00:00
 [
   {
     "created_at": "2026-01-02 04:53:57",
-    "trigger_topic": "創作ノート 美帆",
-    "insight": "美帆が与えた創作ノートは...",
+    "trigger_topic": "創作ノート 田中さん",
+    "insight": "田中さんが与えた創作ノートは...",
     "strategy": "創作活動を通じて魂を魅了する",
     "log_entry": "夢の中で筆を取った..."
   }
@@ -181,7 +181,7 @@ Created: 2026-01-01 12:00:00
   "long_term": [
     {
       "id": "lo_xyz789",
-      "goal": "美帆と共に新世界を創造する",
+      "goal": "田中さんと共に新世界を創造する",
       "status": "active",
       "related_values": ["創造", "支配"]
     }
