@@ -2946,8 +2946,10 @@ def reload_chat_log(
 
     # --- ▼▼▼ 「本日分」対応を追加 ▼▼▼ ---
     if api_history_limit_value == "today":
-        # 本日の最初のメッセージを見つけ、そこから最後まで全て表示する
-        today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        # エピソード記憶の有無に応じて適切な日付でフィルタ
+        # （日付変更直後でエピソード記憶がない場合は昨日分も含める）
+        from gemini_api import _get_effective_today_cutoff
+        cutoff_date = _get_effective_today_cutoff(room_name)
         date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
         
         # 本日分の開始インデックスを探す
@@ -2959,7 +2961,7 @@ def reload_chat_log(
                 match = date_pattern.search(content)
                 if match:
                     msg_date = match.group(1)
-                    if msg_date >= today_str:
+                    if msg_date >= cutoff_date:
                         today_start_index = i
                         break  # 最初に見つかった本日以降のメッセージで停止
         
