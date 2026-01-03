@@ -9339,7 +9339,7 @@ def handle_refresh_goals(room_name: str):
     try:
         import goal_manager
         gm = goal_manager.GoalManager(room_name)
-        goals = gm.get_goals()
+        goals = gm._load_goals()  # get_goals → _load_goals
         
         # 短期目標
         short_term = goals.get("short_term", [])
