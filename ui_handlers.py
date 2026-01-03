@@ -885,7 +885,6 @@ def handle_initial_load(room_name: str = None, expected_count: int = 154):
     )
     
     # 初期化完了: 以降の設定変更では通知を表示する
-    global _initialization_completed
     _initialization_completed = True
     
     return _ensure_output_count(final_outputs, expected_count)
