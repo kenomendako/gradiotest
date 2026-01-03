@@ -58,9 +58,8 @@ _last_save_notification_time = {}  # {room_name: timestamp}
 NOTIFICATION_DEBOUNCE_SECONDS = 1.0
 
 # --- 起動時の通知抑制用 ---
-# 起動直後のUI初期化期間中は通知を抑制
-_app_start_time = time.time()
-STARTUP_GRACE_PERIOD_SECONDS = 5  # 起動後5秒間は通知抑制
+# 初期化完了までは通知を抑制（handle_initial_loadで完了時にTrueにする）
+_initialization_completed = False
 
 def handle_save_last_room(room_name: str) -> None:
     """
@@ -763,9 +762,9 @@ def handle_initial_load(room_name: str = None, expected_count: int = 154):
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
     """
-    # 起動時の通知抑制: 実際にUIが表示されてから5秒間のgrace periodを開始
-    global _app_start_time
-    _app_start_time = time.time()
+    # 起動時の通知抑制: 初期化開始時にフラグをリセット（初期化完了後に通知を許可）
+    global _initialization_completed
+    _initialization_completed = False
     
     print("--- [UI Session Init] demo.load event triggered. Reloading all configs from file. ---")
     config_manager.load_config()
@@ -884,6 +883,10 @@ def handle_initial_load(room_name: str = None, expected_count: int = 154):
         f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
         f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
     )
+    
+    # 初期化完了: 以降の設定変更では通知を表示する
+    global _initialization_completed
+    _initialization_completed = True
     
     return _ensure_output_count(final_outputs, expected_count)
 
@@ -1006,12 +1009,12 @@ def handle_save_room_settings(
     result = room_manager.update_room_config(room_name, new_settings)
     if not silent:
         if result == True or (result == "no_change" and force_notify):
-            now = time.time()
-            # 起動直後のUI初期化期間中は通知を抑制
-            if (now - _app_start_time) < STARTUP_GRACE_PERIOD_SECONDS:
-                pass  # 起動直後は通知しない
+            # 初期化完了前は通知を抑制
+            if not _initialization_completed:
+                pass  # 初期化中は通知しない
             else:
                 # デバウンス: 同一ルームへの連続通知を抑制
+                now = time.time()
                 last_time = _last_save_notification_time.get(room_name, 0)
                 if (now - last_time) > NOTIFICATION_DEBOUNCE_SECONDS:
                     gr.Info(f"「{room_name}」の個別設定を保存しました。")
