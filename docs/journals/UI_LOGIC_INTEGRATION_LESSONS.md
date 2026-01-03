@@ -524,3 +524,48 @@ def handle_something_change(room_name: str, new_mode: str):
 
 *   **教訓:**
     Windowsにおけるファイルロック問題は、真正面から「解除を待つ」のではなく、**「別名に変えて脇にどける」**ことで、ロックを保持したままパスを解放させるのが最も確実な回避策である。また、重要なデータ更新において、不要になった古いデータの削除（お掃除）の成否を、メイン処理の成功条件に含めない（疎結合にする）柔軟な設計が、システムの堅牢性を高める。
+
+---
+
+### 教訓42：Gradioの初期化イベントと.changeイベントの発火順序は信用できない (2026-01-03)
+
+*   **問題の核心:**
+    起動時に「個別設定を保存しました」という通知が表示されてしまう。ユーザーが変更を加えた時のみ表示すべきなのに、UI初期化時にも通知が出る。
+
+*   **調査で判明した真因:**
+    1. **`.change`イベントは値の変更原因を区別しない**: Gradioの`.change`イベントは「ユーザー操作」と「プログラムによる値設定」を区別できない
+    2. **イベントの発火順序が非決定的**: `demo.load`（初期化）と`.change`イベントは並列・非同期で動き、順序が保証されない
+    3. **初期化完了後もイベントが遅延発火**: `handle_initial_load`が完了した**後**にも、Gradioが遅延で`.change`イベントを発火させる
+
+*   **失敗した解決策:**
+    1. **grace period方式（起動後5秒間は抑制）**: モジュールインポート時に開始すると、アプリ起動完了までに5秒経過してしまう
+    2. **handle_initial_loadで起動時刻リセット**: `.change`イベントとの並列実行で、リセット前にイベント発火
+    3. **初期化完了フラグ方式のみ**: 初期化完了後の遅延イベントを防げない
+
+*   **成功した解決策：ハイブリッド方式**
+    ```python
+    # グローバル変数
+    _initialization_completed = False
+    _initialization_completed_time = 0
+    POST_INIT_GRACE_PERIOD_SECONDS = 3
+
+    # handle_initial_load の開始時
+    _initialization_completed = False
+
+    # handle_initial_load の完了時
+    _initialization_completed = True
+    _initialization_completed_time = time.time()
+
+    # 通知ロジック
+    if not _initialization_completed:
+        pass  # 初期化中は通知しない
+    elif (now - _initialization_completed_time) < POST_INIT_GRACE_PERIOD_SECONDS:
+        pass  # 初期化完了直後のgrace period中は通知しない
+    else:
+        gr.Info(...)  # 通常通り通知
+    ```
+
+*   **教訓:**
+    Gradioのイベントモデルは「すべてが非同期で動く」という前提で設計する必要がある。初期化処理と`.change`イベントは**競合状態（Race Condition）**にあると考え、タイミングに依存しない堅牢な抑制ロジック（フラグ + 時間ベースの二重ガード）を設計すること。
+
+    また、Gradio 4.x以降の`trigger_mode="user"`オプションは理論上ユーザー操作のみでイベント発火させられるが、すべてのコンポーネントで完全にサポートされているわけではなく、挙動が不安定な場合もある。現時点では「泥臭い」ハイブリッド方式が最も確実。
