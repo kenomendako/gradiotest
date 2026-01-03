@@ -763,6 +763,10 @@ def handle_initial_load(room_name: str = None, expected_count: int = 154):
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
     """
+    # 起動時の通知抑制: 実際にUIが表示されてから5秒間のgrace periodを開始
+    global _app_start_time
+    _app_start_time = time.time()
+    
     print("--- [UI Session Init] demo.load event triggered. Reloading all configs from file. ---")
     config_manager.load_config()
     config = config_manager.CONFIG_GLOBAL
