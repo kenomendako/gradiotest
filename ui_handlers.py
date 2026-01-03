@@ -916,6 +916,7 @@ def handle_save_room_settings(
     sleep_update_current_log: bool = False,
     sleep_update_entity: bool = True,
     sleep_update_compress: bool = False,
+    sleep_extract_questions: bool = True,  # NEW: 未解決の問い抽出
     silent: bool = False,
     force_notify: bool = False
 ):
@@ -989,7 +990,8 @@ def handle_save_room_settings(
             "update_memory_index": bool(sleep_update_memory_index),
             "update_current_log_index": bool(sleep_update_current_log),
             "update_entity_memory": bool(sleep_update_entity),
-            "compress_old_episodes": bool(sleep_update_compress)
+            "compress_old_episodes": bool(sleep_update_compress),
+            "extract_open_questions": bool(sleep_extract_questions)  # NEW
         },
     }
     result = room_manager.update_room_config(room_name, new_settings)
@@ -9202,3 +9204,198 @@ def handle_import_return_log(
         print(f"Return Home Import Error: {e}")
         traceback.print_exc()
         return gr.update(), gr.update(), f"ステータス: ❌ エラー: {str(e)}", gr.update()
+
+
+# ===== 🧠 内的状態（Internal State）用ハンドラ =====
+
+def handle_refresh_internal_state(room_name: str):
+    """
+    内的状態を読み込み、動機レベルと未解決の問いを返す。
+    
+    Returns:
+        (boredom, curiosity, goal_achievement, devotion, 
+         dominant_drive_text, open_questions_df, last_update_text)
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        empty_df = []
+        return 0, 0, 0, 0, "", empty_df, "最終更新: ---"
+    
+    try:
+        from motivation_manager import MotivationManager
+        
+        mm = MotivationManager(room_name)
+        
+        # 各動機を計算（小数点2桁に丸め）
+        boredom = round(mm.calculate_boredom(), 2)
+        curiosity = round(mm.calculate_curiosity(), 2)
+        goal_achievement = round(mm.calculate_goal_achievement(), 2)
+        devotion = round(mm.calculate_devotion(), 2)
+        
+        # 内部状態ログを生成
+        motivation_log = mm.generate_motivation_log()
+        dominant_drive = motivation_log.get("dominant_drive_label", "不明")
+        drive_level = motivation_log.get("drive_level", 0.0)
+        narrative = motivation_log.get("narrative", "")
+        
+        # Markdown記法を使わずプレーンテキストで表示（Textbox用）
+        if narrative:
+            dominant_text = f"🎯 {dominant_drive} (レベル: {drive_level:.2f})\n\n{narrative}"
+        else:
+            dominant_text = f"🎯 {dominant_drive} (レベル: {drive_level:.2f})"
+        
+        # 未解決の問いをDataFrame形式に変換
+        state = mm._load_state()
+        open_questions = state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
+        
+        questions_data = []
+        for q in open_questions:
+            # 日時を読みやすくフォーマット
+            asked_at = q.get("asked_at", "")
+            if asked_at:
+                try:
+                    dt = datetime.datetime.fromisoformat(asked_at)
+                    asked_at = dt.strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    pass
+            
+            questions_data.append([
+                q.get("topic", ""),
+                q.get("context", ""),
+                round(q.get("priority", 0.5), 2),
+                asked_at if asked_at else "未回答"
+            ])
+        
+        # 最終更新を読みやすくフォーマット
+        last_interaction = state.get("drives", {}).get("boredom", {}).get("last_interaction", "")
+        if last_interaction:
+            try:
+                dt = datetime.datetime.fromisoformat(last_interaction)
+                last_update_text = f"最終対話: {dt.strftime('%Y-%m-%d %H:%M:%S')}"
+            except ValueError:
+                last_update_text = f"最終対話: {last_interaction}"
+        else:
+            last_update_text = "最終更新: データなし"
+        
+        gr.Info(f"内的状態を読み込みました（最強動機: {dominant_drive}）")
+        
+        return (
+            boredom, curiosity, goal_achievement, devotion,
+            dominant_text, questions_data, last_update_text
+        )
+    
+    except Exception as e:
+        print(f"Internal State Load Error: {e}")
+        traceback.print_exc()
+        gr.Error(f"内的状態の読み込みに失敗しました: {e}")
+        return 0, 0, 0, 0, "", [], "最終更新: エラー"
+
+
+def handle_clear_open_questions(room_name: str):
+    """
+    未解決の問いをすべてクリアする。
+    
+    Returns:
+        (open_questions_df, status_text)
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return [], "エラー: ルーム未選択"
+    
+    try:
+        from motivation_manager import MotivationManager
+        
+        mm = MotivationManager(room_name)
+        state = mm._load_state()
+        
+        # open_questionsをクリア
+        if "drives" in state and "curiosity" in state["drives"]:
+            state["drives"]["curiosity"]["open_questions"] = []
+            state["drives"]["curiosity"]["level"] = 0.0
+        
+        mm._save_state(state)
+        
+        gr.Info("未解決の問いをクリアしました。")
+        return [], "🗑️ クリア完了"
+    
+    except Exception as e:
+        print(f"Clear Open Questions Error: {e}")
+        traceback.print_exc()
+        gr.Error(f"クリアに失敗しました: {e}")
+        return gr.update(), f"エラー: {e}"
+
+
+def handle_refresh_goals(room_name: str):
+    """
+    目標を読み込んで表示用テキストを生成する。
+    
+    Returns:
+        (short_term_text, long_term_text, meta_text)
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return "", "", ""
+    
+    try:
+        import goal_manager
+        gm = goal_manager.GoalManager(room_name)
+        goals = gm._load_goals()  # get_goals → _load_goals
+        
+        # 短期目標
+        short_term = goals.get("short_term", [])
+        short_lines = []
+        for g in short_term:
+            status_icon = "✅" if g.get("status") == "completed" else "🎯"
+            short_lines.append(f"{status_icon} {g.get('goal', '（目標なし）')} [優先度: {g.get('priority', 1)}]")
+        short_text = "\n".join(short_lines) if short_lines else "短期目標はありません"
+        
+        # 長期目標
+        long_term = goals.get("long_term", [])
+        long_lines = []
+        for g in long_term:
+            status_icon = "✅" if g.get("status") == "completed" else "🌟"
+            long_lines.append(f"{status_icon} {g.get('goal', '（目標なし）')}")
+        long_text = "\n".join(long_lines) if long_lines else "長期目標はありません"
+        
+        # メタデータ
+        meta = goals.get("meta", {})
+        level = meta.get("last_reflection_level", 1)
+        level2_date = meta.get("last_level2_date", "未実施")
+        level3_date = meta.get("last_level3_date", "未実施")
+        meta_text = f"最終省察レベル: {level} | 週次省察: {level2_date} | 月次省察: {level3_date}"
+        
+        return short_text, long_text, meta_text
+    
+    except Exception as e:
+        print(f"Refresh Goals Error: {e}")
+        traceback.print_exc()
+        return "エラー", "エラー", str(e)
+
+
+def handle_reset_internal_state(room_name: str):
+    """
+    内部状態を完全にリセットする。
+    動機レベル、未解決の問い、最終発火時刻がすべてクリアされる。
+    
+    Returns:
+        status_text
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return "エラー: ルーム未選択"
+    
+    try:
+        from motivation_manager import MotivationManager
+        
+        mm = MotivationManager(room_name)
+        mm.clear_internal_state()
+        
+        gr.Info(f"「{room_name}」の内部状態をリセットしました。")
+        return f"✅ リセット完了 ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+    
+    except Exception as e:
+        print(f"Reset Internal State Error: {e}")
+        traceback.print_exc()
+        gr.Error(f"リセットに失敗しました: {e}")
+        return f"❌ エラー: {e}"
+

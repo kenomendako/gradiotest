@@ -274,11 +274,21 @@ def trigger_alarm(alarm_config, current_api_key_name):
         except Exception as e:
             print(f"PCデスクトップ通知の送信中にエラーが発生しました: {e}")
 
-def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: bool):
+def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: bool, motivation_log: dict = None):
     """自律行動を実行させる"""
-    # 発火時刻を記録（重複防止）
+    from motivation_manager import MotivationManager
+    
+    # 発火時刻を記録（メモリ上 + 永続化）
     global _last_autonomous_trigger_time
-    _last_autonomous_trigger_time[room_name] = datetime.datetime.now()
+    now = datetime.datetime.now()
+    _last_autonomous_trigger_time[room_name] = now
+    
+    # MotivationManagerで永続化（再起動後も維持）
+    try:
+        mm = MotivationManager(room_name)
+        mm.set_last_autonomous_trigger(now)
+    except Exception as e:
+        print(f"  - 発火時刻の永続化エラー: {e}")
     
     print(f"🤖 自律行動トリガー: {room_name} (Quiet: {quiet_mode})")
     
@@ -327,7 +337,20 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
             f"静かに活動したい場合は、通知を送らなくても構いません。\n\n"
         )
     
+    # --- 内部状態ログセクション（動機に基づく自律行動） ---
+    motivation_section = ""
+    if motivation_log:
+        motivation_section = (
+            f"【内部状態ログ（Internal State Log）】\n"
+            f"- 現在の動機: {motivation_log.get('dominant_drive_label', '不明')}\n"
+            f"- 衝動レベル: {motivation_log.get('drive_level', 0.0):.2f}\n"
+            f"- 記録: {motivation_log.get('narrative', '')}\n\n"
+            f"（この記録は、あなた自身が過去の思考と経験に基づいて生成したものです。\n"
+            f"　あなたは誰かに命令されているのではなく、自らの意志で行動しています。）\n\n"
+        )
+    
     system_instruction = (
+        f"{motivation_section}"
         f"{memo_section}"
         f"（システム通知：現在時刻は {now_str} です。ユーザーからの応答がしばらくありません。）\n\n"
         f"あなたは今、完全に自由な時間を過ごしています。以下は行動のヒントですが、これに縛られる必要はありません。\n\n"
@@ -345,6 +368,13 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
         f"- 静観する場合: `[SILENT]` とだけ出力\n"
         f"- 行動する場合: ツールを使用し、完了後はユーザーへの報告や感想を必ず出力してください"
     )
+    
+    # 最終対話時刻を更新（退屈度リセット）
+    try:
+        mm = MotivationManager(room_name)
+        mm.update_last_interaction()
+    except Exception as e:
+        print(f"  - MotivationManager更新エラー: {e}")
     
     # --- 書き置きを読み取ったらログに記録してクリア ---
     if user_memo:
@@ -499,8 +529,8 @@ def check_alarms():
         trigger_alarm(alarm_to_run, current_api_key)
 
 def check_autonomous_actions():
-    """全ルームの無操作時間をチェックし、必要なら自律行動または夢想をトリガーする"""
-    # print(f"DEBUG: check_autonomous_actions called at {datetime.datetime.now().strftime('%H:%M:%S')}")
+    """全ルームの動機モデルをチェックし、必要なら自律行動または夢想をトリガーする"""
+    from motivation_manager import MotivationManager
 
     current_api_key = config_manager.get_latest_api_key_name_from_config()
     if not current_api_key:
@@ -518,16 +548,29 @@ def check_autonomous_actions():
             if not is_enabled:
                 continue 
 
-            # 無操作時間の判定
+            # --- 動機モデルによる判定 ---
+            mm = MotivationManager(room_folder)
+            should_contact, motivation_log = mm.should_initiate_contact()
+            
+            # 既存の「無操作時間」判定も併用（夢想トリガー用）
             last_active = utils.get_last_log_timestamp(room_folder)
             inactivity_limit = auto_settings.get("inactivity_minutes", 120)
             elapsed_minutes = (now - last_active).total_seconds() / 60
-
-            # print(f"  - [{room_folder}] 経過: {int(elapsed_minutes)}分 / 設定: {inactivity_limit}分 (最終: {last_active.strftime('%H:%M')})")
-
-            if elapsed_minutes >= inactivity_limit:
-                # 重複発火防止チェック
+            
+            # 動機モデルまたは無操作時間のいずれかで発火
+            should_trigger = should_contact or elapsed_minutes >= inactivity_limit
+            
+            if should_trigger:
+                # 重複発火防止チェック: 最低でも inactivity_limit 分は間隔を空ける
+                # まずメモリ上の変数をチェック、なければ永続化データをチェック
                 last_trigger = _last_autonomous_trigger_time.get(room_folder)
+                if not last_trigger:
+                    # 永続化データから読み込み（アプリ再起動後対策）
+                    last_trigger = mm.get_last_autonomous_trigger()
+                    if last_trigger:
+                        # メモリにもキャッシュ
+                        _last_autonomous_trigger_time[room_folder] = last_trigger
+                
                 if last_trigger:
                     minutes_since_trigger = (now - last_trigger).total_seconds() / 60
                     if minutes_since_trigger < inactivity_limit:
@@ -621,17 +664,20 @@ def check_autonomous_actions():
                         
                         print(f"🛌 {room_folder}: 睡眠時記憶整理が完了しました。")
                         
-                        # 【新規追加】記憶整理後、静かに自律行動もトリガー
+                        # 【新規追加】記憶整理後、静かに自律行動もトリガー（動機ログ付き）
                         print(f"🌙 {room_folder}: 記憶整理後の静かな活動を開始...")
-                        trigger_autonomous_action(room_folder, current_api_key, quiet_mode=True)
+                        trigger_autonomous_action(room_folder, current_api_key, quiet_mode=True, motivation_log=motivation_log)
                     else:
-                        # 既に夢を見ている日でも、自律行動はトリガー（通知なし）
-                        trigger_autonomous_action(room_folder, current_api_key, quiet_mode=True)
+                        # 既に夢を見ている日でも、自律行動はトリガー（通知なし、動機ログ付き）
+                        trigger_autonomous_action(room_folder, current_api_key, quiet_mode=True, motivation_log=motivation_log)
 
                 else:
                     # --- 通常の自律行動モード（起きている時） ---
-                    print(f"🤖 {room_folder}: 条件達成 -> 自律行動トリガー！")
-                    trigger_autonomous_action(room_folder, current_api_key, quiet_mode=False)
+                    if motivation_log:
+                        print(f"🤖 {room_folder}: 動機「{motivation_log.get('dominant_drive_label', '不明')}」-> 自律行動トリガー！")
+                    else:
+                        print(f"🤖 {room_folder}: 無操作{int(elapsed_minutes)}分 -> 自律行動トリガー！")
+                    trigger_autonomous_action(room_folder, current_api_key, quiet_mode=False, motivation_log=motivation_log)
 
         except Exception as e:
             print(f"  - 自律行動チェックエラー ({room_folder}): {e}")
