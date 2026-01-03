@@ -43,6 +43,7 @@ def save_world_data(room_name: str, world_data: Dict[str, Any]):
     try:
         with open(world_settings_path, "w", encoding="utf-8") as f:
             f.write(final_content)
-        gr.Info(f"「{room_name}」の世界設定を保存しました。")
+        # 通知は呼び出し元の UI ハンドラ側で一元管理するため、ここでは発行しない
     except Exception as e:
         gr.Error(f"世界設定の保存中にエラーが発生しました: {e}")
+

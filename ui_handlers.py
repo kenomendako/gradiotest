@@ -61,7 +61,7 @@ NOTIFICATION_DEBOUNCE_SECONDS = 1.0
 # 初期化完了までは通知を抑制（handle_initial_loadで完了時にTrueにする）
 _initialization_completed = False
 _initialization_completed_time = 0  # 初期化完了時刻
-POST_INIT_GRACE_PERIOD_SECONDS = 3  # 初期化完了後も3秒間は通知抑制
+POST_INIT_GRACE_PERIOD_SECONDS = 5  # 初期化完了後も5秒間は通知抑制
 
 def handle_save_last_room(room_name: str) -> None:
     """

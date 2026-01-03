@@ -233,15 +233,59 @@ def _apply_main_memory_edits(instructions, room_name):
             elif op == "insert_after":
                 if target_index not in insertions: insertions[target_index] = []
                 insertions[target_index].append(inst.get("content", ""))
-        new_lines = []
-        for i, line_content in enumerate(lines):
-            plan = line_plan.get(i)
-            if plan is None: new_lines.append(line_content)
-            elif plan["operation"] == "replace": new_lines.append(plan["content"])
-            elif plan["operation"] == "delete": pass
-            if i in insertions:
-                new_lines.extend(insertions[i])
+        # 自動ヘッダー付与ロジック (Diary)
+        today_header = f"**{datetime.datetime.now().strftime('%Y-%m-%d')}**"
+        
+        # 指示の中に insert_after があり、かつ日記セクション(## Diary)が含まれているか、
+        # あるいは単純に追記を意図している場合に、今日の日付ヘッダーがなければ補完する
+        diary_section_found = False
+        diary_line_idx = -1
+        for idx, line in enumerate(lines):
+            if "## 日記" in line or "## Diary" in line:
+                diary_section_found = True
+                diary_line_idx = idx
+                break
+        
+        if diary_section_found:
+            # 今日すでにその日のエントリ（ヘッダー）があるか確認
+            # ルシアンの形式は **YYYY-MM-DD**
+            today_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+            header_exists = any(today_date_str in line for line in lines[diary_line_idx:])
+            
+            if not header_exists:
+                # 日記セクションの直後に今日の日付ヘッダーを挿入する指示を自動追加
+                # (ここでは instructions を書き換えるのではなく、new_lines 生成時に考慮)
+                pass
 
+        new_lines = []
+        # 日記セクション直後にヘッダーがない場合、挿入フラグ
+        diary_header_inserted = False
+
+        for i, line_content in enumerate(lines):
+            new_lines.append(line_content)
+            
+            # 日記セクションの直後に今日の日付ヘッダーを自動挿入
+            if i == diary_line_idx and not any(datetime.datetime.now().strftime('%Y-%m-%d') in l for l in lines):
+                new_lines.append("")
+                new_lines.append(today_header)
+                new_lines.append("")
+                diary_header_inserted = True
+
+            # 既存の編集適用
+            plan = line_plan.get(i)
+            if plan:
+                if plan["operation"] == "replace":
+                    new_lines[-1] = plan["content"]
+                elif plan["operation"] == "delete":
+                    new_lines.pop()
+            
+            if i in insertions:
+                for content in insertions[i]:
+                    # コンテンツに改行が含まれている場合、適切に分割して追加
+                    for c_line in str(content).split('\n'):
+                        new_lines.append(c_line)
+
+        # 最後にファイルを保存
         with open(memory_main_path, "w", encoding="utf-8") as f:
             f.write("\n".join(new_lines))
 
@@ -275,6 +319,35 @@ def _apply_secret_diary_edits(instructions, room_name):
         return f"【エラー】ルーム'{room_name}'の秘密の日記ファイルパスが見つかりません。"
 
     try:
+        # SecretDiaryがJSON形式の場合
+        if secret_diary_path.endswith(".txt") or secret_diary_path.endswith(".json"):
+            try:
+                with open(secret_diary_path, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                
+                if content.startswith('{') or content.startswith('['):
+                    # JSONとして処理
+                    data = json.loads(content)
+                    # ルシアンの形式: {"secret_diary_lucian": {"entries": [...]}}
+                    root_key = list(data.keys())[0] if data else "secret_diary"
+                    entries = data.get(root_key, {}).get("entries", [])
+                    
+                    for inst in instructions:
+                        if inst.get("operation") in ["insert_after", "add"]:
+                            new_content = inst.get("content", "")
+                            if new_content:
+                                entries.append({
+                                    "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    "content": str(new_content)
+                                })
+                    
+                    with open(secret_diary_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    return f"成功: JSON形式の秘密の日記に {len(instructions)}件のエントリを追記しました。"
+            except Exception as e:
+                # JSONパースエラー時はプレーンテキストとして続行
+                pass
+
         with open(secret_diary_path, 'r', encoding='utf-8') as f:
             lines = f.read().split('\n')
 
@@ -290,7 +363,11 @@ def _apply_secret_diary_edits(instructions, room_name):
             elif op == "replace": line_plan[target_index] = {"operation": "replace", "content": inst.get("content", "")}
             elif op == "insert_after":
                 if target_index not in insertions: insertions[target_index] = []
-                insertions[target_index].append(inst.get("content", ""))
+                # タイムスタンプ自動付与
+                timestamp = datetime.datetime.now().strftime("[%Y-%m-%d %H:%M]")
+                content = inst.get("content", "")
+                insertions[target_index].append(f"{timestamp} {content}")
+
         new_lines = []
         for i, line_content in enumerate(lines):
             plan = line_plan.get(i)
@@ -298,7 +375,9 @@ def _apply_secret_diary_edits(instructions, room_name):
             elif plan["operation"] == "replace": new_lines.append(plan["content"])
             elif plan["operation"] == "delete": pass
             if i in insertions:
-                new_lines.extend(insertions[i])
+                for content in insertions[i]:
+                    for c_line in str(content).split('\n'):
+                        new_lines.append(c_line)
 
         with open(secret_diary_path, "w", encoding="utf-8") as f:
             f.write("\n".join(new_lines))

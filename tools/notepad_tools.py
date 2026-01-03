@@ -59,14 +59,14 @@ def _apply_notepad_edits(instructions: List[Dict[str, Any]], room_name: str) -> 
 
             final_content = inst.get("content", "")
             # opが'replace'または'insert_after'で、かつcontentに実質的な内容がある場合のみ処理
-            if op in ["replace", "insert_after"] and final_content.strip():
-                # content内の各行を処理する
-                lines_in_content = final_content.strip().split('\n')
+            if op in ["replace", "insert_after"] and str(final_content).strip():
+                # content内の各行を処理する。改行を保持するためsplitlinesではなくsplit('\n')
+                lines_in_content = str(final_content).split('\n')
                 processed_lines = []
                 for line in lines_in_content:
-                    # 正しい正規表現でタイムスタンプの有無をチェック
+                    # タイムスタンプの有無をチェック（既に付いている場合は重ねない）
                     if line.strip() and not re.match(r"^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}\]", line.strip()):
-                        processed_lines.append(f"{timestamp} {line.strip()}")
+                        processed_lines.append(f"{timestamp} {line}")
                     else:
                         processed_lines.append(line)
                 # 処理後の行を再結合
@@ -79,8 +79,8 @@ def _apply_notepad_edits(instructions: List[Dict[str, Any]], room_name: str) -> 
             elif op == "insert_after":
                 if target_index not in insertions:
                     insertions[target_index] = []
-                # insert_after の場合、複数行が渡される可能性があるので、分割して追加する
-                insertions[target_index].extend(final_content.split('\n'))
+                # 分割して追加
+                insertions[target_index].extend(str(final_content).split('\n'))
 
         new_lines = []
         for i, line_content in enumerate(lines):

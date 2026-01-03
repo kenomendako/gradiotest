@@ -390,47 +390,57 @@ def get_time_of_day(hour: int) -> str:
 
 def find_scenery_image(room_name: str, location_id: str, season_en: str = None, time_of_day_en: str = None) -> Optional[str]:
     """
-    【v2: 時間指定対応】
+    【v3: 高精度検索】
     指定された場所と時間コンテキストに最も一致する情景画像を検索する。
-    完全一致 -> 季節一致 -> 場所のみ一致 の優先順位でフォールバックする。
+    優先順位:
+    1. 場所_季節_時間帯 (完全一致)
+    2. 場所_時間帯 (時間コンテキスト優先)
+    3. 場所_季節 (季節コンテキスト)
+    4. 場所 (デフォルト)
     """
     if not room_name or not location_id: return None
     image_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
     if not os.path.isdir(image_dir): return None
 
     # --- 適用すべき時間コンテキストを決定 ---
-    # 引数で渡されなかった場合は、現在時刻から取得する
     now = datetime.datetime.now()
     effective_season = season_en or get_season(now.month)
     effective_time_of_day = time_of_day_en or get_time_of_day(now.hour)
+    
+    # 検索対象候補（優先順位順）
+    candidates = [
+        f"{location_id}_{effective_season}_{effective_time_of_day}.png",
+        f"{location_id}_{effective_time_of_day}.png",
+        f"{location_id}_{effective_season}.png",
+        f"{location_id}.png"
+    ]
 
-    # 1. 完全一致の検索 (場所_季節_時間帯.png)
-    target_filename = f"{location_id}_{effective_season}_{effective_time_of_day}.png"
-    target_path = os.path.join(image_dir, target_filename)
-    if os.path.exists(target_path):
-        return target_path
+    # 1. 直接一致を確認
+    for cand in candidates:
+        path = os.path.join(image_dir, cand)
+        if os.path.exists(path):
+            print(f"  - [Scenery Match] Found: {cand}")
+            return path
 
-    # 2. 季節一致の検索 (場所_季節_*.png)
+    # 2. ワイルドカード検索（接頭辞一致。例: '書斎_night_2.png' なども許容）
     try:
-        for filename in os.listdir(image_dir):
-            if filename.startswith(f"{location_id}_{effective_season}_") and filename.lower().endswith('.png'):
-                return os.path.join(image_dir, filename)
-    except FileNotFoundError: pass
+        files = os.listdir(image_dir)
+        # 優先順位に基づき接頭辞で検索
+        search_prefixes = [
+            f"{location_id}_{effective_season}_{effective_time_of_day}_",
+            f"{location_id}_{effective_time_of_day}_",
+            f"{location_id}_{effective_season}_",
+            f"{location_id}_"
+        ]
+        
+        for prefix in search_prefixes:
+            for f in files:
+                if f.lower().startswith(prefix.lower()) and f.lower().endswith('.png'):
+                    print(f"  - [Scenery Match] Prefix Match: {f}")
+                    return os.path.join(image_dir, f)
+    except Exception as e:
+        print(f"警告: 情景画像検索中にエラー: {e}")
 
-    # 3. 場所のみ一致の検索 (場所.png または 場所_*.png)
-    try:
-        # まずは単純な `場所.png` を探す
-        fallback_path = os.path.join(image_dir, f"{location_id}.png")
-        if os.path.exists(fallback_path):
-            return fallback_path
-
-        # それもなければ `場所_` で始まるものを探す
-        for filename in os.listdir(image_dir):
-            if filename.startswith(f"{location_id}_") and filename.lower().endswith('.png'):
-                return os.path.join(image_dir, filename)
-    except FileNotFoundError: pass
-
-    # 4. それでも見つからない場合はNoneを返す
     return None
 
 def parse_world_file(file_path: str) -> dict:

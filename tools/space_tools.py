@@ -9,6 +9,54 @@ import constants
 from typing import List, Dict, Any
 import traceback
 
+
+def _format_value_as_text(value: Any, indent: int = 0) -> str:
+    """
+    AIから渡された値（文字列または辞書）を、元のYAML風階層テキスト形式に変換する。
+    辞書の場合は再帰的に処理し、改行とインデントを適切に付与する。
+    """
+    if value is None:
+        return ""
+    
+    if isinstance(value, str):
+        return value
+    
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    
+    if isinstance(value, list):
+        # リストの各要素を処理
+        lines = []
+        for item in value:
+            if isinstance(item, dict):
+                # 辞書要素は改行して表示
+                lines.append("")  # 空行で区切る
+                lines.append(_format_value_as_text(item, indent + 2))
+            else:
+                lines.append("  " * indent + str(item))
+        return "\n".join(lines)
+    
+    if isinstance(value, dict):
+        lines = []
+        for key, val in value.items():
+            prefix = "  " * indent
+            # キーを特殊処理（comment/description系はコメント行として扱う）
+            if key == "comment" or key.startswith("//"):
+                lines.append(f"{prefix}{val}")
+            elif isinstance(val, dict):
+                lines.append(f"{prefix}{key}: ")
+                lines.append(_format_value_as_text(val, indent + 1))
+            elif isinstance(val, list):
+                lines.append(f"{prefix}{key}: ")
+                lines.append(_format_value_as_text(val, indent + 1))
+            else:
+                lines.append(f"{prefix}{key}: {val}")
+        return "\n".join(lines)
+    
+    # その他の型は文字列化
+    return str(value)
+
+
 @tool
 def set_current_location(location_id: str, room_name: str) -> str:
     """AIの現在地を設定する。location_idには、利用可能な場所の名前だけを正確に指定する必要がある。"""
@@ -74,6 +122,7 @@ def set_current_location(location_id: str, room_name: str) -> str:
 
 def _apply_world_edits(instructions: List[Dict[str, Any]], room_name: str) -> str:
     """【内部専用】AIが生成した世界設定への差分編集指示リストを解釈し、world_settings.txtに適用する。"""
+
     if not room_name: return "【エラー】ルーム名が指定されていません。"
 
     world_settings_path = get_world_settings_path(room_name)
@@ -91,14 +140,38 @@ def _apply_world_edits(instructions: List[Dict[str, Any]], room_name: str) -> st
 
             if op == "update_place_description":
                 if not place or value is None: return f"【エラー】指示 {i+1} (update) に 'place_name' または 'value' がありません。"
-                world_data.setdefault(area, {})[place] = str(value)
+                world_data.setdefault(area, {})[place] = _format_value_as_text(value)
+            elif op == "append_place_description":
+                if not place or value is None: return f"【エラー】指示 {i+1} (append) に 'place_name' または 'value' がありません。"
+                existing = world_data.setdefault(area, {}).get(place, "")
+                if existing:
+                    world_data[area][place] = f"{existing}\n{_format_value_as_text(value)}"
+                else:
+                    world_data[area][place] = _format_value_as_text(value)
             elif op == "add_place":
                 if not place or value is None: return f"【エラー】指示 {i+1} (add_place) に 'place_name' または 'value' がありません。"
-                world_data.setdefault(area, {})[place] = str(value)
+                world_data.setdefault(area, {})[place] = _format_value_as_text(value)
             elif op == "delete_place":
                 if not place: return f"【エラー】指示 {i+1} (delete_place) に 'place_name' がありません。"
                 if area in world_data and place in world_data[area]:
                     del world_data[area][place]
+            elif op == "patch_place_description":
+                # 部分編集: find/replace を使って特定箇所のみを置換
+                find_text = inst.get("find")
+                replace_text = inst.get("replace")
+                if not place: return f"【エラー】指示 {i+1} (patch) に 'place_name' がありません。"
+                if find_text is None or replace_text is None: 
+                    return f"【エラー】指示 {i+1} (patch) に 'find' または 'replace' がありません。"
+                
+                if area not in world_data or place not in world_data[area]:
+                    return f"【エラー】指示 {i+1}: 場所 '{place}' がエリア '{area}' に存在しません。"
+                
+                current_content = world_data[area][place]
+                if find_text not in current_content:
+                    return f"【エラー】指示 {i+1}: 検索テキスト '{find_text[:50]}...' が場所 '{place}' の内容に見つかりません。"
+                
+                # 置換を実行（最初の一致のみ）
+                world_data[area][place] = current_content.replace(find_text, _format_value_as_text(replace_text), 1)
             else:
                 return f"【エラー】指示 {i+1} の操作 '{op}' は無効です。"
 
