@@ -610,8 +610,7 @@ try:
                         # --- デバッグ設定 ---
                         debug_mode_checkbox = gr.Checkbox(label="デバッグモードを有効化 (デバッグコンソールにシステムプロンプトを出力)", interactive=True)
                     with gr.TabItem("個別") as individual_settings_tab:
-                        room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。*")
-                        save_room_settings_button = gr.Button("このルームの個別設定を保存", variant="primary")
+                        room_settings_info = gr.Markdown("ℹ️ *現在選択中のルーム「...」にのみ適用される設定です。設定は自動保存されます。*")
 
                         # --- [Phase 3] 個別設定用AIモデルプロバイダ設定 (一番上に配置) ---
                         with gr.Accordion("⚡ AIモデルプロバイダ設定（このルーム）", open=False):
@@ -2442,12 +2441,6 @@ try:
             sleep_consolidation_entity_memory_cb,
             sleep_consolidation_compress_cb,
         ]
-
-        save_room_settings_button.click(
-            fn=lambda *args: ui_handlers.handle_save_room_settings(*args, force_notify=True),
-            inputs=room_individual_settings_inputs,
-            outputs=None
-        )
 
         # 個別設定の即時保存対応: 各コンポーネントに変更イベントを登録
         # (ただし、current_room_name 自身やボタン自体には不要)
