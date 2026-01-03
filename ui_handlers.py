@@ -60,6 +60,8 @@ NOTIFICATION_DEBOUNCE_SECONDS = 1.0
 # --- 起動時の通知抑制用 ---
 # 初期化完了までは通知を抑制（handle_initial_loadで完了時にTrueにする）
 _initialization_completed = False
+_initialization_completed_time = 0  # 初期化完了時刻
+POST_INIT_GRACE_PERIOD_SECONDS = 3  # 初期化完了後も3秒間は通知抑制
 
 def handle_save_last_room(room_name: str) -> None:
     """
@@ -884,8 +886,10 @@ def handle_initial_load(room_name: str = None, expected_count: int = 154):
         f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
     )
     
-    # 初期化完了: 以降の設定変更では通知を表示する
+    # 初期化完了: 以降の設定変更では通知を表示する（ただし直後のgrace periodは除く）
     _initialization_completed = True
+    global _initialization_completed_time
+    _initialization_completed_time = time.time()
     
     return _ensure_output_count(final_outputs, expected_count)
 
@@ -1008,12 +1012,14 @@ def handle_save_room_settings(
     result = room_manager.update_room_config(room_name, new_settings)
     if not silent:
         if result == True or (result == "no_change" and force_notify):
-            # 初期化完了前は通知を抑制
+            now = time.time()
+            # 初期化完了前、または初期化完了直後のgrace period中は通知を抑制
             if not _initialization_completed:
                 pass  # 初期化中は通知しない
+            elif (now - _initialization_completed_time) < POST_INIT_GRACE_PERIOD_SECONDS:
+                pass  # 初期化完了直後のgrace period中は通知しない
             else:
                 # デバウンス: 同一ルームへの連続通知を抑制
-                now = time.time()
                 last_time = _last_save_notification_time.get(room_name, 0)
                 if (now - last_time) > NOTIFICATION_DEBOUNCE_SECONDS:
                     gr.Info(f"「{room_name}」の個別設定を保存しました。")
