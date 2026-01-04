@@ -21,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **高度な編集機能**: リスト選択時にURL・名前・頻度・指定時刻を自動復元し、そのまま更新可能
 - **定期実行統合**: 毎時15分に、設定された頻度（毎時、数時間おき、毎日指定時刻）に基づき `alarm_manager` が自動チェックし通知
 - **キャッシュ機構**: `watchlist_cache/` にて、変更検知用の前回取得コンテンツを自動保存・差分算出機能を実装
+
+#### 📄 PDF読み取り機能の追加 (2026-01-04)
+- **`pypdf` 統合**: Web上のPDFファイルから直接テキストを抽出可能に
+- **`read_url_tool` 強化**: URLがPDFの場合、自動的に解析を実行してAIに渡すロジックを実装
+- **arXiv/論文対応**: 学術論文などのPDF資料をルシアン（AI）が直接読解可能に
 - 依存関係: `pip install langchain-tavily` が必要（オプション）
 - 参照: [計画書](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md)
 
