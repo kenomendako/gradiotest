@@ -171,26 +171,48 @@ def _get_effective_today_cutoff(room_name: str) -> str:
         YYYY-MM-DD形式の日付文字列
     """
     import os
+    import json
     from constants import ROOMS_DIR
     
     today = datetime.datetime.now()
     today_str = today.strftime('%Y-%m-%d')
-    yesterday = today - datetime.timedelta(days=1)
-    yesterday_str = yesterday.strftime('%Y-%m-%d')
+    yesterday_str = (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     
-    # 昨日のエピソード記憶ファイルが存在するかチェック
-    # エピソード記憶は「前日分まで」しか作成されないため、
-    # 昨日のファイルが存在すれば、昨日分は記憶化済み = 今日以降のみ表示
-    # 存在しなければ、昨日分はまだ記憶に入っていない = 昨日以降も表示
-    episodic_dir = os.path.join(ROOMS_DIR, room_name, "episodic_memory")
-    yesterday_episode_file = os.path.join(episodic_dir, f"{yesterday_str}.json")
+    # エピソード記憶ファイルを確認
+    # パス: characters/[room_name]/memory/episodic_memory.json
+    episodic_dir = os.path.join(ROOMS_DIR, room_name, "memory")
+    episode_file = os.path.join(episodic_dir, "episodic_memory.json")
     
-    if os.path.exists(yesterday_episode_file):
-        # 昨日分は記憶化済み → 今日以降のみ
-        return today_str
+    has_yesterday_memory = False
+    
+    if os.path.exists(episode_file):
+        try:
+            with open(episode_file, 'r', encoding='utf-8') as f:
+                episodes = json.load(f)
+                
+            if isinstance(episodes, list):
+                for ep in episodes:
+                    if not isinstance(ep, dict): continue
+                    date_str = ep.get('date', '').strip()
+                    
+                    if date_str == yesterday_str:
+                        has_yesterday_memory = True
+                        break
+                    elif '~' in date_str or '～' in date_str:
+                        sep = '~' if '~' in date_str else '～'
+                        parts = date_str.split(sep)
+                        if len(parts) == 2:
+                            start, end = parts[0].strip(), parts[1].strip()
+                            if start <= yesterday_str <= end:
+                                has_yesterday_memory = True
+                                break
+        except Exception as e:
+            print(f"Warning: Failed to check episodic memory for {yesterday_str}: {e}")
+
+    if has_yesterday_memory:
+        return today_str  # 昨日分は記憶化済み → 今日以降のみ
     else:
-        # 昨日分は未処理 → 昨日以降も含める
-        return yesterday_str
+        return yesterday_str  # 昨日分は未処理 → 昨日以降も含める
 
 def _filter_messages_from_today(messages: list, today_str: str) -> list:
     """
