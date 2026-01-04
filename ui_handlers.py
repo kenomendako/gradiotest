@@ -2981,15 +2981,14 @@ def reload_chat_log(
 
     full_raw_history = utils.load_chat_log(log_f)
 
-    # --- ▼▼▼ 「本日分」対応を追加 ▼▼▼ ---
+    # --- ▼▼▼ 「本日分」対応 ▼▼▼ ---
     if api_history_limit_value == "today":
         # エピソード記憶の有無に応じて適切な日付でフィルタ
-        # （日付変更直後でエピソード記憶がない場合は昨日分も含める）
         from gemini_api import _get_effective_today_cutoff
         cutoff_date = _get_effective_today_cutoff(room_name)
         date_pattern = re.compile(r'(\d{4}-\d{2}-\d{2})')
         
-        # 本日分の開始インデックスを探す
+        # cutoff_date以降の最初のメッセージを探す
         today_start_index = len(full_raw_history)  # デフォルトは末尾（何も見つからない場合）
         
         for i, item in enumerate(full_raw_history):
@@ -3000,10 +2999,17 @@ def reload_chat_log(
                     msg_date = match.group(1)
                     if msg_date >= cutoff_date:
                         today_start_index = i
-                        break  # 最初に見つかった本日以降のメッセージで停止
+                        break  # 最初に見つかったcutoff_date以降のメッセージで停止
         
         absolute_start_index = today_start_index
         visible_history = full_raw_history[absolute_start_index:]
+        
+        # 【最低表示数の保証】エピソード記憶作成後でも最低N往復分は表示
+        min_messages = constants.MIN_TODAY_LOG_FALLBACK_TURNS * 2
+        if len(visible_history) < min_messages:
+            # 本日分が不足 → ログ末尾から最低数を確保
+            absolute_start_index = max(0, len(full_raw_history) - min_messages)
+            visible_history = full_raw_history[absolute_start_index:]
     else:
         # 従来のロジック：往復数または全ログ
         display_turns = _get_display_history_count(api_history_limit_value)

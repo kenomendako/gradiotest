@@ -29,6 +29,9 @@ DEFAULT_ALARM_API_HISTORY_TURNS = 10
 # --- 自律行動設定 ---
 MIN_AUTONOMOUS_INTERVAL_MINUTES = 120  # 自律行動の最小実行間隔（分）
 
+# --- 「本日分」ログ設定 ---
+MIN_TODAY_LOG_FALLBACK_TURNS = 5  # エピソード記憶作成後の最低表示・送信往復数
+
 # --- 内部処理用AIモデル ---
 INTERNAL_PROCESSING_MODEL = "gemini-2.5-flash-lite"
 SUMMARIZATION_MODEL = "gemini-2.5-flash"          # 高品質（要約、文章生成など）

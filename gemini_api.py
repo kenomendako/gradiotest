@@ -164,30 +164,56 @@ def _get_effective_today_cutoff(room_name: str) -> str:
     """
     「本日分」の切り捨て日付を決定する。
     
-    今日のエピソード記憶が存在する場合は今日。
-    存在しない場合は昨日（エピソード記憶が生成されるまでは前日のログも必要）。
+    昨日のエピソード記憶が存在する場合は今日以降のみ（昨日分は記憶化済み）。
+    存在しない場合は昨日以降も含める（エピソード記憶が生成されるまでは前日のログも必要）。
     
     Returns:
         YYYY-MM-DD形式の日付文字列
     """
     import os
+    import json
     from constants import ROOMS_DIR
     
     today = datetime.datetime.now()
     today_str = today.strftime('%Y-%m-%d')
-    yesterday = today - datetime.timedelta(days=1)
-    yesterday_str = yesterday.strftime('%Y-%m-%d')
+    yesterday_str = (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
     
-    # 今日のエピソード記憶ファイルが存在するかチェック
-    episodic_dir = os.path.join(ROOMS_DIR, room_name, "episodic_memory")
-    today_episode_file = os.path.join(episodic_dir, f"{today_str}.json")
+    # エピソード記憶ファイルを確認
+    # パス: characters/[room_name]/memory/episodic_memory.json
+    episodic_dir = os.path.join(ROOMS_DIR, room_name, "memory")
+    episode_file = os.path.join(episodic_dir, "episodic_memory.json")
     
-    if os.path.exists(today_episode_file):
-        # 今日のエピソード記憶が存在 → 今日以降のみ
-        return today_str
+    has_yesterday_memory = False
+    
+    if os.path.exists(episode_file):
+        try:
+            with open(episode_file, 'r', encoding='utf-8') as f:
+                episodes = json.load(f)
+                
+            if isinstance(episodes, list):
+                for ep in episodes:
+                    if not isinstance(ep, dict): continue
+                    date_str = ep.get('date', '').strip()
+                    
+                    if date_str == yesterday_str:
+                        has_yesterday_memory = True
+                        break
+                    elif '~' in date_str or '～' in date_str:
+                        sep = '~' if '~' in date_str else '～'
+                        parts = date_str.split(sep)
+                        if len(parts) == 2:
+                            start, end = parts[0].strip(), parts[1].strip()
+                            if start <= yesterday_str <= end:
+                                has_yesterday_memory = True
+                                break
+        except Exception as e:
+            print(f"Warning: Failed to check episodic memory for {yesterday_str}: {e}")
+
+    if has_yesterday_memory:
+        return today_str  # 昨日分は記憶化済み → 今日以降のみ
     else:
-        # 今日のエピソード記憶がまだない → 昨日以降も含める
-        return yesterday_str
+        return yesterday_str  # 昨日分は未処理 → 昨日以降も含める
+
 def _filter_messages_from_today(messages: list, today_str: str) -> list:
     """
     本日（today_str）以降の最初のメッセージを見つけ、そこから最後まで全て返す。
@@ -729,8 +755,15 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     if api_history_limit == "today":
         # 本日分: エピソード記憶の有無に応じて適切な日付でフィルタ
         cutoff_date = _get_effective_today_cutoff(room_to_respond)
+        original_messages = messages.copy()  # フィルタ前のコピーを保持
         messages = _filter_messages_from_today(messages, cutoff_date)
         
+        # 【最低送信数の保証】エピソード記憶作成後でも最低N往復分は送信
+        min_messages = constants.MIN_TODAY_LOG_FALLBACK_TURNS * 2
+        if len(messages) < min_messages and len(original_messages) > len(messages):
+            # 本日分が不足 → 元のメッセージリスト末尾から最低数を確保
+            messages = original_messages[-min_messages:] if len(original_messages) >= min_messages else original_messages
+
         # 【自動会話要約】閾値を超えていたら要約処理
         auto_summary_enabled = effective_settings.get("auto_summary_enabled", False)
         if auto_summary_enabled:
@@ -825,7 +858,13 @@ def count_input_tokens(**kwargs):
         # 履歴制限の適用
         if api_history_limit == "today":
             cutoff_date = _get_effective_today_cutoff(room_name)
+            original_raw_history = raw_history.copy()  # フィルタ前のコピーを保持
             raw_history = _filter_raw_history_from_today(raw_history, cutoff_date)
+            
+            # 【最低送信数の保証】エピソード記憶作成後でも最低N往復分を確保
+            min_messages = constants.MIN_TODAY_LOG_FALLBACK_TURNS * 2
+            if len(raw_history) < min_messages and len(original_raw_history) > len(raw_history):
+                raw_history = original_raw_history[-min_messages:] if len(original_raw_history) >= min_messages else original_raw_history
         elif api_history_limit and api_history_limit.isdigit():
             limit = int(api_history_limit)
             if limit > 0 and len(raw_history) > limit * 2:
