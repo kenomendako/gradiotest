@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added - 新機能
 
+#### 🔍 Tavily検索プロバイダ対応 (2026-01-04)
+- **Tavilyを検索プロバイダに追加**: LLM最適化された高精度検索（無料枠: 月1000クレジット）
+- **read_url_tool本格実装**: Tavily ExtractまたはBeautifulSoupでURL内容を取得
+- **検索プロバイダ設定UI強化**: Tavily選択時にAPIキー入力欄を動的表示
+- **モジュール化されたプロバイダ構成**: Google/Tavily/DuckDuckGoを内部関数に分離
+- 依存関係: `pip install langchain-tavily` が必要（オプション）
+- 参照: [計画書](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md)
+
 #### 🎭 アバター表情差分システム (2025-12-30)
 - AIの応答（`【表情】…xxx…`）に応じてアバターの表情を自動で切り替える機能を追加
 - 静止画/動画両対応。指定の表情ファイルがない場合は自動で `idle` → `profile.png` へフォールバック

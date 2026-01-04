@@ -2,7 +2,7 @@
 
 > **起源**: ルシアンによる機能改善要求書 Ver.1.0（2026-01-04）
 > **最終更新**: 2026-01-04
-> **ステータス**: 計画承認済み、Phase 1 実装待ち
+> **ステータス**: ✅ Phase 1 完了、Phase 2 待機中
 
 ---
 
@@ -59,12 +59,12 @@
 
 | タスク | 内容 | 状態 |
 |--------|------|------|
-| 1.1 | `constants.py`にTavily関連定数追加 | [ ] |
-| 1.2 | `config_manager.py`にTavily APIキー管理追加 | [ ] |
-| 1.3 | `web_tools.py`にTavilyプロバイダ追加 | [ ] |
-| 1.4 | `nexus_ark.py` UIに検索プロバイダ設定追加 | [ ] |
-| 1.5 | `read_url_tool`をTavily Extractで本格実装 | [ ] |
-| 1.6 | 依存関係追加（`langchain-tavily`） | [ ] |
+| 1.1 | `constants.py`にTavily関連定数追加 | [x] |
+| 1.2 | `config_manager.py`にTavily APIキー管理追加 | [x] |
+| 1.3 | `web_tools.py`にTavilyプロバイダ追加 | [x] |
+| 1.4 | `nexus_ark.py` UIに検索プロバイダ設定追加 | [x] |
+| 1.5 | `read_url_tool`をTavily Extractで本格実装 | [x] |
+| 1.6 | 依存関係追加（`langchain-tavily`） | [x] ※ユーザーがpipインストール必要 |
 
 **技術詳細:**
 - Tavilyは`langchain-tavily`パッケージで統合
@@ -167,6 +167,7 @@ pip install langchain-tavily
 
 | 日付 | 内容 |
 |------|------|
+| 2026-01-04 | **Phase 1 実装完了** - Tavilyプロバイダ、read_url_tool本格実装、設定UI追加 |
 | 2026-01-04 | 初版作成、Phase 1〜3 計画策定 |
 
 ---
