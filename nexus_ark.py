@@ -2958,26 +2958,52 @@ try:
         # DataFrameの行選択イベント（Golden Contract準拠）
         def on_watchlist_select(df_data, evt: gr.SelectData):
             if evt is None or evt.index is None or df_data is None:
-                return ""
+                return [""] * 5
             
             # evt.indexはタプル(row, col)または単一の整数の場合がある
             idx = evt.index
-            if isinstance(idx, tuple):
-                row_idx = idx[0]
-            elif isinstance(idx, list):
-                row_idx = idx[0] if len(idx) > 0 else None
-            else:
-                row_idx = idx
+            row_idx = idx[0] if isinstance(idx, (tuple, list)) else idx
             
-            if row_idx is not None and isinstance(row_idx, int):
-                if 0 <= row_idx < len(df_data):
-                    return df_data[row_idx][0]  # 最初の列(ID)を返す
-            return ""
+            if row_idx is not None:
+                try:
+                    # df_dataがDataFrameの場合
+                    if hasattr(df_data, "iloc"):
+                        row = df_data.iloc[row_idx]
+                        selected_id = str(row[0])
+                        name = str(row[1])
+                        url = str(row[2])
+                        interval_display = str(row[3])
+                    else:
+                        # リストの場合
+                        row = df_data[row_idx]
+                        selected_id = str(row[0])
+                        name = str(row[1])
+                        url = str(row[2])
+                        interval_display = str(row[3])
+                    
+                    # 頻度表示（"毎日 09:00" など）から内部値（"daily", "09:00"）を復元
+                    interval_val = "manual"
+                    daily_time_val = "09:00"
+                    
+                    if "毎日" in interval_display:
+                        interval_val = "daily"
+                        if " " in interval_display:
+                            daily_time_val = interval_display.split(" ")[1]
+                    elif "1時間" in interval_display: interval_val = "hourly_1"
+                    elif "3時間" in interval_display: interval_val = "hourly_3"
+                    elif "6時間" in interval_display: interval_val = "hourly_6"
+                    elif "12時間" in interval_display: interval_val = "hourly_12"
+                    
+                    return selected_id, url, name, interval_val, daily_time_val
+                except Exception as e:
+                    print(f"Error in on_watchlist_select: {e}")
+            
+            return [""] * 5
         
         watchlist_dataframe.select(
             fn=on_watchlist_select,
             inputs=[watchlist_dataframe],
-            outputs=[watchlist_selected_id]
+            outputs=[watchlist_selected_id, watchlist_url_input, watchlist_name_input, watchlist_interval_dropdown, watchlist_daily_time]
         )
         
         def delete_selected_wrapper(room_name, selected_id, df_data):

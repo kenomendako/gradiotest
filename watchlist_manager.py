@@ -82,9 +82,10 @@ class WatchlistManager:
         return data.get("entries", [])
     
     def get_entry_by_id(self, entry_id: str) -> Optional[dict]:
-        """IDでエントリを取得"""
+        """IDでエントリを取得（短縮IDにも対応）"""
         for entry in self.get_entries():
-            if entry.get("id") == entry_id:
+            full_id = entry.get("id", "")
+            if full_id == entry_id or full_id.startswith(entry_id):
                 return entry
         return None
     
@@ -136,8 +137,11 @@ class WatchlistManager:
         
         # エントリを削除前にURLを取得（キャッシュ削除用）
         entry = self.get_entry_by_id(entry_id)
-        
-        data["entries"] = [e for e in data["entries"] if e.get("id") != entry_id]
+        if not entry:
+            return False
+            
+        full_id = entry["id"]
+        data["entries"] = [e for e in data["entries"] if e.get("id") != full_id]
         
         if len(data["entries"]) < original_count:
             self._save_watchlist(data)
@@ -154,7 +158,8 @@ class WatchlistManager:
         data = self._load_watchlist()
         
         for entry in data["entries"]:
-            if entry.get("id") == entry_id:
+            full_id = entry.get("id", "")
+            if full_id == entry_id or full_id.startswith(entry_id):
                 for key, value in kwargs.items():
                     if key in entry:
                         entry[key] = value

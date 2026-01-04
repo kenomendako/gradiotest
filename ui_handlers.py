@@ -9527,8 +9527,14 @@ def handle_watchlist_add(room_name: str, url: str, name: str, interval: str, dai
         # 既存チェック
         existing = manager.get_entry_by_url(url)
         if existing:
-            gr.Info(f"このURLは既に登録されています: {existing['name']}")
-            return handle_watchlist_refresh(room_name)[0], f"既に登録済み: {existing['name']}"
+            # 更新処理
+            manager.update_entry(
+                existing["id"],
+                name=name if name else existing["name"],
+                check_interval=interval
+            )
+            gr.Info(f"ウォッチリストを更新しました: {name if name else existing['name']}")
+            return handle_watchlist_refresh(room_name)[0], f"✅ 更新しました: {name if name else existing['name']}"
         
         entry = manager.add_entry(url=url, name=name, check_interval=interval)
         gr.Info(f"ウォッチリストに追加しました: {entry['name']}")
@@ -9537,7 +9543,7 @@ def handle_watchlist_add(room_name: str, url: str, name: str, interval: str, dai
     
     except Exception as e:
         traceback.print_exc()
-        gr.Error(f"追加に失敗しました: {e}")
+        gr.Error(f"追加・更新に失敗しました: {e}")
         return gr.update(), f"❌ エラー: {e}"
 
 
