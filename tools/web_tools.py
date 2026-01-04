@@ -256,7 +256,7 @@ def read_url_tool(urls: list[str], room_name: str) -> str:
                         api_key=config_manager.TAVILY_API_KEY,
                         extract_depth="basic"
                     )
-                    results = extractor.invoke([url])
+                    results = extractor.invoke({"urls": [url]})
                     if results and (isinstance(results, list) or isinstance(results, dict)):
                         # Tavilyの結果を展開
                         item = results[0] if isinstance(results, list) else results.get("results", [{}])[0]
