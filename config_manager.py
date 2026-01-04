@@ -601,6 +601,9 @@ def load_config():
         "theme_settings": {
             "active_theme": "nexus_modern", # デフォルトテーマをモダン版に変更
             "custom_themes": {} # config.jsonで管理するカスタムテーマは最初は空
+        },
+        "watchlist_settings": {
+            "notify_on_change": True  # デフォルトで通知有効
         }
     }
 
@@ -835,6 +838,9 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
             "update_current_log_index": False,
             "update_entity_memory": True,
             "compress_old_episodes": False
+        },
+        "watchlist_settings": {
+            "notify_on_change": True
         }
     }
     
