@@ -9503,7 +9503,7 @@ def handle_watchlist_refresh(room_name: str):
         return [], f"❌ エラー: {e}"
 
 
-def handle_watchlist_add(room_name: str, url: str, name: str, interval: str):
+def handle_watchlist_add(room_name: str, url: str, name: str, interval: str, daily_time: str = "09:00"):
     """ウォッチリストにエントリを追加する"""
     if not room_name:
         gr.Warning("ルームが選択されていません")
@@ -9515,6 +9515,10 @@ def handle_watchlist_add(room_name: str, url: str, name: str, interval: str):
     
     url = url.strip()
     name = name.strip() if name else None
+    
+    # 「毎日指定時刻」の場合は時刻情報を含める
+    if interval == "daily" and daily_time:
+        interval = f"daily_{daily_time}"
     
     try:
         from watchlist_manager import WatchlistManager

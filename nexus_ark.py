@@ -919,6 +919,15 @@ try:
                                     scale=1
                                 )
                             
+                            with gr.Row(visible=False) as watchlist_daily_time_row:
+                                watchlist_daily_time = gr.Dropdown(
+                                    choices=[f"{i:02d}:00" for i in range(24)],
+                                    value="09:00",
+                                    label="📅 毎日のチェック時刻",
+                                    info="「毎日指定時刻」を選択した場合の実行時刻",
+                                    scale=1
+                                )
+                            
                             with gr.Row():
                                 watchlist_add_button = gr.Button("➕ 追加", variant="primary", scale=1)
                                 watchlist_check_button = gr.Button("🔄 全件チェック", variant="secondary", scale=1)
@@ -2924,9 +2933,19 @@ try:
             outputs=[watchlist_dataframe, watchlist_status]
         )
         
+        # 監視頻度変更時に指定時刻入力欄の表示/非表示を切り替え
+        def toggle_daily_time_visibility(interval):
+            return gr.update(visible=(interval == "daily"))
+        
+        watchlist_interval_dropdown.change(
+            fn=toggle_daily_time_visibility,
+            inputs=[watchlist_interval_dropdown],
+            outputs=[watchlist_daily_time_row]
+        )
+        
         watchlist_add_button.click(
             fn=ui_handlers.handle_watchlist_add,
-            inputs=[current_room_name, watchlist_url_input, watchlist_name_input, watchlist_interval_dropdown],
+            inputs=[current_room_name, watchlist_url_input, watchlist_name_input, watchlist_interval_dropdown, watchlist_daily_time],
             outputs=[watchlist_dataframe, watchlist_status]
         )
         

@@ -277,6 +277,17 @@ class WatchlistManager:
         
         return has_changes, diff_summary
     
+    def _time_diff_minutes(self, time1: str, time2: str) -> int:
+        """2つの時刻文字列（HH:MM形式）の差分を分で返す"""
+        try:
+            h1, m1 = map(int, time1.split(":"))
+            h2, m2 = map(int, time2.split(":"))
+            minutes1 = h1 * 60 + m1
+            minutes2 = h2 * 60 + m2
+            return minutes1 - minutes2
+        except:
+            return 9999  # パース失敗時は大きな値を返す
+    
     # --- ヘルパー ---
     
     def get_entries_for_ui(self) -> List[dict]:
@@ -294,10 +305,16 @@ class WatchlistManager:
                 entry["last_checked_display"] = "未チェック"
             
             # 監視頻度を人間可読形式に変換
-            entry["interval_display"] = CHECK_INTERVAL_OPTIONS.get(
-                entry.get("check_interval", "manual"), 
-                entry.get("check_interval", "手動")
-            )
+            interval = entry.get("check_interval", "manual")
+            if interval.startswith("daily_"):
+                # daily_HH:MM形式
+                time_part = interval.split("_")[1]
+                entry["interval_display"] = f"毎日 {time_part}"
+            else:
+                entry["interval_display"] = CHECK_INTERVAL_OPTIONS.get(
+                    interval, 
+                    interval
+                )
         
         return entries
     
@@ -337,13 +354,19 @@ class WatchlistManager:
                 hours = int(interval.split("_")[1])
                 if (now - last_dt).total_seconds() >= hours * 3600:
                     due_entries.append(entry)
-            elif interval == "daily":
-                # daily用のロジック（scheduled_timeと組み合わせて判断）
-                settings = self.get_settings()
-                scheduled_time = settings.get("scheduled_time")
-                if scheduled_time:
-                    # 簡易実装：24時間以上経過していればdue
-                    if (now - last_dt).total_seconds() >= 24 * 3600:
+            elif interval.startswith("daily"):
+                # daily または daily_HH:MM 形式
+                # 24時間以上経過しているかチェック
+                if (now - last_dt).total_seconds() >= 24 * 3600:
+                    if "_" in interval:
+                        # daily_HH:MM形式: 指定時刻かどうかもチェック
+                        scheduled_time = interval.split("_")[1]  # "09:00"など
+                        current_time = now.strftime("%H:%M")
+                        # スケジュール時刻の前後30分以内ならdue
+                        if abs(self._time_diff_minutes(scheduled_time, current_time)) <= 30:
+                            due_entries.append(entry)
+                    else:
+                        # 旧形式daily: そのままdue
                         due_entries.append(entry)
         
         return due_entries
