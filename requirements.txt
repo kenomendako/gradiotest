@@ -59,6 +59,7 @@ mdit-py-plugins~=0.4.0
 
 # --- Multi-Provider Support ---
 langchain-openai
+langchain-tavily  # Tavily search provider (optional, for high-quality LLM-optimized search)
 
 # --- Topic Clustering Feature ---
 hdbscan>=0.8.33
