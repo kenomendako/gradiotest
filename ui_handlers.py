@@ -9468,3 +9468,170 @@ def handle_reset_internal_state(room_name: str):
         gr.Error(f"リセットに失敗しました: {e}")
         return f"❌ エラー: {e}"
 
+
+# --- ウォッチリスト管理ハンドラ ---
+
+def handle_watchlist_refresh(room_name: str):
+    """ウォッチリストのDataFrameを更新する"""
+    if not room_name:
+        return [], "ルームが選択されていません"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        entries = manager.get_entries_for_ui()
+        
+        if not entries:
+            return [], "ウォッチリストは空です"
+        
+        # DataFrameデータを生成
+        data = []
+        for entry in entries:
+            data.append([
+                entry.get("id", "")[:8],  # IDは短く表示
+                entry.get("name", ""),
+                entry.get("url", ""),
+                entry.get("interval_display", "手動"),
+                entry.get("last_checked_display", "未チェック"),
+                entry.get("enabled", True)
+            ])
+        
+        return data, f"✅ {len(data)}件のエントリを読み込みました"
+    
+    except Exception as e:
+        traceback.print_exc()
+        return [], f"❌ エラー: {e}"
+
+
+def handle_watchlist_add(room_name: str, url: str, name: str, interval: str):
+    """ウォッチリストにエントリを追加する"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません")
+        return gr.update(), "ルームが選択されていません"
+    
+    if not url or not url.strip():
+        gr.Warning("URLを入力してください")
+        return gr.update(), "URLを入力してください"
+    
+    url = url.strip()
+    name = name.strip() if name else None
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        
+        # 既存チェック
+        existing = manager.get_entry_by_url(url)
+        if existing:
+            gr.Info(f"このURLは既に登録されています: {existing['name']}")
+            return handle_watchlist_refresh(room_name)[0], f"既に登録済み: {existing['name']}"
+        
+        entry = manager.add_entry(url=url, name=name, check_interval=interval)
+        gr.Info(f"ウォッチリストに追加しました: {entry['name']}")
+        
+        return handle_watchlist_refresh(room_name)[0], f"✅ 追加しました: {entry['name']}"
+    
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"追加に失敗しました: {e}")
+        return gr.update(), f"❌ エラー: {e}"
+
+
+def handle_watchlist_delete(room_name: str, selected_data: list):
+    """ウォッチリストからエントリを削除する"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません")
+        return gr.update(), "ルームが選択されていません"
+    
+    if not selected_data or len(selected_data) == 0:
+        gr.Warning("削除するエントリを選択してください")
+        return gr.update(), "エントリを選択してください"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        
+        # 選択された行のIDを取得（最初の列がID）
+        short_id = selected_data[0] if isinstance(selected_data, list) else None
+        if not short_id:
+            gr.Warning("削除するエントリを選択してください")
+            return gr.update(), "エントリを選択してください"
+        
+        # 短いIDから完全なIDを検索
+        entries = manager.get_entries()
+        target_entry = None
+        for entry in entries:
+            if entry.get("id", "").startswith(short_id):
+                target_entry = entry
+                break
+        
+        if not target_entry:
+            gr.Warning("エントリが見つかりません")
+            return gr.update(), "エントリが見つかりません"
+        
+        success = manager.remove_entry(target_entry["id"])
+        if success:
+            gr.Info(f"削除しました: {target_entry['name']}")
+            return handle_watchlist_refresh(room_name)[0], f"✅ 削除しました: {target_entry['name']}"
+        else:
+            return gr.update(), "削除に失敗しました"
+    
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"削除に失敗しました: {e}")
+        return gr.update(), f"❌ エラー: {e}"
+
+
+def handle_watchlist_check_all(room_name: str, api_key_name: str):
+    """ウォッチリストの全URLをチェックする"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません")
+        return gr.update(), "ルームが選択されていません"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        from tools.watchlist_tools import _fetch_url_content
+        
+        manager = WatchlistManager(room_name)
+        entries = manager.get_entries()
+        
+        if not entries:
+            return gr.update(), "ウォッチリストは空です"
+        
+        results = []
+        changes_found = 0
+        
+        for entry in entries:
+            if not entry.get("enabled", True):
+                continue
+            
+            url = entry["url"]
+            name = entry["name"]
+            
+            # コンテンツ取得
+            success, content = _fetch_url_content(url)
+            
+            if not success:
+                results.append(f"❌ {name}: 取得失敗")
+                continue
+            
+            # 差分チェック
+            has_changes, diff_summary = manager.check_and_update(entry["id"], content)
+            
+            if has_changes:
+                changes_found += 1
+                results.append(f"🔔 {name}: 更新あり！ ({diff_summary})")
+            else:
+                results.append(f"✅ {name}: {diff_summary}")
+        
+        # DataFrameを更新
+        df_data = handle_watchlist_refresh(room_name)[0]
+        status = f"チェック完了: {len(results)}件中 {changes_found}件に更新あり"
+        
+        gr.Info(status)
+        return df_data, status
+    
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"チェックに失敗しました: {e}")
+        return gr.update(), f"❌ エラー: {e}"

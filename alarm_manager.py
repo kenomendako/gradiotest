@@ -704,6 +704,68 @@ def check_autonomous_actions():
             print(f"  - 自律行動チェックエラー ({room_folder}): {e}")
             traceback.print_exc()
 
+def check_watchlist_scheduled():
+    """
+    全ルームのウォッチリストをチェックし、
+    チェックが必要なエントリを更新する（定期実行用）
+    """
+    try:
+        from watchlist_manager import WatchlistManager
+        from tools.watchlist_tools import _fetch_url_content
+        
+        all_rooms = room_manager.get_room_list_for_ui()
+        now = datetime.datetime.now()
+        
+        for _, room_folder in all_rooms:
+            try:
+                manager = WatchlistManager(room_folder)
+                due_entries = manager.get_due_entries()
+                
+                if not due_entries:
+                    continue
+                
+                print(f"📋 {room_folder}: {len(due_entries)}件のウォッチリストエントリをチェック中...")
+                
+                changes_found = []
+                for entry in due_entries:
+                    url = entry["url"]
+                    name = entry.get("name", url)
+                    
+                    # コンテンツ取得
+                    success, content = _fetch_url_content(url)
+                    
+                    if not success:
+                        print(f"  ❌ {name}: 取得失敗")
+                        continue
+                    
+                    # 差分チェック
+                    has_changes, diff_summary = manager.check_and_update(entry["id"], content)
+                    
+                    if has_changes:
+                        changes_found.append(f"🔔 {name}: {diff_summary}")
+                        print(f"  🔔 {name}: 更新あり ({diff_summary})")
+                    else:
+                        print(f"  ✅ {name}: {diff_summary}")
+                
+                # 変更があった場合、通知を送信（オプション）
+                if changes_found:
+                    # 設定を確認して通知するかどうか決定
+                    effective_settings = config_manager.get_effective_settings(room_folder)
+                    watchlist_settings = effective_settings.get("watchlist_settings", {})
+                    
+                    if watchlist_settings.get("notify_on_change", False):
+                        notification_message = f"📋 ウォッチリスト更新通知\n\n" + "\n".join(changes_found)
+                        send_notification(room_folder, notification_message, {})
+                        print(f"  📤 {room_folder}: 変更通知を送信しました")
+            
+            except Exception as e:
+                print(f"  - ウォッチリストチェックエラー ({room_folder}): {e}")
+    
+    except Exception as e:
+        print(f"ウォッチリスト定期チェックエラー: {e}")
+        traceback.print_exc()
+
+
 def schedule_thread_function():
     global alarm_thread_stop_event
     print("--- アラームスケジューラスレッドを開始しました ---") # <--- 強調
@@ -713,6 +775,9 @@ def schedule_thread_function():
     
     # 追加: 毎分30秒に自律行動チェック
     schedule.every().minute.at(":30").do(check_autonomous_actions)
+    
+    # 追加: 毎時15分にウォッチリスト定期チェック
+    schedule.every().hour.at(":15").do(check_watchlist_scheduled)
     
     while not alarm_thread_stop_event.is_set():
         try:

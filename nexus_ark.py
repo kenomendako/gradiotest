@@ -1657,6 +1657,57 @@ try:
                                 info="会話から「気になること」を抽出し、好奇心の源泉として記録"
                             )
 
+
+                        # --- ウォッチリスト管理 ---
+                        with gr.Accordion("📋 ウォッチリスト管理", open=False) as watchlist_accordion:
+                            gr.Markdown("監視対象URLを管理します。AIに「〇〇を監視リストに追加して」と言うこともできます。")
+                            
+                            with gr.Row():
+                                watchlist_url_input = gr.Textbox(
+                                    label="URL",
+                                    placeholder="https://example.com/page",
+                                    scale=3
+                                )
+                                watchlist_name_input = gr.Textbox(
+                                    label="表示名",
+                                    placeholder="例: 公式ブログ",
+                                    scale=2
+                                )
+                                watchlist_interval_dropdown = gr.Dropdown(
+                                    choices=[
+                                        ("手動のみ", "manual"),
+                                        ("1時間ごと", "hourly_1"),
+                                        ("3時間ごと", "hourly_3"),
+                                        ("6時間ごと", "hourly_6"),
+                                        ("12時間ごと", "hourly_12"),
+                                        ("毎日指定時刻", "daily"),
+                                    ],
+                                    value="manual",
+                                    label="監視頻度",
+                                    scale=1
+                                )
+                            
+                            with gr.Row():
+                                watchlist_add_button = gr.Button("➕ 追加", variant="primary", scale=1)
+                                watchlist_check_button = gr.Button("🔄 全件チェック", variant="secondary", scale=1)
+                                watchlist_refresh_button = gr.Button("🔃 一覧を更新", variant="secondary", scale=1)
+                            
+                            watchlist_status = gr.Textbox(label="ステータス", interactive=False, max_lines=2)
+                            
+                            gr.Markdown("### 登録済みURL一覧")
+                            watchlist_dataframe = gr.Dataframe(
+                                headers=["ID", "名前", "URL", "頻度", "最終確認", "有効"],
+                                datatype=["str", "str", "str", "str", "str", "bool"],
+                                interactive=False,
+                                wrap=True,
+                                row_count=(5, "dynamic"),
+                                col_count=(6, "fixed")
+                            )
+                            
+                            with gr.Row():
+                                watchlist_selected_id = gr.Textbox(label="選択中のID", visible=False)
+                                watchlist_delete_button = gr.Button("🗑️ 選択したURLを削除", variant="stop", scale=1)
+
                         # --- [Phase 14] 🛠️ 記憶のメンテナンス (手動実行) ---
                         with gr.Accordion("🛠️ 記憶のメンテナンス (手動実行)", open=False) as maintenance_accordion:
                             gr.Markdown("大規模な記憶の更新や、データの最適化を手動で実行します。")
@@ -2864,6 +2915,66 @@ try:
             fn=ui_handlers.handle_reset_internal_state,
             inputs=[current_room_name],
             outputs=[reset_internal_state_status]
+        )
+
+        # --- Watchlist Events ---
+        watchlist_refresh_button.click(
+            fn=ui_handlers.handle_watchlist_refresh,
+            inputs=[current_room_name],
+            outputs=[watchlist_dataframe, watchlist_status]
+        )
+        
+        watchlist_add_button.click(
+            fn=ui_handlers.handle_watchlist_add,
+            inputs=[current_room_name, watchlist_url_input, watchlist_name_input, watchlist_interval_dropdown],
+            outputs=[watchlist_dataframe, watchlist_status]
+        )
+        
+        watchlist_check_button.click(
+            fn=ui_handlers.handle_watchlist_check_all,
+            inputs=[current_room_name, api_key_dropdown],
+            outputs=[watchlist_dataframe, watchlist_status]
+        )
+        
+        # DataFrameの行選択イベント
+        def on_watchlist_select(evt: gr.SelectData, df_data):
+            if evt and evt.index is not None and df_data is not None:
+                row_idx = evt.index[0] if isinstance(evt.index, tuple) else evt.index
+                if row_idx < len(df_data):
+                    return df_data[row_idx][0]  # 最初の列(ID)を返す
+            return ""
+        
+        watchlist_dataframe.select(
+            fn=on_watchlist_select,
+            inputs=[watchlist_dataframe],
+            outputs=[watchlist_selected_id]
+        )
+        
+        def delete_selected_wrapper(room_name, selected_id, df_data):
+            if not selected_id:
+                import gradio as gr
+                gr.Warning("削除するエントリを選択してください")
+                return gr.update(), "エントリを選択してください"
+            # 選択されたIDを含む行を探す
+            selected_row = None
+            if df_data:
+                for row in df_data:
+                    if row[0] == selected_id:
+                        selected_row = row
+                        break
+            return ui_handlers.handle_watchlist_delete(room_name, selected_row)
+        
+        watchlist_delete_button.click(
+            fn=delete_selected_wrapper,
+            inputs=[current_room_name, watchlist_selected_id, watchlist_dataframe],
+            outputs=[watchlist_dataframe, watchlist_status]
+        )
+        
+        # ウォッチリストアコーディオンが開いたときにリフレッシュ
+        watchlist_accordion.expand(
+            fn=ui_handlers.handle_watchlist_refresh,
+            inputs=[current_room_name],
+            outputs=[watchlist_dataframe, watchlist_status]
         )
 
         # --- Dream Journal Events ---
