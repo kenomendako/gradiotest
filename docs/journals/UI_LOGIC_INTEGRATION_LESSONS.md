@@ -569,3 +569,35 @@ def handle_something_change(room_name: str, new_mode: str):
     Gradioのイベントモデルは「すべてが非同期で動く」という前提で設計する必要がある。初期化処理と`.change`イベントは**競合状態（Race Condition）**にあると考え、タイミングに依存しない堅牢な抑制ロジック（フラグ + 時間ベースの二重ガード）を設計すること。
 
     また、Gradio 4.x以降の`trigger_mode="user"`オプションは理論上ユーザー操作のみでイベント発火させられるが、すべてのコンポーネントで完全にサポートされているわけではなく、挙動が不安定な場合もある。現時点では「泥臭い」ハイブリッド方式が最も確実。
+
+---
+
+## 教訓 15: バックグラウンドスレッドの長時間処理に対するタイムアウト保護 (2026-01-04)
+
+*   **発生した問題:**
+    睡眠時記憶整理処理（特に現行ログ索引更新）が長時間ブロックされると、同じスレッド上で実行される自律行動チェックが一切実行されなくなった。
+
+*   **原因:**
+    スケジューラスレッドは単一スレッドで、`schedule.run_pending()` 内で時間のかかる処理がブロックすると、後続のジョブ（自律行動チェック）が実行されない。ジェネレーター消費処理（`for ... in generator`）が無限ループに近い状態になると、例外がキャッチされずスレッドが止まる。
+
+*   **解決策:**
+    `ThreadPoolExecutor` を使用して、処理を別スレッドで実行し、タイムアウト（10分）を設定。タイムアウト時は警告ログを出力して次の処理に進む。
+
+    ```python
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
+    def run_long_task():
+        # 長時間かかる可能性のある処理
+        pass
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(run_long_task)
+        try:
+            result = future.result(timeout=600)  # 10分
+        except FuturesTimeoutError:
+            print("処理がタイムアウトしました。次回に再試行します。")
+    ```
+
+*   **教訓:**
+    バックグラウンドのスケジューラスレッドで実行される処理は、**必ずタイムアウト機構を設ける**こと。特にジェネレーター消費や外部API呼び出しなど、完了時間が予測できない処理は危険。スレッド全体がブロックされると、アプリケーションの他の重要な機能（アラーム、自律行動など）が停止する可能性がある。
+
