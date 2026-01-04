@@ -16,6 +16,14 @@ except ImportError:
     TAVILY_AVAILABLE = False
     print("警告: langchain-tavilyがインストールされていません。Tavily機能は利用できません。")
 
+# pypdfのインポート
+try:
+    import pypdf
+    import io
+    PYPDF_AVAILABLE = True
+except ImportError:
+    PYPDF_AVAILABLE = False
+
 
 def _search_with_tavily(query: str) -> str:
     """Tavily APIを使用して検索を実行する内部関数"""
@@ -194,99 +202,96 @@ def web_search_tool(query: str, room_name: str) -> str:
 def read_url_tool(urls: list[str], room_name: str) -> str:
     """
     指定されたURLリストの内容を読み取り、結合して単一の文字列として返すツール。
-    Tavilyが設定されている場合はTavily Extractを使用し、そうでない場合は基本的なHTTP取得を試みます。
+    PDFの場合は直接テキストを抽出し、Webページの場合はTavily ExtractまたはBeautifulSoupを使用します。
     """
     if not urls:
         return "URLが指定されていません。"
     
+    import requests
+    from bs4 import BeautifulSoup
+    
     # URLを5件に制限
     urls_to_fetch = urls[:5]
+    formatted_parts = []
     
-    # Tavilyが利用可能で、APIキーが設定されている場合はTavily Extractを使用
-    if TAVILY_AVAILABLE and config_manager.TAVILY_API_KEY:
+    for url in urls_to_fetch:
         try:
-            extractor = TavilyExtract(
-                api_key=config_manager.TAVILY_API_KEY,
-                extract_depth="basic"  # 基本的な抽出（コスト節約）
-            )
-            results = extractor.invoke(urls_to_fetch)
+            # 1. PDF判定（拡張子またはURLパターン）
+            is_pdf = url.lower().split('?')[0].endswith('.pdf')
             
-            if not results:
-                return "[情報: URLからコンテンツを抽出できませんでした]"
-            
-            formatted_parts = []
-            
-            if isinstance(results, dict) and "results" in results:
-                for result in results["results"]:
-                    url = result.get("url", "Unknown URL")
-                    content = result.get("raw_content", result.get("content", ""))
-                    
-                    # コンテンツを適度な長さに切り詰め
-                    if len(content) > 2000:
-                        content = content[:2000] + "\n...(省略)..."
-                    
-                    formatted_parts.append(f"## {url}\n\n{content}")
-            elif isinstance(results, list):
-                for result in results:
-                    url = result.get("url", "Unknown URL")
-                    content = result.get("raw_content", result.get("content", ""))
-                    
-                    if len(content) > 2000:
-                        content = content[:2000] + "\n...(省略)..."
-                    
-                    formatted_parts.append(f"## {url}\n\n{content}")
-            
-            if not formatted_parts:
-                return "[情報: URLからコンテンツを抽出できませんでした]"
-            
-            final_response = "\n\n---\n\n".join(formatted_parts)
-            return f"**取得完了 ({len(formatted_parts)}件)**\n\n{final_response}\n\n**このタスクは完了しました。これから読むというような前置きはせず、**読み取った情報を元に会話を続けてください。"
-            
-        except Exception as e:
-            print(f"  - Tavily Extractでエラー: {e}")
-            traceback.print_exc()
-            return f"[エラー: URL内容の取得中に問題が発生しました。詳細: {e}]"
-    
-    # Tavilyが利用できない場合は基本的なHTTP取得を試みる
-    try:
-        import requests
-        from bs4 import BeautifulSoup
-        
-        formatted_parts = []
-        for url in urls_to_fetch:
-            try:
-                response = requests.get(url, timeout=10, headers={
+            if is_pdf:
+                if not PYPDF_AVAILABLE:
+                    formatted_parts.append(f"## {url}\n\n[取得失敗: PDF読み取りライブラリ pypdf が未設定です]")
+                    continue
+                
+                print(f"--- PDF読取実行: {url} ---")
+                response = requests.get(url, timeout=20, stream=True, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 })
                 response.raise_for_status()
                 
-                soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # スクリプトとスタイルを除去
-                for script in soup(["script", "style"]):
-                    script.decompose()
-                
-                # テキストを抽出
-                text = soup.get_text(separator='\n', strip=True)
-                
-                # テキストを適度な長さに切り詰め
-                if len(text) > 2000:
-                    text = text[:2000] + "\n...(省略)..."
-                
-                formatted_parts.append(f"## {url}\n\n{text}")
-                
-            except Exception as e:
-                formatted_parts.append(f"## {url}\n\n[取得失敗: {e}]")
-        
-        if not formatted_parts:
-            return "[情報: URLからコンテンツを取得できませんでした]"
-        
-        final_response = "\n\n---\n\n".join(formatted_parts)
-        return f"**取得完了 ({len(formatted_parts)}件)**\n\n{final_response}\n\n**このタスクは完了しました。これから読むというような前置きはせず、**読み取った情報を元に会話を続けてください。"
-        
-    except ImportError:
-        return "[エラー: requests/beautifulsoup4がインストールされていません。Tavilyを設定するか、`pip install requests beautifulsoup4` を実行してください]"
-    except Exception as e:
-        print(f"  - URL取得でエラー: {e}")
-        traceback.print_exc()
-        return f"[エラー: URL内容の取得中に問題が発生しました。詳細: {e}]"
+                with io.BytesIO(response.content) as pdf_file:
+                    reader = pypdf.PdfReader(pdf_file)
+                    pdf_text = []
+                    max_pages = min(len(reader.pages), 10)
+                    for page_num in range(max_pages):
+                        page_text = reader.pages[page_num].extract_text()
+                        if page_text:
+                            pdf_text.append(f"--- Page {page_num + 1} ---\n{page_text}")
+                    
+                    text = "\n\n".join(pdf_text)
+                    if len(reader.pages) > 10:
+                        text += f"\n\n...(全{len(reader.pages)}ページ中 10ページ目まで抽出しました)..."
+                    
+                    if not text.strip():
+                        text = "[情報: PDFからテキストを抽出できませんでした（画像ベースの可能性があります）]"
+                    
+                    formatted_parts.append(f"## {url} (PDF)\n\n{text}")
+                continue
+
+            # 2. Webページの場合：Tavily Extract (利用可能な場合)
+            if TAVILY_AVAILABLE and config_manager.TAVILY_API_KEY:
+                try:
+                    extractor = TavilyExtract(
+                        api_key=config_manager.TAVILY_API_KEY,
+                        extract_depth="basic"
+                    )
+                    results = extractor.invoke([url])
+                    if results and (isinstance(results, list) or isinstance(results, dict)):
+                        # Tavilyの結果を展開
+                        item = results[0] if isinstance(results, list) else results.get("results", [{}])[0]
+                        content = item.get("raw_content", item.get("content", ""))
+                        if content:
+                            if len(content) > 3000:
+                                content = content[:3000] + "\n...(省略)..."
+                            formatted_parts.append(f"## {url}\n\n{content}")
+                            continue
+                except Exception as e:
+                    print(f"  - Tavily Extract失敗 (URL: {url}): {e}")
+
+            # 3. フォールバック：BeautifulSoupでのスクレイピング
+            response = requests.get(url, timeout=15, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            for script in soup(["script", "style"]):
+                script.decompose()
+            
+            text = soup.get_text(separator='\n', strip=True)
+            if len(text) > 3000:
+                text = text[:3000] + "\n...(省略)..."
+            
+            formatted_parts.append(f"## {url}\n\n{text}")
+            
+        except Exception as e:
+            formatted_parts.append(f"## {url}\n\n[取得失敗: {e}]")
+
+    if not formatted_parts:
+        return "[情報: コンテンツを取得できませんでした]"
+    
+    final_response = "\n\n---\n\n".join(formatted_parts)
+    num_ok = sum(1 for p in formatted_parts if "[取得失敗" not in p)
+    
+    return f"**取得完了 ({num_ok}/{len(formatted_parts)}件)**\n\n{final_response}\n\n**読み取った情報を元に、ルシアンとして適切な回答を行ってください。**"

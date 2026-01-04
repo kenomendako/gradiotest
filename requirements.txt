@@ -20,6 +20,7 @@ langchain-community
 pandas==2.3.2
 beautifulsoup4==4.13.5
 lxml==6.0.2
+pypdf==5.1.0
 
 # --- Subprocess & Notifications ---
 psutil==7.1.0
