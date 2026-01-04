@@ -35,6 +35,7 @@ from episodic_memory_manager import EpisodicMemoryManager
 from action_plan_manager import ActionPlanManager  
 from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
 from tools.notification_tools import send_user_notification
+from tools.watchlist_tools import add_to_watchlist, remove_from_watchlist, get_watchlist, check_watchlist, update_watchlist_interval
 from dreaming_manager import DreamingManager
 from goal_manager import GoalManager
 from entity_memory_manager import EntityMemoryManager
@@ -71,7 +72,9 @@ all_tools = [
     schedule_next_action, cancel_action_plan, read_current_plan,
     send_user_notification,
     read_creative_notes, plan_creative_notes_edit,
-    read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory
+    read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory,
+    # ウォッチリストツール
+    add_to_watchlist, remove_from_watchlist, get_watchlist, check_watchlist, update_watchlist_interval
 ]
 
 side_effect_tools = [
@@ -686,6 +689,12 @@ def context_generator_node(state: AgentState):
         "write_entity_memory": "特定の対象に関する記憶を保存・更新する",
         "list_entity_memories": "記憶している対象の一覧を表示する",
         "search_entity_memory": "関連するエンティティ記憶を検索する",
+        # ウォッチリストツール
+        "add_to_watchlist": "URLをウォッチリストに追加する",
+        "remove_from_watchlist": "URLをウォッチリストから削除する",
+        "get_watchlist": "ウォッチリストを表示する",
+        "check_watchlist": "ウォッチリストの更新をチェックする",
+        "update_watchlist_interval": "URLの監視頻度を変更する",
     }
     tools_list_parts = []
     for tool in current_tools:
