@@ -2969,10 +2969,10 @@ try:
                     # df_dataがDataFrameの場合
                     if hasattr(df_data, "iloc"):
                         row = df_data.iloc[row_idx]
-                        selected_id = str(row[0])
-                        name = str(row[1])
-                        url = str(row[2])
-                        interval_display = str(row[3])
+                        selected_id = str(row.iloc[0])
+                        name = str(row.iloc[1])
+                        url = str(row.iloc[2])
+                        interval_display = str(row.iloc[3])
                     else:
                         # リストの場合
                         row = df_data[row_idx]
