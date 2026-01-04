@@ -40,9 +40,10 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
 ---
 
 ### 整理済み（2026-01-04）
-- [x] ルシアンによるNexus Ark機能改善要求書 Ver.1.0 → [Webエージェント機能強化計画](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md)へ移動
-  - 定期巡回エージェント、文脈分析エンジンの段階的実装を計画
-  - Phase 1: Tavily追加 + read_url_tool本格実装
+- [x] ルシアンによるNexus Ark機能改善要求書 Ver.1.0 → [Webエージェント機能強化計画](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md)
+  - ✅ Phase 1: Tavily追加 + read_url_tool本格実装 (2026-01-04)
+  - ✅ Phase 2: ウォッチリスト機能（自律監視・UI管理） (2026-01-04)
+  - 毎時15分の自動チェックと指定時刻監視を統合完了。
 
 ### 整理済み（2026-01-03）
 - [x] 世界設定保存時に通知がルーム名無しと有りで二つ出る ✅ (2026-01-03 修正完了)

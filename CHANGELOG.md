@@ -13,6 +13,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **read_url_tool本格実装**: Tavily ExtractまたはBeautifulSoupでURL内容を取得
 - **検索プロバイダ設定UI強化**: Tavily選択時にAPIキー入力欄を動的表示
 - **モジュール化されたプロバイダ構成**: Google/Tavily/DuckDuckGoを内部関数に分離
+
+#### 📋 ウォッチリスト機能の実装 (2026-01-04)
+- **ウォッチリスト管理（Phase 2）完全対応**: ルームごとのURL監視・変更検知機能
+- **AIツール対応**: `add_to_watchlist`, `check_watchlist`, `remove_from_watchlist`, `get_watchlist`, `update_watchlist_interval` の5ツールを導入
+- **管理UIの実装**: 個別設定タブ内にCRUD、一覧表示、オンデマンドチェックができるアコーディオンを追加
+- **高度な編集機能**: リスト選択時にURL・名前・頻度・指定時刻を自動復元し、そのまま更新可能
+- **定期実行統合**: 毎時15分に、設定された頻度（毎時、数時間おき、毎日指定時刻）に基づき `alarm_manager` が自動チェックし通知
+- **キャッシュ機構**: `watchlist_cache/` にて、変更検知用の前回取得コンテンツを自動保存・差分算出機能を実装
 - 依存関係: `pip install langchain-tavily` が必要（オプション）
 - 参照: [計画書](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md)
 

@@ -1,6 +1,6 @@
 # 📊 プロジェクトステータス
 
-> 最終更新: 2026-01-04
+> 最終更新: 2026-01-04 (Web監視機能追加)
 
 ---
 
@@ -27,6 +27,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2026-01-04 | **Webエージェント機能強化 (Phase 1 & 2)**<br>・Tavily高精度検索統合<br>・ウォッチリスト管理UI（追加/削除/編集）<br>・AIによる自動監視・変更検知ツール<br>・毎時15分の自動チェック・通知統合 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md) |
 | 2026-01-04 | API送信ログ「本日分」判定バグ修正（エピソード記憶との整合性確保） | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-04_today_log_bugfix.md) |
 | 2026-01-04 | **自律行動の発火停止・空応答問題を修正**<br>・現行ログ索引更新にタイムアウト追加<br>・空チャンクフィルタリング強化<br>・クールダウン判定厳密化 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-04_autonomous_action_fix.md) |
 | 2026-01-03 | **本日分ログ表示空白問題の修正 / バグ修正**<br>・「本日分」ログ表示の日付変更時空白問題<br>・起動時の不要な保存通知<br>・個別設定保存ボタン廃止（即時保存に統合）<br>・創作ノートのタイムスタンプ改良 | - |
