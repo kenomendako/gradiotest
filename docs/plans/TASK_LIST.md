@@ -218,9 +218,10 @@
   - 記憶想起で同じ内容が複数並ぶことがある
   - 重複排除ロジックの検証・改善が必要
 
-- [ ] **Web検索精度アップ** 🆕 (2026-01-03 INBOXより)
+- [ ] **Web検索精度アップ / Webエージェント機能強化** 🆕 (2026-01-03 INBOXより)
   - 現状の問題: URLが表示されない、断片的な情報が多い
-  - DDG以外の検索エンジン（Tavily等）の検討
+  - [計画書](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md): Tavily追加、ウォッチリスト機能、文脈分析エンジン
+  - Phase 1: Tavilyプロバイダ追加 + read_url_tool本格実装
 
 - [x] **起動時に「アバターモードを動画に変更しました」といちいち出てしまう**
   - ✅ 完了 (2025-12-29)

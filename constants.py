@@ -48,6 +48,15 @@ AUTO_SUMMARY_TARGET_LENGTH = 2500       # 要約の目標トークン数
 # --- ツール専用AIモデル ---
 SEARCH_MODEL = "gemini-2.5-flash"
 
+# --- 検索プロバイダ設定 ---
+SEARCH_PROVIDER_OPTIONS = {
+    "google": "Google (Gemini Native) - 有料プランでグラウンディング使用可",
+    "tavily": "Tavily - LLM最適化・高精度（無料枠: 月1000クレジット）",
+    "ddg": "DuckDuckGo - 高速・無料",
+    "disabled": "無効"
+}
+DEFAULT_SEARCH_PROVIDER = "ddg"  # デフォルトはDuckDuckGo（無料）
+
 # --- エピソード記憶設定 ---
 EPISODIC_MEMORY_OPTIONS = {
     "0": "なし（無効）",

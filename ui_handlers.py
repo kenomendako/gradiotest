@@ -318,18 +318,42 @@ DAY_MAP_EN_TO_JA = {"mon": "月", "tue": "火", "wed": "水", "thu": "木", "fri
 
 DAY_MAP_JA_TO_EN = {v: k for k, v in DAY_MAP_EN_TO_JA.items()}
 
-def handle_search_provider_change(provider: str) -> None:
+def handle_search_provider_change(provider: str):
     """
     検索プロバイダの変更をCONFIG_GLOBALとconfig.jsonに保存する。
+    Tavilyが選択された場合はAPIキー入力欄を表示する。
     """
     if config_manager.save_config_if_changed("search_provider", provider):
         config_manager.CONFIG_GLOBAL["search_provider"] = provider
         provider_names = {
             "google": "Google検索 (Gemini Native)",
+            "tavily": "Tavily",
             "ddg": "DuckDuckGo",
             "disabled": "無効化"
         }
         gr.Info(f"検索プロバイダを'{provider_names.get(provider, provider)}'に変更しました。")
+    
+    # Tavilyが選択された場合はAPIキー入力欄を表示
+    return gr.update(visible=(provider == "tavily"))
+
+
+def handle_save_tavily_key(api_key: str):
+    """
+    Tavily APIキーを保存する。
+    """
+    if not api_key or not api_key.strip():
+        gr.Warning("APIキーが空です。")
+        return
+    
+    api_key = api_key.strip()
+    
+    # config.jsonに保存
+    if config_manager.save_config_if_changed("tavily_api_key", api_key):
+        # グローバル変数も更新
+        config_manager.TAVILY_API_KEY = api_key
+        gr.Info("Tavily APIキーを保存しました。")
+    else:
+        gr.Info("Tavily APIキーは既に保存されています。")
 
 def _get_location_choices_for_ui(room_name: str) -> list:
     """

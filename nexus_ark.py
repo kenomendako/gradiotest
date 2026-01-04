@@ -565,18 +565,28 @@ try:
                             )
 
                         with gr.Accordion("🔍 検索プロバイダ設定", open=False):
-                            current_search_provider = config_manager.CONFIG_GLOBAL.get("search_provider", "google")
+                            current_search_provider = config_manager.CONFIG_GLOBAL.get("search_provider", constants.DEFAULT_SEARCH_PROVIDER)
+                            # constants.pyの定数からUI用の選択肢を生成
+                            search_provider_choices = [(label, key) for key, label in constants.SEARCH_PROVIDER_OPTIONS.items()]
                             search_provider_radio = gr.Radio(
-                                choices=[
-                                    ("Google (Gemini Native) - 無料枠では制限あり", "google"),
-                                    ("DuckDuckGo - 高速・安定", "ddg"),
-                                    ("無効", "disabled")
-                                ],
+                                choices=search_provider_choices,
                                 value=current_search_provider,
                                 label="Web検索プロバイダ (web_search_tool)",
                                 interactive=True,
-                                info="「無効」にすると、AIはWeb検索を行えなくなります。"
+                                info="AIがWeb検索を行う際に使用するサービスを選択します。"
                             )
+                            
+                            # Tavily APIキー入力欄（Tavilyが選択されている時のみ表示）
+                            with gr.Group(visible=(current_search_provider == "tavily")) as tavily_api_key_group:
+                                gr.Markdown("💡 **Tavily APIキー**: [tavily.com](https://tavily.com) で無料アカウントを作成してAPIキーを取得してください（月1000クレジット無料）。")
+                                tavily_api_key_input = gr.Textbox(
+                                    label="Tavily APIキー",
+                                    type="password",
+                                    placeholder="tvly-...",
+                                    value=config_manager.TAVILY_API_KEY or "",
+                                    interactive=True
+                                )
+                                save_tavily_key_button = gr.Button("Tavily APIキーを保存", variant="primary", size="sm")
 
 
                         with gr.Accordion("📢 通知サービス設定", open=False):
@@ -3574,6 +3584,12 @@ try:
         search_provider_radio.change(
             fn=ui_handlers.handle_search_provider_change,
             inputs=[search_provider_radio],
+            outputs=[tavily_api_key_group]
+        )
+        
+        save_tavily_key_button.click(
+            fn=ui_handlers.handle_save_tavily_key,
+            inputs=[tavily_api_key_input],
             outputs=None
         )
 

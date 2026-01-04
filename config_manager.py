@@ -13,6 +13,7 @@ import constants
 # --- グローバル変数 ---
 CONFIG_GLOBAL = {}
 GEMINI_API_KEYS = {}
+TAVILY_API_KEY = ""  # Tavily検索用APIキー
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = "gemini-2.5-flash"
 NOTIFICATION_SERVICE_GLOBAL = "discord"
@@ -503,7 +504,7 @@ def _get_default_config() -> dict:
 
 # --- メインの読み込み関数 (真・最終版) ---
 def load_config():
-    global CONFIG_GLOBAL, GEMINI_API_KEYS, initial_api_key_name_global, initial_room_global, initial_model_global
+    global CONFIG_GLOBAL, GEMINI_API_KEYS, TAVILY_API_KEY, initial_api_key_name_global, initial_room_global, initial_model_global
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_streaming_speed_global
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
@@ -582,7 +583,8 @@ def load_config():
         ],
         "default_model": "gemini-2.5-flash",
         "image_generation_mode": "new", 
-        "search_provider": "google",
+        "search_provider": constants.DEFAULT_SEARCH_PROVIDER,
+        "tavily_api_key": "",  # Tavily検索用APIキー
         "last_room": "Default",
         "last_model": "gemini-2.5-flash",
         "last_api_key_name": None,
@@ -725,6 +727,8 @@ def load_config():
     GEMINI_API_KEYS = config.get("gemini_api_keys", {})
     if not GEMINI_API_KEYS:
         GEMINI_API_KEYS = {"your_key_name": "YOUR_API_KEY_HERE"}
+
+    TAVILY_API_KEY = config.get("tavily_api_key", "")
 
     AVAILABLE_MODELS_GLOBAL = config.get("available_models")
     DEFAULT_MODEL_GLOBAL = config.get("default_model")
