@@ -30,6 +30,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2026-01-04 | API送信ログ「本日分」判定バグ修正（エピソード記憶との整合性確保） | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-04_today_log_bugfix.md) |
 | 2026-01-02 | Goal Memory & Multi-Layer Self-Reflection実装、記憶システム仕様書・紹介記事作成 | - |
 | 2025-12-31 | ユーザー添付画像リサイズ機能（768px上限、元形式維持） | - |
 | 2025-12-31 | 日記検索のRAG化（`search_memory`をベクトル検索に変更） | - |
