@@ -2955,11 +2955,22 @@ try:
             outputs=[watchlist_dataframe, watchlist_status]
         )
         
-        # DataFrameの行選択イベント
-        def on_watchlist_select(evt: gr.SelectData, df_data):
-            if evt and evt.index is not None and df_data is not None:
-                row_idx = evt.index[0] if isinstance(evt.index, tuple) else evt.index
-                if row_idx < len(df_data):
+        # DataFrameの行選択イベント（Golden Contract準拠）
+        def on_watchlist_select(df_data, evt: gr.SelectData):
+            if evt is None or evt.index is None or df_data is None:
+                return ""
+            
+            # evt.indexはタプル(row, col)または単一の整数の場合がある
+            idx = evt.index
+            if isinstance(idx, tuple):
+                row_idx = idx[0]
+            elif isinstance(idx, list):
+                row_idx = idx[0] if len(idx) > 0 else None
+            else:
+                row_idx = idx
+            
+            if row_idx is not None and isinstance(row_idx, int):
+                if 0 <= row_idx < len(df_data):
                     return df_data[row_idx][0]  # 最初の列(ID)を返す
             return ""
         
