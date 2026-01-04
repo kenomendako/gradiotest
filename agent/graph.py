@@ -1106,7 +1106,7 @@ def agent_node(state: AgentState):
                                 text_parts.append(text_val)
                         elif p_type in ("thought", "thinking"):
                             t_text = part.get("thinking") or part.get("thought", "")
-                            if t_text:
+                            if t_text and t_text.strip():  # 空白のみを除外
                                 thought_buffer.append(t_text)
                                 is_collecting_thought = True
             
@@ -1147,8 +1147,9 @@ def agent_node(state: AgentState):
             # ▲▲▲ [Gemini 3 Debug] ここまで ▲▲▲
             
             # ▼▼▼ [異常検知ログ] デバッグモード不要、チャンク受信したのにテキスト抽出が0件の場合のみ出力 ▼▼▼
-            if len(chunks) > 0 and not text_parts and not all_tool_calls_chunks:
-                print(f"  - ⚠️ [ANOMALY] {len(chunks)}チャンク受信したが、抽出テキストおよびツール呼び出しが0件でした。")
+            # combined_text.strip() が空であることを確認
+            if len(chunks) > 0 and not combined_text.strip() and not all_tool_calls_chunks:
+                print(f"  - ⚠️ [ANOMALY] {len(chunks)}チャンク受信したが、有効な抽出テキストおよびツール呼び出しが0件でした。")
                 print("  - 以下、先頭3チャンクの構造（デバッグモード不要）:")
                 for idx, chunk in enumerate(chunks[:3]):
                     content = chunk.content

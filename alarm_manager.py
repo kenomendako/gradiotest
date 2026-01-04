@@ -561,7 +561,10 @@ def check_autonomous_actions():
             should_trigger = should_contact or elapsed_minutes >= inactivity_limit
             
             if should_trigger:
-                # 重複発火防止チェック: 最低でも inactivity_limit 分は間隔を空ける
+                # 重複発火防止チェック: 最低でも MIN_AUTONOMOUS_INTERVAL_MINUTES 分は間隔を空ける
+                # auto_settings 内に個別の inactivity_minutes があればそれを使用、なければ定数を使用
+                cooldown_minutes = auto_settings.get("inactivity_minutes", constants.MIN_AUTONOMOUS_INTERVAL_MINUTES)
+                
                 # まずメモリ上の変数をチェック、なければ永続化データをチェック
                 last_trigger = _last_autonomous_trigger_time.get(room_folder)
                 if not last_trigger:
@@ -573,12 +576,15 @@ def check_autonomous_actions():
                 
                 if last_trigger:
                     minutes_since_trigger = (now - last_trigger).total_seconds() / 60
-                    if minutes_since_trigger < inactivity_limit:
+                    if minutes_since_trigger < cooldown_minutes:
+                        # クールダウン中のスキップはログ出力（想定外の頻繁発火の兆候を検知）
+                        print(f"  ⏳ {room_folder}: クールダウン中 ({minutes_since_trigger:.0f}分/{cooldown_minutes}分) - スキップ")
                         continue  # まだ間隔が空いていないのでスキップ
                 
                 quiet_start = auto_settings.get("quiet_hours_start", "00:00")
                 quiet_end = auto_settings.get("quiet_hours_end", "07:00")
                 is_quiet = utils.is_in_quiet_hours(quiet_start, quiet_end)
+
                 
                 if is_quiet:
                     # --- [Project Morpheus] 夢想モード ---
@@ -640,13 +646,28 @@ def check_autonomous_actions():
                             print(f"  🌙 {room_folder}: 現行ログ索引を更新中...")
                             try:
                                 import rag_manager
-                                rm = rag_manager.RAGManager(room_folder, api_key_val)
-                                # ジェネレーターを消費して完了を待つ
-                                for batch_num, total_batches, status in rm.update_current_log_index_with_progress():
-                                    if batch_num == total_batches:
-                                        print(f"  ✅ {room_folder}: {status}")
+                                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+                                
+                                def run_current_log_index_update():
+                                    rm = rag_manager.RAGManager(room_folder, api_key_val)
+                                    result = None
+                                    for batch_num, total_batches, status in rm.update_current_log_index_with_progress():
+                                        if batch_num == total_batches:
+                                            result = status
+                                    return result
+                                
+                                # タイムアウト付きで実行（最大10分）
+                                with ThreadPoolExecutor(max_workers=1) as executor:
+                                    future = executor.submit(run_current_log_index_update)
+                                    try:
+                                        result = future.result(timeout=600)  # 10分
+                                        if result:
+                                            print(f"  ✅ {room_folder}: {result}")
+                                    except FuturesTimeoutError:
+                                        print(f"  ⚠️ {room_folder}: 現行ログ索引更新がタイムアウトしました（10分経過）。次回に再試行します。")
                             except Exception as e:
                                 print(f"  ❌ {room_folder}: 現行ログ索引更新エラー - {e}")
+
                         
 
                         

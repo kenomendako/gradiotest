@@ -26,6 +26,9 @@ API_HISTORY_LIMIT_OPTIONS = {"today": "本日分", "1": "1往復", "3": "3往復
 DEFAULT_API_HISTORY_LIMIT_OPTION = "20"
 DEFAULT_ALARM_API_HISTORY_TURNS = 10
 
+# --- 自律行動設定 ---
+MIN_AUTONOMOUS_INTERVAL_MINUTES = 120  # 自律行動の最小実行間隔（分）
+
 # --- 内部処理用AIモデル ---
 INTERNAL_PROCESSING_MODEL = "gemini-2.5-flash-lite"
 SUMMARIZATION_MODEL = "gemini-2.5-flash"          # 高品質（要約、文章生成など）
