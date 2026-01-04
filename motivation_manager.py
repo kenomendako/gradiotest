@@ -352,9 +352,14 @@ class MotivationManager:
     # ========================================
     
     def update_last_interaction(self):
-        """最終対話時刻を更新（退屈度リセット）"""
-        self._state["drives"]["boredom"]["last_interaction"] = datetime.datetime.now().isoformat()
+        """最終対話時刻を更新（退屈度リセット ＆ 自律行動タイマーリセット）"""
+        now = datetime.datetime.now()
+        self._state["drives"]["boredom"]["last_interaction"] = now.isoformat()
         self._state["drives"]["boredom"]["level"] = 0.0
+        
+        # ユーザーと会話した＝自律行動と同じ効果（クールダウン開始）とみなす
+        self.set_last_autonomous_trigger(now)
+        
         self._save_state()
     
     def add_open_question(self, topic: str, context: str = "", priority: float = 0.5):
