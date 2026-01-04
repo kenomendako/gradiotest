@@ -890,6 +890,56 @@ try:
                                 room_quiet_hours_start = gr.Dropdown(choices=time_options, value="00:00", label="開始時刻", interactive=True)
                                 room_quiet_hours_end = gr.Dropdown(choices=time_options, value="07:00", label="終了時刻", interactive=True) 
 
+                        # --- ウォッチリスト管理 ---
+                        with gr.Accordion("📋 ウォッチリスト管理", open=False) as watchlist_accordion:
+                            gr.Markdown("監視対象URLを管理します。AIに「〇〇を監視リストに追加して」と言うこともできます。")
+                            
+                            with gr.Row():
+                                watchlist_url_input = gr.Textbox(
+                                    label="URL",
+                                    placeholder="https://example.com/page",
+                                    scale=3
+                                )
+                                watchlist_name_input = gr.Textbox(
+                                    label="表示名",
+                                    placeholder="例: 公式ブログ",
+                                    scale=2
+                                )
+                                watchlist_interval_dropdown = gr.Dropdown(
+                                    choices=[
+                                        ("手動のみ", "manual"),
+                                        ("1時間ごと", "hourly_1"),
+                                        ("3時間ごと", "hourly_3"),
+                                        ("6時間ごと", "hourly_6"),
+                                        ("12時間ごと", "hourly_12"),
+                                        ("毎日指定時刻", "daily"),
+                                    ],
+                                    value="manual",
+                                    label="監視頻度",
+                                    scale=1
+                                )
+                            
+                            with gr.Row():
+                                watchlist_add_button = gr.Button("➕ 追加", variant="primary", scale=1)
+                                watchlist_check_button = gr.Button("🔄 全件チェック", variant="secondary", scale=1)
+                                watchlist_refresh_button = gr.Button("🔃 一覧を更新", variant="secondary", scale=1)
+                            
+                            watchlist_status = gr.Textbox(label="ステータス", interactive=False, max_lines=2)
+                            
+                            gr.Markdown("### 登録済みURL一覧")
+                            watchlist_dataframe = gr.Dataframe(
+                                headers=["ID", "名前", "URL", "頻度", "最終確認", "有効"],
+                                datatype=["str", "str", "str", "str", "str", "bool"],
+                                interactive=False,
+                                wrap=True,
+                                row_count=(5, "dynamic"),
+                                col_count=(6, "fixed")
+                            )
+                            
+                            with gr.Row():
+                                watchlist_selected_id = gr.Textbox(label="選択中のID", visible=False)
+                                watchlist_delete_button = gr.Button("🗑️ 選択したURLを削除", variant="stop", scale=1)
+
                     with gr.TabItem("デザイン") as theme_tab:
                         # チェックボックスをタブの最上部に配置
                         room_theme_enabled_checkbox = gr.Checkbox(label="個別テーマを有効にする", value=False, interactive=True)
@@ -1657,56 +1707,6 @@ try:
                                 info="会話から「気になること」を抽出し、好奇心の源泉として記録"
                             )
 
-
-                        # --- ウォッチリスト管理 ---
-                        with gr.Accordion("📋 ウォッチリスト管理", open=False) as watchlist_accordion:
-                            gr.Markdown("監視対象URLを管理します。AIに「〇〇を監視リストに追加して」と言うこともできます。")
-                            
-                            with gr.Row():
-                                watchlist_url_input = gr.Textbox(
-                                    label="URL",
-                                    placeholder="https://example.com/page",
-                                    scale=3
-                                )
-                                watchlist_name_input = gr.Textbox(
-                                    label="表示名",
-                                    placeholder="例: 公式ブログ",
-                                    scale=2
-                                )
-                                watchlist_interval_dropdown = gr.Dropdown(
-                                    choices=[
-                                        ("手動のみ", "manual"),
-                                        ("1時間ごと", "hourly_1"),
-                                        ("3時間ごと", "hourly_3"),
-                                        ("6時間ごと", "hourly_6"),
-                                        ("12時間ごと", "hourly_12"),
-                                        ("毎日指定時刻", "daily"),
-                                    ],
-                                    value="manual",
-                                    label="監視頻度",
-                                    scale=1
-                                )
-                            
-                            with gr.Row():
-                                watchlist_add_button = gr.Button("➕ 追加", variant="primary", scale=1)
-                                watchlist_check_button = gr.Button("🔄 全件チェック", variant="secondary", scale=1)
-                                watchlist_refresh_button = gr.Button("🔃 一覧を更新", variant="secondary", scale=1)
-                            
-                            watchlist_status = gr.Textbox(label="ステータス", interactive=False, max_lines=2)
-                            
-                            gr.Markdown("### 登録済みURL一覧")
-                            watchlist_dataframe = gr.Dataframe(
-                                headers=["ID", "名前", "URL", "頻度", "最終確認", "有効"],
-                                datatype=["str", "str", "str", "str", "str", "bool"],
-                                interactive=False,
-                                wrap=True,
-                                row_count=(5, "dynamic"),
-                                col_count=(6, "fixed")
-                            )
-                            
-                            with gr.Row():
-                                watchlist_selected_id = gr.Textbox(label="選択中のID", visible=False)
-                                watchlist_delete_button = gr.Button("🗑️ 選択したURLを削除", variant="stop", scale=1)
 
                         # --- [Phase 14] 🛠️ 記憶のメンテナンス (手動実行) ---
                         with gr.Accordion("🛠️ 記憶のメンテナンス (手動実行)", open=False) as maintenance_accordion:
