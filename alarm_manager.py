@@ -131,7 +131,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
 
     print(f"⏰ アラーム発火. ID: {alarm_id}, ルーム: {room_name}, コンテキスト: '{context_to_use}'")
 
-    log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    log_f, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
     api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name)
 
     if not log_f or not api_key:
@@ -292,7 +292,7 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
     
     print(f"🤖 自律行動トリガー: {room_name} (Quiet: {quiet_mode})")
     
-    log_f, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    log_f, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     
     if not log_f or not api_key: return

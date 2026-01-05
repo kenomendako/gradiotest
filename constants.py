@@ -14,6 +14,7 @@ AVATAR_DIR = "avatar"  # キャラクターフォルダ内のアバター動画�
 PROFILE_IMAGE_FILENAME = "profile.png"
 MEMORY_FILENAME = "memory.txt"
 NOTEPAD_FILENAME = "notepad.md"
+RESEARCH_NOTES_FILENAME = "research_notes.md"  # Phase 3: 研究・分析ノート
 CONFIG_FILE = "config.json"
 ALARMS_FILE = "alarms.json"
 REDACTION_RULES_FILE = "redaction_rules.json"

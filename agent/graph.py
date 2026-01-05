@@ -509,7 +509,7 @@ def context_generator_node(state: AgentState):
     if state.get("send_notepad", True):
         try:
             from room_manager import get_room_files_paths
-            _, _, _, _, notepad_path = get_room_files_paths(room_name)
+            _, _, _, _, notepad_path, _ = get_room_files_paths(room_name)
             if notepad_path and os.path.exists(notepad_path):
                 with open(notepad_path, 'r', encoding='utf-8') as f:
                     content = f.read().strip()

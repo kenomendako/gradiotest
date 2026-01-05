@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added - 新機能
 
+#### 🔬 文脈分析・統合エンジン基盤整備 (Phase 3 Step 1-3) (2026-01-05)
+- **`research_notes.md` パス追加**: `get_room_files_paths` の戻り値を5変数から6変数に拡張
+- **`RESEARCH_NOTES_FILENAME` 定数追加**: `constants.py` に研究ノート用ファイル名を定義
+- **全ファイルのアンパック修正**: 20+箇所の呼び出し元を6変数対応に更新
+- 今後 Phase 3 Step 4-5（UI・ハンドラ・分析フロー）を実装予定
+
 #### 🔍 Tavily検索プロバイダ対応 (2026-01-04)
 - **Tavilyを検索プロバイダに追加**: LLM最適化された高精度検索（無料枠: 月1000クレジット）
 - **read_url_tool本格実装**: Tavily ExtractまたはBeautifulSoupでURL内容を取得
