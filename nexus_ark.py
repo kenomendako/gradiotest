@@ -2533,6 +2533,7 @@ try:
             sleep_consolidation_current_log_cb,
             sleep_consolidation_entity_memory_cb,
             sleep_consolidation_compress_cb,
+            sleep_consolidation_extract_questions_cb,  # 追加: 未解決の問い抽出
             room_auto_summary_checkbox,
             room_auto_summary_threshold_slider,
         ]
@@ -2674,11 +2675,19 @@ try:
             fn=ui_handlers.handle_context_settings_change,
             inputs=context_token_calc_inputs,
             outputs=token_count_display
+        ).then(
+            fn=lambda *args: ui_handlers.handle_save_room_settings(*args, silent=False, force_notify=False),
+            inputs=room_individual_settings_inputs,
+            outputs=None
         )
         room_auto_summary_threshold_slider.change(
             fn=ui_handlers.handle_context_settings_change,
             inputs=context_token_calc_inputs,
             outputs=token_count_display
+        ).then(
+            fn=lambda *args: ui_handlers.handle_save_room_settings(*args, silent=False, force_notify=False),
+            inputs=room_individual_settings_inputs,
+            outputs=None
         )
 
         # model_dropdownのイベント
