@@ -51,6 +51,7 @@ from agent.graph import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
 from episodic_memory_manager import EpisodicMemoryManager
+from motivation_manager import MotivationManager
 
 # --- 通知デバウンス用 ---
 # 同一ルームへの連続通知を抑制するための変数
@@ -1579,6 +1580,13 @@ def _stream_and_handle_response(
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         add_timestamp = effective_settings.get("add_timestamp", False)
         display_thoughts = effective_settings.get("display_thoughts", True)
+        
+        # [クールダウンリセット] 通常会話完了時に自律行動タイマーをリセット
+        try:
+            MotivationManager(soul_vessel_room).update_last_interaction()
+            print(f"--- [MotivationManager] {soul_vessel_room}: 対話完了によりクールダウンをリセットしました ---")
+        except Exception as e:
+            print(f"--- [MotivationManager] クールダウンリセットエラー: {e} ---")
         
         # 【修正】タイプライター完了時は既に正しい履歴がyieldされているので、再読み込みをスキップ
         if typewriter_completed_successfully:
