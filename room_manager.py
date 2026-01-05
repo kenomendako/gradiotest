@@ -228,8 +228,14 @@ def get_room_config(folder_name: str) -> Optional[dict]:
     return None
 
 
-def get_room_files_paths(room_name: str) -> Optional[Tuple[str, str, Optional[str], str, str]]:
-    if not room_name or not ensure_room_files(room_name): return None, None, None, None, None
+def get_room_files_paths(room_name: str) -> Optional[Tuple[str, str, Optional[str], str, str, str]]:
+    """
+    ルームの主要ファイルパスを取得する。
+    
+    Returns:
+        (log_file, system_prompt_file, profile_image_path, memory_main_path, notepad_path, research_notes_path)
+    """
+    if not room_name or not ensure_room_files(room_name): return None, None, None, None, None, None
     base_path = os.path.join(constants.ROOMS_DIR, room_name)
     log_file = os.path.join(base_path, "log.txt")
     system_prompt_file = os.path.join(base_path, "SystemPrompt.txt")
@@ -237,8 +243,9 @@ def get_room_files_paths(room_name: str) -> Optional[Tuple[str, str, Optional[st
     # memory.txt へのパスを memory/memory_main.txt に変更
     memory_main_path = os.path.join(base_path, "memory", "memory_main.txt")
     notepad_path = os.path.join(base_path, constants.NOTEPAD_FILENAME)
+    research_notes_path = os.path.join(base_path, constants.RESEARCH_NOTES_FILENAME)
     if not os.path.exists(profile_image_path): profile_image_path = None
-    return log_file, system_prompt_file, profile_image_path, memory_main_path, notepad_path
+    return log_file, system_prompt_file, profile_image_path, memory_main_path, notepad_path, research_notes_path
 
 def get_world_settings_path(room_name: str):
     if not room_name or not ensure_room_files(room_name): return None
@@ -253,7 +260,7 @@ def get_all_personas_in_log(main_room_name: str, api_history_limit_key: str) -> 
     if not main_room_name:
         return []
 
-    log_file_path, _, _, _, _ = get_room_files_paths(main_room_name)
+    log_file_path, _, _, _, _, _ = get_room_files_paths(main_room_name)
     if not log_file_path or not os.path.exists(log_file_path):
         # ログファイルがない場合、ルーム名自体をペルソナと見なす
         # これは、room_config.json の main_persona_name を参照する将来の実装への布石

@@ -93,7 +93,7 @@ class DreamingManager:
         
         # 1. 必要なファイルパスと設定の取得
         summary_manager.clear_today_summary(self.room_name)
-        log_path, system_prompt_path, _, _, _ = room_manager.get_room_files_paths(self.room_name)
+        log_path, system_prompt_path, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
         if not log_path or not os.path.exists(log_path):
             return "ログファイルがありません。"
 

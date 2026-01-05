@@ -165,7 +165,7 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
                         print(f"--- [Avatar] idle画像読み込みエラー: {e} ---")
         
         # 3. それでもなければ従来の profile.png にフォールバック
-        _, _, profile_image_path, _, _ = get_room_files_paths(room_name)
+        _, _, profile_image_path, _, _, _ = get_room_files_paths(room_name)
         if profile_image_path and os.path.exists(profile_image_path):
             try:
                 with open(profile_image_path, "rb") as f:
