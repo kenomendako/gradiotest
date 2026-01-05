@@ -1331,3 +1331,38 @@ has_images = any(isinstance(p, dict) and p.get('type') in ('file', 'image_url') 
 - `ui_handlers.py`: `handle_message_submission`（画像を`image_url`形式でエンコード）
 - `gemini_api.py`: `invoke_nexus_agent_stream`（検出条件の修正箇所）
 
+---
+
+## レッスン41：`get_room_files_paths` は6変数でアンパックせよ（2026-01-05）
+
+### 概要
+
+`room_manager.get_room_files_paths()` の戻り値が **5変数から6変数に拡張** された。Phase 3「文脈分析・統合エンジン」の基盤として、`research_notes_path` が追加された。
+
+### 戻り値の構造
+
+```python
+# ✅ 正しい（6変数）
+log_file, system_prompt_file, profile_image_path, memory_main_path, notepad_path, research_notes_path = get_room_files_paths(room_name)
+
+# ✅ 使わない変数は _ で受ける
+log_f, _, _, _, _, _ = get_room_files_paths(room_name)
+
+# ❌ 誤り（5変数 - ValueError発生）
+log_f, _, _, _, _ = get_room_files_paths(room_name)
+```
+
+### 位置と用途
+
+| 位置 | 変数名 | パス | 用途 |
+|------|--------|------|------|
+| 1 | `log_file` | `characters/{room}/log.txt` | 会話ログ |
+| 2 | `system_prompt_file` | `characters/{room}/SystemPrompt.txt` | ペルソナ定義 |
+| 3 | `profile_image_path` | `characters/{room}/profile.png` | プロフィール画像（存在しなければNone） |
+| 4 | `memory_main_path` | `characters/{room}/memory/memory_main.txt` | 永続記憶 |
+| 5 | `notepad_path` | `characters/{room}/notepad.md` | 短期メモ |
+| 6 | `research_notes_path` | `characters/{room}/research_notes.md` | 研究・分析ノート（Phase 3用） |
+
+### 重要
+
+新規に `get_room_files_paths` を呼び出すコードを書く場合は、**必ず6変数でアンパック**すること。詳細は [技術レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_get_room_files_paths_6var.md) を参照。
