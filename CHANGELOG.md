@@ -160,6 +160,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - 空チャンクのフィルタリングを強化し、不要な空メッセージ生成を抑制
 - クールダウン判定を厳密化し、`MIN_AUTONOMOUS_INTERVAL_MINUTES` 定数を導入
 
+#### 🤖 自律行動クールダウンが通常会話でリセットされない問題を修正 (2026-01-05)
+- `MotivationManager.update_last_interaction()` が通常会話処理から呼び出されていなかった問題を修正
+- `ui_handlers.py` の `_stream_and_handle_response` の finally ブロックで呼び出すように変更
+- これにより、ユーザーとの対話後に自律行動のクールダウンが正しくリセットされる
+
 #### 🛠️ ワールド設定保存の二重通知を修正 (2026-01-03)
 - `world_builder.py` と `ui_handlers.py` で重複していた通知を一元化
 - ワールド・ビルダーで保存時に通知が1回だけ表示されるよう修正
