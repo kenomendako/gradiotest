@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - 次回リリース予定
 
+### Fixed - バグ修正
+
+#### ツール結果の誤ったエラー表示を修正 (2026-01-05)
+- **問題**: Web検索などの結果に偶然「Error」という単語が含まれている場合（例: "trial and error"など）、ツールの実行自体は成功しているのに「ツールの実行に失敗しました」と誤表示されていた
+- **修正**: エラー判定を厳密化。「行頭の `Error:`」「`failed to`」「`に失敗しました`」など、実際のエラーメッセージに特有のパターンのみを検出するよう変更
+- **ファイル**: `utils.py` の `format_tool_result_for_ui` 関数
+
 ### Added - 新機能
 
 #### 🔍 Tavily検索プロバイダ対応 (2026-01-04)

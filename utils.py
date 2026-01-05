@@ -336,7 +336,24 @@ def save_scenery_cache(room_name: str, cache_key: str, location_name: str, scene
 
 def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]:
     if not tool_name or not tool_result: return None
-    if "Error" in tool_result or "エラー" in tool_result: return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
+    
+    # エラー判定：ツールの実行エラー特有のパターンのみを検出
+    # 一般的な文章中の "Error" や "エラー" を誤検出しないよう、より厳密なパターンにする
+    error_patterns = [
+        r"^Error:",           # 行頭の "Error:"
+        r"^エラー:",           # 行頭の "エラー:"
+        r"ツールエラー",        # ツール実行時のエラー
+        r"実行エラー",          # 実行時エラー
+        r"Exception:",         # Python例外
+        r"failed to",          # 失敗パターン（英語）
+        r"に失敗しました",      # 失敗パターン（日本語）
+        r"could not",          # 失敗パターン（英語）
+        r"できませんでした",    # 失敗パターン（日本語）
+    ]
+    for pattern in error_patterns:
+        if re.search(pattern, tool_result, re.IGNORECASE | re.MULTILINE):
+            return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
+    
     display_text = ""
     if tool_name == 'set_current_location':
         location_match = re.search(r"現在地は '(.*?)' に設定されました", tool_result)
