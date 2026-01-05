@@ -1,6 +1,6 @@
 # 📊 プロジェクトステータス
 
-> 最終更新: 2026-01-04 (Web監視機能追加)
+> 最終更新: 2026-01-05 (スケジューラバグ修正)
 
 ---
 
@@ -27,6 +27,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2026-01-05 | **スケジューラ関連バグ修正**<br>・ウォッチリスト「毎日指定時刻」巡回が発火しない問題<br>・自律行動クールダウンが通常会話でリセットされない問題（呼び出し欠落＋キャッシュ同期問題） | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_scheduler_bugfixes.md) |
 | 2026-01-05 | **Webエージェント機能強化 (Phase 2 + PDF対応)**<br>・Tavily高精度検索統合<br>・ウォッチリスト管理UI（追加/削除/編集）<br>・AIによる自動監視・変更検知ツール<br>・毎時15分の自動チェック・通知統合<br>・**PDF読み取り機能（pypdf統合）** | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_web_agent_phase2_complete.md) |
 | 2026-01-04 | API送信ログ「本日分」判定バグ修正（エピソード記憶との整合性確保） | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-04_today_log_bugfix.md) |
 | 2026-01-04 | **自律行動の発火停止・空応答問題を修正**<br>・現行ログ索引更新にタイムアウト追加<br>・空チャンクフィルタリング強化<br>・クールダウン判定厳密化 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-04_autonomous_action_fix.md) |
