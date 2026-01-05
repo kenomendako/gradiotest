@@ -163,6 +163,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 #### 🤖 自律行動クールダウンが通常会話でリセットされない問題を修正 (2026-01-05)
 - `MotivationManager.update_last_interaction()` が通常会話処理から呼び出されていなかった問題を修正
 - `ui_handlers.py` の `_stream_and_handle_response` の finally ブロックで呼び出すように変更
+- `alarm_manager.py` がメモリキャッシュを優先していた問題を修正（常に永続化データを参照するように変更）
 - これにより、ユーザーとの対話後に自律行動のクールダウンが正しくリセットされる
 
 #### 🛠️ ワールド設定保存の二重通知を修正 (2026-01-03)
