@@ -657,4 +657,32 @@ def handle_something_change(room_name: str, new_mode: str):
 
     「実装した」と「使われている」は異なる。`grep` でプロジェクト全体を検索し、呼び出し箇所を必ず確認すること。
 
+---
 
+## 教訓 45: ユーティリティ関数の戻り値を変更したら、全ての呼び出し元を更新せよ (2026-01-05)
+
+*   **発生した問題:**
+    `room_manager.get_room_files_paths()` の戻り値を5変数から6変数に拡張した際、プロジェクト全体で20+箇所の呼び出し元が存在し、一部を見落としたため起動時に `ValueError: too many values to unpack` が発生した。
+
+*   **原因:**
+    単純な `grep` 検索では全てのパターンを捕捉できなかった。スペースの有無、変数名のパターンなど、呼び出し形式のバリエーションを考慮していなかった。
+
+*   **解決アーキテクチャ:**
+    Pythonスクリプトによる一括自動修正を実施。正規表現でカンマの数を数え、5変数アンパック（4カンマ）を6変数（5カンマ）に一括変換した。
+
+    ```python
+    # 5変数 → 6変数の自動変換例
+    # 変更前: log_f, _, _, _, _ = get_room_files_paths(room_name)
+    # 変更後: log_f, _, _, _, _, _ = get_room_files_paths(room_name)
+    ```
+
+*   **教訓:**
+    広く使われるユーティリティ関数の戻り値を変更する場合：
+    1. **変更前に全呼び出し元を洗い出す**: `grep -r "get_room_files_paths" --include="*.py"` で全箇所をリスト化
+    2. **自動修正スクリプトを使う**: 手動修正は漏れの原因。パターンマッチによる一括置換が安全
+    3. **コンパイルチェックを必ず実行**: `python -m py_compile` で構文エラーを早期発見
+    4. **ドキュメントを更新**: 今後の開発者のため、`gradio_notes.md` に戻り値仕様を明記
+
+*   **関連ドキュメント:**
+    - [レッスン41: get_room_files_paths は6変数でアンパックせよ](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gradio_notes.md#レッスン41get_room_files_paths-は6変数でアンパックせよ2026-01-05)
+    - [技術レポート: get_room_files_paths 6変数化](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_get_room_files_paths_6var.md)
