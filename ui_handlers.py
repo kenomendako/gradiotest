@@ -406,7 +406,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     if not has_valid_key:
         return (
             room_name, [], [], gr.update(interactive=False, placeholder="まず、左の「設定」からAPIキーを設定してください。"),
-            get_avatar_html(room_name, state="idle"), "", "", "", "", "",
+            get_avatar_html(room_name, state="idle"), "", "", "", "", "", "",
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
@@ -578,6 +578,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     profile_image = get_avatar_html(room_name, state="idle")
     notepad_content = load_notepad_content(room_name)
     creative_notes_content = load_creative_notes_content(room_name)
+    research_notes_content = load_research_notes_content(room_name)
     
     # location_dd_val を、ファイルから読み込んだ（または初期化した）値に修正
     location_dd_val = current_location_from_file
@@ -663,7 +664,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         room_name, chat_history, mapping_list,
         gr.update(interactive=True, placeholder="メッセージを入力してください (Shift+Enterで送信)。添付するにはファイルをドロップまたはクリップボタンを押してください..."),
         profile_image,
-        memory_str, notepad_content, creative_notes_content, load_system_prompt_content(room_name),
+        memory_str, notepad_content, creative_notes_content, research_notes_content, load_system_prompt_content(room_name),
         core_memory_content,
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
         gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
@@ -786,7 +787,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 156):
+def handle_initial_load(room_name: str = None, expected_count: int = 157):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -3685,6 +3686,63 @@ def handle_clear_creative_notes(room_name: str) -> str:
         gr.Info(f"「{room_name}」の創作ノートを空にしました。"); return ""
     except Exception as e: gr.Error(f"創作ノートクリアエラー: {e}"); return f"エラー: {e}"
 
+# --- 研究・分析ノートのハンドラ ---
+def load_research_notes_content(room_name: str) -> str:
+    """研究ノートの内容を読み込む"""
+    if not room_name: return ""
+    _, _, _, _, _, research_notes_path = room_manager.get_room_files_paths(room_name)
+    if research_notes_path and os.path.exists(research_notes_path):
+        with open(research_notes_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+def handle_save_research_notes(room_name: str, content: str) -> str:
+    """研究ノートを保存"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return content
+    _, _, _, _, _, research_notes_path = room_manager.get_room_files_paths(room_name)
+    if not research_notes_path:
+        gr.Error(f"「{room_name}」の研究ノートパス取得失敗。")
+        return content
+    try:
+        # バックアップ作成（一応ノート系として扱う）
+        room_manager.create_backup(room_name, 'research_notes')
+        with open(research_notes_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        gr.Info(f"「{room_name}」の研究ノートを保存しました。")
+        return content
+    except Exception as e:
+        gr.Error(f"研究ノートの保存エラー: {e}")
+        return content
+
+def handle_reload_research_notes(room_name: str) -> str:
+    """研究ノートを再読み込み"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return ""
+    content = load_research_notes_content(room_name)
+    gr.Info(f"「{room_name}」の研究ノートを再読み込みしました。")
+    return content
+
+def handle_clear_research_notes(room_name: str) -> str:
+    """研究ノートを空にする"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return ""
+    _, _, _, _, _, research_notes_path = room_manager.get_room_files_paths(room_name)
+    if not research_notes_path:
+        gr.Error(f"「{room_name}」の研究ノートパス取得失敗。")
+        return ""
+    try:
+        with open(research_notes_path, "w", encoding="utf-8") as f:
+            f.write("")
+        gr.Info(f"「{room_name}」の研究ノートを空にしました。")
+        return ""
+    except Exception as e:
+        gr.Error(f"研究ノートクリアエラー: {e}")
+        return f"エラー: {e}"
+
 def render_alarms_as_dataframe():
     alarms = sorted(alarm_manager.load_alarms(), key=lambda x: x.get("time", "")); all_rows = []
     for a in alarms:
@@ -4623,7 +4681,7 @@ def handle_world_builder_load(room_name: str):
         gr.update(choices=place_choices_for_selected_area, value=current_location)
     )
 
-def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 146):
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 147):
     """
     【v11: 最終契約遵守版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。

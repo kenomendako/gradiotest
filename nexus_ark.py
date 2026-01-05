@@ -188,7 +188,7 @@ try:
     #memory_txt_editor_code textarea, #core_memory_editor_code textarea {
         max-height: 400px !important; overflow-y: auto !important;
     }
-    #notepad_editor_code textarea, #system_prompt_editor textarea {
+    #notepad_editor_code textarea, #system_prompt_editor textarea, #creative_notes_editor_code textarea, #research_notes_editor_code textarea {
         max-height: 400px !important; overflow-y: auto !important; box-sizing: border-box;
     }
     #memory_txt_editor_code, #notepad_editor_code, #system_prompt_editor, #core_memory_editor_code {
@@ -1800,6 +1800,15 @@ try:
                                 save_creative_notes_button = gr.Button("保存", variant="secondary")
                                 reload_creative_notes_button = gr.Button("再読込", variant="secondary")
                                 clear_creative_notes_button = gr.Button("全削除", variant="stop")
+                        
+                        # --- 研究・分析ノートアコーディオン ---
+                        with gr.Accordion("🔬 研究・分析ノート", open=False):
+                            gr.Markdown("Web巡回ツールによる分析結果や洞察が蓄積されるスペースです。 AIが自律的に更新します。")
+                            research_notes_editor = gr.Textbox(label="研究ノートの内容", interactive=True, elem_id="research_notes_editor_code", lines=15, max_lines=15, autoscroll=True)
+                            with gr.Row():
+                                save_research_notes_button = gr.Button("保存", variant="secondary")
+                                reload_research_notes_button = gr.Button("再読込", variant="secondary")
+                                clear_research_notes_button = gr.Button("全削除", variant="stop")
 
                     # ▼▼▼【ここから下のブロックを「メモ帳」タブの直後に追加】▼▼▼
                     with gr.TabItem("知識") as knowledge_tab:
@@ -2013,7 +2022,7 @@ try:
             current_room_name, chatbot_display, current_log_map_state,
             chat_input_multimodal,
             profile_image_display,
-            memory_txt_editor, notepad_editor, creative_notes_editor, system_prompt_editor,
+            memory_txt_editor, notepad_editor, creative_notes_editor, research_notes_editor, system_prompt_editor,
             core_memory_editor,
             room_dropdown,
             alarm_room_dropdown, timer_room_dropdown, manage_room_selector,
@@ -2748,6 +2757,10 @@ try:
         save_creative_notes_button.click(fn=ui_handlers.handle_save_creative_notes, inputs=[current_room_name, creative_notes_editor], outputs=[creative_notes_editor])
         reload_creative_notes_button.click(fn=ui_handlers.handle_reload_creative_notes, inputs=[current_room_name], outputs=[creative_notes_editor])
         clear_creative_notes_button.click(fn=ui_handlers.handle_clear_creative_notes, inputs=[current_room_name], outputs=[creative_notes_editor])
+        # --- 研究・分析ノートのイベントハンドラ ---
+        save_research_notes_button.click(fn=ui_handlers.handle_save_research_notes, inputs=[current_room_name, research_notes_editor], outputs=[research_notes_editor])
+        reload_research_notes_button.click(fn=ui_handlers.handle_reload_research_notes, inputs=[current_room_name], outputs=[research_notes_editor])
+        clear_research_notes_button.click(fn=ui_handlers.handle_clear_research_notes, inputs=[current_room_name], outputs=[research_notes_editor])
         alarm_dataframe.select(
             fn=ui_handlers.handle_alarm_selection_for_all_updates,
             inputs=[alarm_dataframe_original_data],

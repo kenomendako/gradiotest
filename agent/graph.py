@@ -23,6 +23,7 @@ from tools.memory_tools import (
 )
 from tools.notepad_tools import read_full_notepad, plan_notepad_edit,  _apply_notepad_edits
 from tools.creative_tools import read_creative_notes, plan_creative_notes_edit, _apply_creative_notes_edits
+from tools.research_tools import read_research_notes, plan_research_notes_edit, _apply_research_notes_edits
 from tools.web_tools import web_search_tool, read_url_tool
 from tools.image_tools import generate_image
 from tools.alarm_tools import set_personal_alarm
@@ -74,12 +75,14 @@ all_tools = [
     read_creative_notes, plan_creative_notes_edit,
     read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory,
     # ウォッチリストツール
-    add_to_watchlist, remove_from_watchlist, get_watchlist, check_watchlist, update_watchlist_interval
+    add_to_watchlist, remove_from_watchlist, get_watchlist, check_watchlist, update_watchlist_interval,
+    read_research_notes, plan_research_notes_edit
 ]
 
 side_effect_tools = [
     "plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit",
     "plan_creative_notes_edit",
+    "plan_research_notes_edit",
     "set_personal_alarm", "set_timer", "set_pomodoro_timer",
     "schedule_next_action"
 ]
@@ -112,6 +115,7 @@ class AgentState(TypedDict):
     tool_use_enabled: bool  # 【ツール不使用モード】ツール使用の有効/無効
     next: str
     enable_supervisor: bool # Supervisor機能の有効/無効
+    custom_system_prompt: Optional[str] # システムプロンプトの上書き用
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -520,6 +524,19 @@ def context_generator_node(state: AgentState):
             print(f"--- 警告: メモ帳の読み込み中にエラー: {e}")
             notepad_section = "\n### 短期記憶（メモ帳）\n（メモ帳の読み込み中にエラーが発生しました）\n"
 
+    research_notes_section = ""
+    try:
+        _, _, _, _, _, research_notes_path = get_room_files_paths(room_name)
+        if research_notes_path and os.path.exists(research_notes_path):
+            with open(research_notes_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                research_notes_content = content if content else "（研究ノートは空です）"
+        else: research_notes_content = "（研究ノートファイルが見つかりません）"
+        research_notes_section = f"\n### 研究・分析ノート\n{research_notes_content}\n"
+    except Exception as e:
+        print(f"--- 警告: 研究ノートの読み込み中にエラー: {e}")
+        research_notes_section = "\n### 研究・分析ノート\n（研究ノートの読み込み中にエラーが発生しました）\n"
+
     episodic_memory_section = ""
     
     # 1. 設定値の取得
@@ -695,6 +712,8 @@ def context_generator_node(state: AgentState):
         "get_watchlist": "ウォッチリストを表示する",
         "check_watchlist": "ウォッチリストの更新をチェックする",
         "update_watchlist_interval": "URLの監視頻度を変更する",
+        "read_research_notes": "研究・分析ノートを読み取る",
+        "plan_research_notes_edit": "研究・分析ノートの編集（分析結果の記録など）を計画する",
     }
     tools_list_parts = []
     for tool in current_tools:
@@ -714,6 +733,7 @@ def context_generator_node(state: AgentState):
         'character_prompt': character_prompt,
         'core_memory': core_memory,
         'notepad_section': notepad_section,
+        'research_notes_section': research_notes_section,
         'episodic_memory': episodic_memory_section,
         'dream_insights': dream_insights_text,
         'thought_generation_manual': thought_generation_manual_text,
@@ -721,6 +741,12 @@ def context_generator_node(state: AgentState):
         'tools_list': tools_list_str,
     }
     final_system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
+    
+    # 【追加】カスタムプロンプトによる上書き
+    custom_prompt = state.get("custom_system_prompt")
+    if custom_prompt:
+        # カスタムプロンプト内のプレースホルダも可能な限り置換する
+        final_system_prompt_text = custom_prompt.format_map(SafeDict(prompt_vars))
 
     return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
 
@@ -1304,11 +1330,12 @@ def safe_tool_executor(state: AgentState):
     is_plan_secret_diary = tool_name == "plan_secret_diary_edit"
     is_plan_notepad = tool_name == "plan_notepad_edit"
     is_plan_creative_notes = tool_name == "plan_creative_notes_edit"
+    is_plan_research_notes = tool_name == "plan_research_notes_edit"
     is_plan_world = tool_name == "plan_world_edit"
 
     output = ""
 
-    if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_creative_notes or is_plan_world:
+    if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_creative_notes or is_plan_research_notes or is_plan_world:
         try:
             print(f"  - ファイル編集プロセスを開始: {tool_name}")
             
@@ -1317,6 +1344,7 @@ def safe_tool_executor(state: AgentState):
             elif is_plan_secret_diary: room_manager.create_backup(room_name, 'secret_diary')
             elif is_plan_notepad: room_manager.create_backup(room_name, 'notepad')
             elif is_plan_creative_notes: room_manager.create_backup(room_name, 'creative_notes')
+            elif is_plan_research_notes: room_manager.create_backup(room_name, 'research_notes')
             elif is_plan_world: room_manager.create_backup(room_name, 'world_setting')
 
             read_tool = None
@@ -1324,11 +1352,12 @@ def safe_tool_executor(state: AgentState):
             elif is_plan_secret_diary: read_tool = read_secret_diary
             elif is_plan_notepad: read_tool = read_full_notepad
             elif is_plan_creative_notes: read_tool = read_creative_notes
+            elif is_plan_research_notes: read_tool = read_research_notes
             elif is_plan_world: read_tool = read_world_settings
 
             raw_content = read_tool.invoke({"room_name": room_name})
 
-            if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_creative_notes:
+            if is_plan_main_memory or is_plan_secret_diary or is_plan_notepad or is_plan_creative_notes or is_plan_research_notes:
                 lines = raw_content.split('\n')
                 numbered_lines = [f"{i+1}: {line}" for i, line in enumerate(lines)]
                 current_content = "\n".join(numbered_lines)
@@ -1445,6 +1474,18 @@ def safe_tool_executor(state: AgentState):
                     "- 各指示は \"operation\", \"line\", \"content\" のキーを持つ辞書です。\n"
                     "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
                 ),
+                "plan_research_notes_edit": (
+                    "【最重要指示：これは『対話』ではなく『設計タスク』です】\n"
+                    "あなたは今、自身の研究・分析ノート(`research_notes.md`)を更新するための『設計図』を作成しています。\n"
+                    "ここには、Web検索で得た客観的な知識や、それに基づくあなた独自の洞察、分析結果を蓄積してください。\n\n"
+                    "【行番号付きデータ（research_notes.md全文）】\n---\n{current_content}\n---\n\n"
+                    "【あなたの変更要求】\n「{modification_request}」\n\n"
+                    "【絶対的な出力ルール】\n"
+                    "- 思考や挨拶は含めず、【差分指示のリスト】（有効なJSON配列）のみを出力してください。\n"
+                    "- 各指示は \"operation\" ('replace', 'delete', 'insert_after'), \"line\" (対象行番号), \"content\" (新しい内容) のキーを持つ辞書です。\n"
+                    "- **タイムスタンプ `[YYYY-MM-DD HH:MM]` はシステムが自動で付与するため、あなたは`content`に含める必要はありません。**\n"
+                    "- 出力は ` ```json ` と ` ``` ` で囲んでください。"
+                ),
             }
             formatted_instruction = instruction_templates[tool_name].format(
                 current_content=current_content,
@@ -1487,9 +1528,9 @@ def safe_tool_executor(state: AgentState):
             if edited_content_document is None:
                 raise RuntimeError("編集AIからの応答が、リトライ後も得られませんでした。")
 
-            print("  - AIからの応答を受け、ファイル書き込みを実行します。")
+            print("  - AIからの応答を受け、ファイル書き込みを実行します. ")
 
-            if is_plan_main_memory or is_plan_secret_diary or is_plan_world or is_plan_notepad or is_plan_creative_notes:
+            if is_plan_main_memory or is_plan_secret_diary or is_plan_world or is_plan_notepad or is_plan_creative_notes or is_plan_research_notes:
                 json_match = re.search(r'```json\s*([\s\S]*?)\s*```', edited_content_document, re.DOTALL)
                 content_to_process = json_match.group(1).strip() if json_match else edited_content_document
                 instructions = json.loads(content_to_process)
@@ -1502,6 +1543,8 @@ def safe_tool_executor(state: AgentState):
                     output = _apply_notepad_edits(instructions=instructions, room_name=room_name)
                 elif is_plan_creative_notes:
                     output = _apply_creative_notes_edits(instructions=instructions, room_name=room_name)
+                elif is_plan_research_notes:
+                    output = _apply_research_notes_edits(instructions=instructions, room_name=room_name)
                 else: # is_plan_world
                     output = _apply_world_edits(instructions=instructions, room_name=room_name)
 

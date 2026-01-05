@@ -16,6 +16,7 @@ import gemini_api
 import utils
 import re
 import dreaming_manager
+from typing import Any
 
 try:
     from plyer import notification
@@ -485,6 +486,85 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
     # AIが自ら send_user_notification ツールを使用した場合のみ通知が送られる
     print(f"  - 自律行動完了。通知はAIの判断に委ねられます。")
 
+def trigger_research_analysis(room_name: str, api_key_name: str, reason: str, details: Any):
+    """文脈分析を実行させる（Phase 3: 即時分析フロー）"""
+    from agent.prompts import RESEARCH_ANALYSIS_PROMPT
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    print(f"🔬 文脈分析トリガー: {room_name} (理由: {reason})")
+    
+    log_f, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not log_f or not api_key: return
+
+    # 分析理由に応じたプロンプト
+    if reason == "watchlist":
+        event_desc = "\n".join(details) if isinstance(details, list) else str(details)
+        instruction = f"（システム通知：ウォッチリストに更新がありました。内容を分析し、研究ノートに記録、または必要ならユーザーに報告してください。）\n\n{event_desc}"
+    elif reason == "autonomous":
+        instruction = f"（システム通知：定期的な文脈分析の時間です。最近の状況やログを振り返り、新たな洞察がないか確認してください。）"
+    else:
+        instruction = f"（システム通知：文脈分析を実行してください。理由: {reason}）"
+
+    from agent.graph import generate_scenery_context
+    season_en, time_of_day_en = utils._get_current_time_context(room_name)
+    location_name, _, scenery_text = generate_scenery_context(room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en)
+    global_model = config_manager.get_current_global_model()
+
+    agent_args = {
+        "room_to_respond": room_name,
+        "api_key_name": api_key_name,
+        "global_model_from_ui": global_model,
+        "api_history_limit": "20", # 分析時は少し長めに
+        "debug_mode": False,
+        "history_log_path": log_f,
+        "user_prompt_parts": [{"type": "text", "text": instruction}],
+        "soul_vessel_room": room_name,
+        "active_participants": [],
+        "active_attachments": [],
+        "shared_location_name": location_name,
+        "shared_scenery_text": scenery_text,
+        "use_common_prompt": False,
+        "season_en": season_en,
+        "time_of_day_en": time_of_day_en,
+        "custom_system_prompt": RESEARCH_ANALYSIS_PROMPT
+    }
+
+    try:
+        final_state = None
+        initial_count = 0
+        for mode, chunk in gemini_api.invoke_nexus_agent_stream(agent_args):
+            if mode == "initial_count": initial_count = chunk
+            elif mode == "values": final_state = chunk
+        
+        if final_state:
+            new_messages = final_state["messages"][initial_count:]
+            
+            # ツール結果の記録
+            for msg in new_messages:
+                if isinstance(msg, ToolMessage):
+                    formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                    tool_log_content = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
+                    utils.save_message_to_log(log_f, "## SYSTEM:tool_result", tool_log_content)
+
+            # AI応答の記録
+            ai_messages = [m for m in new_messages if isinstance(m, AIMessage) and m.content]
+            if ai_messages:
+                final_response_text = ai_messages[-1].content if isinstance(ai_messages[-1].content, str) else str(ai_messages[-1].content)
+                actual_model_name = final_state.get("model_name", global_model)
+                
+                # ログ保存（システムトリガーとして）
+                utils.save_message_to_log(log_f, "## SYSTEM:research_analysis", f"（文脈分析を実行: {reason}）")
+                
+                timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+                content_to_log = final_response_text + timestamp
+                utils.save_message_to_log(log_f, f"## AGENT:{room_name}", content_to_log)
+                print(f"  - {room_name} の文脈分析が完了しました。")
+
+    except Exception as e:
+        print(f"  - 文脈分析エラー ({room_name}): {e}")
+        traceback.print_exc()
+
 def check_alarms():
     now_dt = datetime.datetime.now()
     now_t, current_day_short = now_dt.strftime("%H:%M"), now_dt.strftime('%a').lower()
@@ -692,6 +772,9 @@ def check_autonomous_actions():
                         print(f"🤖 {room_folder}: 動機「{motivation_log.get('dominant_drive_label', '不明')}」-> 自律行動トリガー！")
                     else:
                         print(f"🤖 {room_folder}: 無操作{int(elapsed_minutes)}分 -> 自律行動トリガー！")
+                    
+                    # 【Phase 3】通常の自律行動に加え、一定確率または条件で「分析」も検討
+                    # ここでは単純に trigger_autonomous_action を呼ぶが、AIはプロンプトで分析ツールを使える
                     trigger_autonomous_action(room_folder, current_api_key, quiet_mode=False, motivation_log=motivation_log)
 
         except Exception as e:
@@ -751,6 +834,11 @@ def check_watchlist_scheduled():
                         notification_message = f"📋 ウォッチリスト更新通知\n\n" + "\n".join(changes_found)
                         send_notification(room_folder, notification_message, {})
                         print(f"  📤 {room_folder}: 変更通知を送信しました")
+                    
+                    # 【Phase 3】ウォッチリスト更新時に文脈分析をトリガー
+                    current_api_key = config_manager.get_latest_api_key_name_from_config()
+                    if current_api_key:
+                        trigger_research_analysis(room_folder, current_api_key, "watchlist", changes_found)
             
             except Exception as e:
                 print(f"  - ウォッチリストチェックエラー ({room_folder}): {e}")
