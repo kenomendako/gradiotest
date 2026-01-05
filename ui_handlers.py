@@ -9312,18 +9312,18 @@ def handle_refresh_internal_state(room_name: str):
         # 内部状態ログを生成
         motivation_log = mm.generate_motivation_log()
         dominant_drive = motivation_log.get("dominant_drive_label", "不明")
-        drive_level = motivation_log.get("drive_level", 0.0)
+        drive_level = round(motivation_log.get("drive_level", 0.0), 2)
         narrative = motivation_log.get("narrative", "")
         
         # Markdown記法を使わずプレーンテキストで表示（Textbox用）
         if narrative:
-            dominant_text = f"🎯 {dominant_drive} (レベル: {drive_level:.2f})\n\n{narrative}"
+            dominant_text = f"🎯 {dominant_drive} (レベル: {drive_level})\n\n{narrative}"
         else:
-            dominant_text = f"🎯 {dominant_drive} (レベル: {drive_level:.2f})"
+            dominant_text = f"🎯 {dominant_drive} (レベル: {drive_level})"
         
         # 未解決の問いをDataFrame形式に変換
-        state = mm._load_state()
-        open_questions = state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
+        # mm._load_state() ではなく、最新の状態から取得
+        open_questions = mm._state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
         
         questions_data = []
         for q in open_questions:
@@ -9344,7 +9344,7 @@ def handle_refresh_internal_state(room_name: str):
             ])
         
         # 最終更新を読みやすくフォーマット
-        last_interaction = state.get("drives", {}).get("boredom", {}).get("last_interaction", "")
+        last_interaction = mm._state.get("drives", {}).get("boredom", {}).get("last_interaction", "")
         if last_interaction:
             try:
                 dt = datetime.datetime.fromisoformat(last_interaction)

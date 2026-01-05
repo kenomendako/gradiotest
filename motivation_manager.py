@@ -153,7 +153,7 @@ class MotivationManager:
         
         # 優先度の加重合計（最大1.0に制限）
         total_priority = sum(q.get("priority", 0.5) for q in unanswered)
-        curiosity = min(1.0, total_priority / 2)  # 2つの質問で最大に
+        curiosity = min(1.0, total_priority / 5)  # 5つ程度の質問（または高優先度の数件）で最大に
         
         self._state["drives"]["curiosity"]["level"] = curiosity
         return curiosity
@@ -405,6 +405,40 @@ class MotivationManager:
                 q["asked_at"] = datetime.datetime.now().isoformat()
                 self._save_state()
                 return
+
+    def resolve_questions(self, topics: List[str]):
+        """複数の問いを解決済み（asked_atを設定）にする"""
+        if not topics:
+            return
+        
+        questions = self._state["drives"]["curiosity"].get("open_questions", [])
+        updated = False
+        now_iso = datetime.datetime.now().isoformat()
+        
+        for topic in topics:
+            for q in questions:
+                if q.get("topic") == topic and not q.get("asked_at"):
+                    q["asked_at"] = now_iso
+                    updated = True
+                    break
+        
+        if updated:
+            self._save_state()
+
+    def delete_questions(self, topics: List[str]):
+        """複数の問いをリストから完全に削除する"""
+        if not topics:
+            return
+        
+        questions = self._state["drives"]["curiosity"].get("open_questions", [])
+        original_len = len(questions)
+        
+        self._state["drives"]["curiosity"]["open_questions"] = [
+            q for q in questions if q.get("topic") not in topics
+        ]
+        
+        if len(self._state["drives"]["curiosity"]["open_questions"]) < original_len:
+            self._save_state()
     
     def set_user_emotional_state(self, state: str):
         """ユーザーの感情状態を設定"""

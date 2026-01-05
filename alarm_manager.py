@@ -373,6 +373,13 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
     try:
         mm = MotivationManager(room_name)
         mm.update_last_interaction()
+        
+        # 好奇心に基づいた発火の場合、対象の問いをマーク
+        if motivation_log and motivation_log.get("dominant_drive") == "curiosity":
+            top_q = mm.get_top_question()
+            if top_q:
+                mm.mark_question_asked(top_q.get("topic"))
+                print(f"  - [Motivation] 好奇心に基づく自律行動: 「{top_q.get('topic')}」を質問済みとして記録しました")
     except Exception as e:
         print(f"  - MotivationManager更新エラー: {e}")
     

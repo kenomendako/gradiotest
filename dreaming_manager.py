@@ -160,6 +160,18 @@ class DreamingManager:
         goal_manager = GoalManager(self.room_name)
         current_goals_text = goal_manager.get_goals_for_prompt()
         
+        # --- [Motivation] 現在の未解決の問いを取得 ---
+        from motivation_manager import MotivationManager
+        mm_temp = MotivationManager(self.room_name)
+        internal_state = mm_temp._load_state()
+        existing_questions_list = internal_state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
+        questions_context = ""
+        if existing_questions_list:
+            questions_context = "【現在のあなたの未解決の問い】\n"
+            for q in existing_questions_list:
+                status = "（質問済み、回答待ち）" if q.get("asked_at") else "（未質問）"
+                questions_context += f"- {q.get('topic')}: {q.get('context', '')} {status}\n"
+
         # 省察レベルに応じた追加指示
         level_specific_instructions = ""
         if reflection_level >= 2:
@@ -194,13 +206,17 @@ class DreamingManager:
         {past_memories}
 
         {f"【あなたの現在の目標】" + chr(10) + current_goals_text if current_goals_text else "【あなたの目標】まだ明確な目標を持っていません。今回の省察で、あなた自身の目標を見つけてください。"}
+
+        {questions_context if questions_context else "【未解決の問い】現在、特に気になっている問いはありません。"}
+
         {level_specific_instructions}
 
         【分析のステップ（思考プロセス）】
         1.  まず、感情を排して客観的に事実を比較し、変化や繰り返されるパターン、矛盾点を見つけ出す。
         2.  表層的な事実だけでなく、その裏にある感情の流れや、関係性の変化、あるいは変わらない絆などを多角的に考察する。
-        3.  **目標について考える**: 現在の目標の進捗を評価し、新しい目標が必要か検討する。目標は「ユーザーについて知りたいこと」「やりたいこと」「達成したいこと」など自由に設定してよい。
-        4.  最後に、その鋭い分析結果を、**あなたの人格（一人称、口調、相手の呼び方）**に変換して記述する。
+        3.  **目標について考える**: 現在の目標の進捗を評価し、新しい目標が必要か検討する。
+        4.  **問いについて考える**: 提示された「現在のあなたの未解決の問い」を一通り確認し、直近の会話内容から既に解決したと思われるものは `resolved_questions` に、重複や不要（興味を失った）なものは `obsolete_questions` に分類する。
+        5.  最後に、その鋭い分析結果を、**あなたの人格（一人称、口調、相手の呼び方）**に変換して記述する。
 
         【出力フォーマット】
         以下のJSON形式のみを出力してください。思考やMarkdownの枠は不要です。
@@ -228,11 +244,13 @@ class DreamingManager:
             }},
             "open_questions": [
                 {{
-                    "topic": "（ユーザーが言及したが詳細を聞けなかった話題、結論が出なかった議論など）",
+                    "topic": "（新規に気になったこと。既存のリストにない話題のみ追加すること）",
                     "context": "（なぜそれを知りたいのか、簡単な背景）",
                     "priority": 0.0-1.0
                 }}
-            ]
+            ],
+            "resolved_questions": ["（解決済みのトピック名。提示された既存リストの中から正確に選ぶこと）"],
+            "obsolete_questions": ["（不要なトピック名。提示された既存リストの中から正確に選ぶこと）"]
         }}
         
         ※`entity_updates`、`goal_updates`、`open_questions` の各項目が不要な場合は、空のリスト `[]` にしてください。
@@ -287,22 +305,39 @@ class DreamingManager:
                 except Exception as ge:
                     print(f"  - [Dreaming] 目標更新エラー: {ge}")
             
-            # --- [Motivation] 未解決の問いを保存 ---
+            # --- [Motivation] 未解決の問いを保存・整理 ---
             should_extract_questions = effective_settings.get("sleep_consolidation", {}).get("extract_open_questions", True)
-            open_questions = dream_data.get("open_questions", [])
-            if should_extract_questions and open_questions:
+            if should_extract_questions:
                 try:
                     from motivation_manager import MotivationManager
                     mm = MotivationManager(self.room_name)
-                    for q in open_questions:
-                        topic = q.get("topic")
-                        context = q.get("context", "")
-                        priority = q.get("priority", 0.5)
-                        if topic:
-                            mm.add_open_question(topic, context, priority)
-                    print(f"  - [Dreaming] 未解決の問いを{len(open_questions)}件記録しました")
+                    
+                    # 解決済みの処理
+                    resolved = dream_data.get("resolved_questions", [])
+                    if resolved:
+                        print(f"  - [Dreaming] 解決済みとして検出: {resolved}")
+                        mm.resolve_questions(resolved)
+                        print(f"  - [Dreaming] {len(resolved)}件の問いを解決済み（asked_at設定）にしました")
+                        
+                    # 削除の処理
+                    obsolete = dream_data.get("obsolete_questions", [])
+                    if obsolete:
+                        print(f"  - [Dreaming] 不要・削除対象として検出: {obsolete}")
+                        mm.delete_questions(obsolete)
+                        print(f"  - [Dreaming] {len(obsolete)}件の不要な問いを削除しました")
+
+                    # 新規追加の処理
+                    open_questions = dream_data.get("open_questions", [])
+                    if open_questions:
+                        for q in open_questions:
+                            topic = q.get("topic")
+                            context = q.get("context", "")
+                            priority = q.get("priority", 0.5)
+                            if topic:
+                                mm.add_open_question(topic, context, priority)
+                        print(f"  - [Dreaming] 未解決の問いを{len(open_questions)}件追加/更新しました")
                 except Exception as me:
-                    print(f"  - [Dreaming] 未解決の問い保存エラー: {me}")
+                    print(f"  - [Dreaming] 未解決の問い管理エラー: {me}")
             
             # 省察レベルの記録
             goal_manager.mark_reflection_done(reflection_level)

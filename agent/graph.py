@@ -29,8 +29,10 @@ from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from tools.knowledge_tools import search_knowledge_base
 from tools.entity_tools import read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory
+from tools.motivation_tools import resolve_question, delete_question
 
 from room_manager import get_world_settings_path, get_room_files_paths
+from motivation_manager import MotivationManager
 from episodic_memory_manager import EpisodicMemoryManager
 from action_plan_manager import ActionPlanManager  
 from tools.action_tools import schedule_next_action, cancel_action_plan, read_current_plan
@@ -74,7 +76,9 @@ all_tools = [
     read_creative_notes, plan_creative_notes_edit,
     read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory,
     # ウォッチリストツール
-    add_to_watchlist, remove_from_watchlist, get_watchlist, check_watchlist, update_watchlist_interval
+    add_to_watchlist, remove_from_watchlist, get_watchlist, check_watchlist, update_watchlist_interval,
+    # 好奇心・問いの管理ツール
+    resolve_question, delete_question
 ]
 
 side_effect_tools = [
@@ -112,6 +116,7 @@ class AgentState(TypedDict):
     tool_use_enabled: bool  # 【ツール不使用モード】ツール使用の有効/無効
     next: str
     enable_supervisor: bool # Supervisor機能の有効/無効
+    open_questions: str # 未解決の問い（好奇心）
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -708,6 +713,21 @@ def context_generator_node(state: AgentState):
     class SafeDict(dict):
         def __missing__(self, key): return f'{{{key}}}'
 
+    # --- [Curiosity] 未解決の問い（好奇心）の注入 ---
+    open_questions_text = ""
+    try:
+        mm = MotivationManager(room_name)
+        questions = mm._state["drives"]["curiosity"].get("open_questions", [])
+        unanswered = [q for q in questions if not q.get("asked_at")]
+        if unanswered:
+            lines = []
+            for q in unanswered:
+                priority_str = "!" * int(q.get("priority", 0.5) * 5)
+                lines.append(f"- 【{q.get('topic')}】{priority_str} (コンテキスト: {q.get('context', 'なし')})")
+            open_questions_text = "\n".join(lines)
+    except Exception as e:
+        print(f"  - [Context] 好奇心データ（問い）の読み込みエラー: {e}")
+
     prompt_vars = {
         'situation_prompt': situation_prompt,
         'action_plan_context': action_plan_context,
@@ -716,13 +736,14 @@ def context_generator_node(state: AgentState):
         'notepad_section': notepad_section,
         'episodic_memory': episodic_memory_section,
         'dream_insights': dream_insights_text,
+        'open_questions_section': open_questions_text,
         'thought_generation_manual': thought_generation_manual_text,
         'image_generation_manual': image_generation_manual_text, 
         'tools_list': tools_list_str,
     }
     final_system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
-    return {"system_prompt": SystemMessage(content=final_system_prompt_text)}
+    return {"system_prompt": SystemMessage(content=final_system_prompt_text), "open_questions": open_questions_text}
 
 def agent_node(state: AgentState):
     import signature_manager

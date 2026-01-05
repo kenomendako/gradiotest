@@ -66,6 +66,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **日記検索のRAG化** (2025-12-31): `search_memory`ツールをキーワード検索からRAGベクトル検索に変更。`memory_main.txt`とアーカイブ日記を自動インデックス化。
 - **API送信ログ「本日分」オプション** (2026-01-01): ログ件数制限に「本日分」を追加。日付が変わってからのメッセージのみをAPIに送信し、それ以前はエピソード記憶でカバー。トークン消費の最適化とメモリ連携を強化。
 - **エピソード記憶短期間オプション** (2026-01-01): 1日〜5日の短期間オプションを追加。「本日分」ログ設定と組み合わせて、直近数日のコンテキストを精密に制御可能。
+- 会話ログの表示制御（本日分オプション）の改善と episode memory への 5 ターン残し実装
+- 内的状態（好奇心）の管理システムのブラッシュアップ
+    - 睡眠プロセス（Dreaming）における問いの評価・整理機能の実装
+    - 通常の会話フローでの問いの解決用ツール（`resolve_question`, `delete_question`）の実装
+    - 好奇心計算式の緩和とプロンプトによる問い生成の抑制
+    - `ui_handlers.py` における `MotivationManager` 参照時の NameError 修正
+    - 内部状態表示 UI での数値丸め処理の適用
 
 #### 🎯 Goal Memory & Multi-Layer Self-Reflection (2026-01-02)
 - **Goal Memory**: AIペルソナが睡眠時省察で自発的に短期・長期目標を設定。`goals.json`に保存され、UIから確認可能
