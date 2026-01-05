@@ -360,18 +360,24 @@ class WatchlistManager:
                 if (now - last_dt).total_seconds() >= hours * 3600:
                     due_entries.append(entry)
             elif interval.startswith("daily"):
-                # daily または daily_HH:MM 形式
-                # 24時間以上経過しているかチェック
-                if (now - last_dt).total_seconds() >= 24 * 3600:
-                    if "_" in interval:
-                        # daily_HH:MM形式: 指定時刻かどうかもチェック
-                        scheduled_time = interval.split("_")[1]  # "09:00"など
-                        current_time = now.strftime("%H:%M")
-                        # スケジュール時刻の前後30分以内ならdue
-                        if abs(self._time_diff_minutes(scheduled_time, current_time)) <= 30:
+                if "_" in interval:
+                    # daily_HH:MM形式: 指定時刻を過ぎていて、今日まだチェックしていなければdue
+                    scheduled_time = interval.split("_")[1]  # "07:00"など
+                    try:
+                        scheduled_hour, scheduled_minute = map(int, scheduled_time.split(":"))
+                        today_scheduled_dt = now.replace(
+                            hour=scheduled_hour, minute=scheduled_minute, second=0, microsecond=0
+                        )
+                        # 今日の指定時刻を過ぎており、かつ最後のチェックがそれより前であればdue
+                        if now >= today_scheduled_dt and last_dt < today_scheduled_dt:
                             due_entries.append(entry)
-                    else:
-                        # 旧形式daily: そのままdue
+                    except ValueError:
+                        # パース失敗時は24時間ルールにフォールバック
+                        if (now - last_dt).total_seconds() >= 24 * 3600:
+                            due_entries.append(entry)
+                else:
+                    # 旧形式daily: 24時間経過でdue
+                    if (now - last_dt).total_seconds() >= 24 * 3600:
                         due_entries.append(entry)
         
         return due_entries
