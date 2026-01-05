@@ -514,7 +514,7 @@ def archive_old_diary_entries(room_name: str, api_key: str, archive_until_date: 
         return "【致命的エラー】処理を開始する前に、記憶ファイルのバックアップに失敗しました。"
 
     try:
-        _, _, _, memory_main_path, _, _, _ = get_room_files_paths(room_name)
+        _, _, _, memory_main_path, _, _ = get_room_files_paths(room_name)
         with open(memory_main_path, 'r', encoding='utf-8') as f:
             memory_content = f.read()
 

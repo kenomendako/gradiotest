@@ -165,7 +165,7 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
                         print(f"--- [Avatar] idle画像読み込みエラー: {e} ---")
         
         # 3. それでもなければ従来の profile.png にフォールバック
-        _, _, profile_image_path, _, _, _, _ = get_room_files_paths(room_name)
+        _, _, profile_image_path, _, _, _ = get_room_files_paths(room_name)
         if profile_image_path and os.path.exists(profile_image_path):
             try:
                 with open(profile_image_path, "rb") as f:
@@ -241,7 +241,7 @@ def get_avatar_html(room_name: str, state: str = "idle", mode: str = None) -> st
                     print(f"--- [Avatar] idle動画読み込みエラー: {e} ---")
     
     # 動画が見つからない場合は静止画にフォールバック
-    _, _, profile_image_path, _, _, _, _ = get_room_files_paths(room_name)
+    _, _, profile_image_path, _, _, _ = get_room_files_paths(room_name)
     
     if profile_image_path and os.path.exists(profile_image_path):
         try:
@@ -570,7 +570,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         add_timestamp=effective_settings.get("add_timestamp", False),
         display_thoughts=effective_settings.get("display_thoughts", True)
     )
-    _, _, img_p, mem_p, notepad_p, _, _ = get_room_files_paths(room_name)
+    _, _, img_p, mem_p, notepad_p, _ = get_room_files_paths(room_name)
     memory_str = ""
     if mem_p and os.path.exists(mem_p):
         with open(mem_p, "r", encoding="utf-8") as f: memory_str = f.read()
@@ -1184,7 +1184,7 @@ def _stream_and_handle_response(
     from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
     import openai
 
-    main_log_f, _, _, _, _, _, _ = get_room_files_paths(soul_vessel_room)
+    main_log_f, _, _, _, _, _ = get_room_files_paths(soul_vessel_room)
     all_turn_popups = []
     final_error_message = None
 
@@ -1477,7 +1477,7 @@ def _stream_and_handle_response(
                         
                         if header and content_to_log:
                             for participant_room in all_rooms_in_scene:
-                                log_f, _, _, _, _, _, _ = get_room_files_paths(participant_room)
+                                log_f, _, _, _, _, _ = get_room_files_paths(participant_room)
                                 if log_f:
                                     # --- 【修正】二重書き込み防止チェック ---
                                     try:
@@ -1562,7 +1562,7 @@ def _stream_and_handle_response(
             # エラーメッセージを、AIの応答ではなく「システムエラー」として全員のログに記録する
             error_header = "## SYSTEM:システムエラー"
             for room_name in all_rooms_in_scene:
-                log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+                log_f, _, _, _, _, _ = get_room_files_paths(room_name)
                 if log_f:
                     utils.save_message_to_log(log_f, error_header, final_error_message)
             # この時点ではUIに直接書き込まず、finallyブロックのreload_chat_logに表示を任せる
@@ -1766,7 +1766,7 @@ def handle_message_submission(
     # 2. ユーザーの発言を、セッション参加者全員のログに書き込む
     all_participants_in_session = [soul_vessel_room] + (active_participants or [])
     for room_name in all_participants_in_session:
-        log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+        log_f, _, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## USER:user", full_user_log_entry)
     # ▲▲▲【修正はここまで】▲▲▲
@@ -1945,7 +1945,7 @@ def handle_rerun_button_click(
         return
 
     # 1. ログを巻き戻し、再送信するユーザー発言を取得
-    log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+    log_f, _, _, _, _, _ = get_room_files_paths(room_name)
     # SYSTEMメッセージもAI応答と同様に扱い、直前のユーザー発言から再生成する
     is_ai_or_system_message = selected_message.get("role") in ("AGENT", "SYSTEM")
 
@@ -2712,7 +2712,7 @@ def handle_chatbot_selection(room_name: str, api_history_limit_state: str, mappi
             gr.Warning(f"クリックされたメッセージを特定できませんでした (UI index out of bounds).")
             return None, gr.update(visible=False), gr.update(interactive=True)
 
-        log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+        log_f, _, _, _, _, _ = get_room_files_paths(room_name)
         # 全ログをロードする
         raw_history = utils.load_chat_log(log_f)
 
@@ -2754,7 +2754,7 @@ def handle_delete_button_click(
         return gr.update(), gr.update(), None, gr.update(visible=False), "" # 最後にリセット用の "" を追加
     # ▲▲▲【書き換えここまで】▲▲▲
 
-    log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+    log_f, _, _, _, _, _ = get_room_files_paths(room_name)
     if utils.delete_message_from_log(log_f, message_to_delete):
         gr.Info("ログからメッセージを削除しました。")
     else:
@@ -3007,7 +3007,7 @@ def reload_chat_log(
     if not room_name:
         return [], []
 
-    log_f,_,_,_,_,_, _ = get_room_files_paths(room_name)
+    log_f,_,_,_,_,_ = get_room_files_paths(room_name)
     if not log_f or not os.path.exists(log_f):
         return [], []
 
@@ -3954,7 +3954,7 @@ def handle_add_current_log_to_queue(room_name: str, console_content: str):
         active_log_progress_file = rag_data_path / "active_log_progress.json"
 
         # 2. ログ全体と、前回の進捗を読み込む
-        log_file_path, _, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        log_file_path, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
         full_log_content = Path(log_file_path).read_text(encoding='utf-8')
 
         last_processed_pos = 0
@@ -4707,7 +4707,7 @@ def handle_start_session(main_room: str, participant_list: list) -> tuple:
     session_start_message = f"（システム通知：{participants_text} とのグループ会話が開始されました。）"
 
     for room_name in all_participants:
-        log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+        log_f, _, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## SYSTEM:(セッション管理)", session_start_message)
 
@@ -4724,7 +4724,7 @@ def handle_end_session(main_room: str, active_participants: list) -> tuple:
     session_end_message = "（システム通知：グループ会話が終了しました。）"
 
     for room_name in all_participants:
-        log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+        log_f, _, _, _, _, _ = get_room_files_paths(room_name)
         if log_f:
             utils.save_message_to_log(log_f, "## SYSTEM:(セッション管理)", session_end_message)
 
@@ -5202,7 +5202,7 @@ def handle_log_punctuation_correction(
             yield gr.update(), gr.update(), gr.update(interactive=True), selected_message, gr.update(visible=True), ""
             return
 
-        log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+        log_f, _, _, _, _, _ = get_room_files_paths(room_name)
         all_messages = utils.load_chat_log(log_f)
 
         start_index = next((i for i, msg in enumerate(all_messages) if msg == selected_message), -1)
@@ -5798,7 +5798,7 @@ def handle_chatbot_edit(
         edited_ui_index = evt.index[0]
         edited_markdown_string = updated_chatbot_value[edited_ui_index][evt.index[1]]
 
-        log_f, _, _, _, _, _, _ = get_room_files_paths(room_name)
+        log_f, _, _, _, _, _ = get_room_files_paths(room_name)
         all_messages = utils.load_chat_log(log_f)
         original_log_index = mapping_list[edited_ui_index]
 
@@ -8338,7 +8338,7 @@ def handle_load_chat_log_raw(room_name: str) -> gr.update:
         gr.Warning("ルームが選択されていません。")
         return gr.update(value="")
     
-    log_path, _, _, _, _, _, _ = get_room_files_paths(room_name)
+    log_path, _, _, _, _, _ = get_room_files_paths(room_name)
     if log_path and os.path.exists(log_path):
         try:
             with open(log_path, "r", encoding="utf-8") as f:
@@ -8367,7 +8367,7 @@ def handle_save_chat_log_raw(
         gr.Warning("ルームが選択されていません。")
         return gr.update(), gr.update(), gr.update()
     
-    log_path, _, _, _, _, _, _ = get_room_files_paths(room_name)
+    log_path, _, _, _, _, _ = get_room_files_paths(room_name)
     if not log_path:
         gr.Error("ログファイルのパスが取得できませんでした。")
         return gr.update(), gr.update(), gr.update()
@@ -8406,7 +8406,7 @@ def handle_reload_chat_log_raw(room_name: str) -> gr.update:
         gr.Warning("ルームが選択されていません。")
         return gr.update(value="")
     
-    log_path, _, _, _, _, _, _ = get_room_files_paths(room_name)
+    log_path, _, _, _, _, _ = get_room_files_paths(room_name)
     if log_path and os.path.exists(log_path):
         try:
             with open(log_path, "r", encoding="utf-8") as f:
@@ -9146,7 +9146,7 @@ def handle_outing_reload_logs(room_name: str, log_count: int, include_timestamp=
     if not room_name:
         return "", "文字数: 0"
     
-    log_path, _, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    log_path, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
     logs = ""
     if log_path and os.path.exists(log_path):
         log_entries = _get_recent_log_entries(log_path, log_count, include_timestamp, include_model)
@@ -9250,7 +9250,7 @@ def handle_import_return_log(
         final_entries.append(f"## SYSTEM:外出\n\n--- {source_name} での会話終了 ---")
 
         # log.txt に追記
-        log_path, _, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        log_path, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
         
         # バックアップ作成
         room_manager.create_backup(room_name, 'log')

@@ -9,7 +9,7 @@ import constants
 
 def save_memory_data(room_name, json_string_data):
     if not room_name: gr.Error("ルーム名未指定"); return gr.update()
-    _, _, _, memory_json_path, _, _, _ = get_room_files_paths(room_name)
+    _, _, _, memory_json_path, _, _ = get_room_files_paths(room_name)
     if not memory_json_path: gr.Error(f"'{room_name}' 記憶パス取得失敗"); return gr.update()
     try:
         memory_data_to_save = json.loads(json_string_data)

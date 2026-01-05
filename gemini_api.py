@@ -684,7 +684,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     current_provider = config_manager.get_active_provider(room_to_respond)
     
     # 自身のログ
-    responding_ai_log_f, _, _, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
+    responding_ai_log_f, _, _, _, _, _ = room_manager.get_room_files_paths(room_to_respond)
     if responding_ai_log_f and os.path.exists(responding_ai_log_f):
         own_history_raw = utils.load_chat_log(responding_ai_log_f)
         messages = convert_raw_log_to_lc_messages(own_history_raw, room_to_respond, add_timestamp, send_thoughts_final, provider=current_provider)
@@ -852,7 +852,7 @@ def count_input_tokens(**kwargs):
 
         # --- [Step 1: 先に履歴を読み込む] ---
         # エピソード記憶の注入範囲を決めるために、履歴の「最古の日付」が必要なため
-        log_file, _, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+        log_file, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
         raw_history = utils.load_chat_log(log_file)
         
         # 履歴制限の適用
@@ -919,7 +919,7 @@ def count_input_tokens(**kwargs):
         
         notepad_section = ""
         if effective_settings.get("send_notepad", True):
-            _, _, _, _, notepad_path, _, _ = room_manager.get_room_files_paths(room_name)
+            _, _, _, _, notepad_path, _ = room_manager.get_room_files_paths(room_name)
             if notepad_path and os.path.exists(notepad_path):
                 with open(notepad_path, 'r', encoding='utf-8') as f:
                     content = f.read().strip()

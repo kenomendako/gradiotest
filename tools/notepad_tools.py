@@ -15,7 +15,7 @@ def read_full_notepad(room_name: str) -> str:
     短期記憶用のメモ帳の全内容を読み上げる。内容がなければその旨を伝える。
     主に、編集以外の目的で内容を確認したい場合に使用します。
     """
-    _, _, _, _, notepad_path, _, _ = get_room_files_paths(room_name)
+    _, _, _, _, notepad_path, _ = get_room_files_paths(room_name)
     if not notepad_path or not os.path.exists(notepad_path):
         return "【メモ帳ファイルが見つかりません】"
     with open(notepad_path, 'r', encoding='utf-8') as f:
@@ -37,7 +37,7 @@ def _apply_notepad_edits(instructions: List[Dict[str, Any]], room_name: str) -> 
     if not isinstance(instructions, list):
         return "【エラー】編集指示がリスト形式ではありません。"
 
-    _, _, _, _, notepad_path, _, _ = get_room_files_paths(room_name)
+    _, _, _, _, notepad_path, _ = get_room_files_paths(room_name)
     if not notepad_path or not os.path.exists(notepad_path):
         return f"【エラー】ルーム'{room_name}'のメモ帳ファイルパスが見つかりません。"
 
