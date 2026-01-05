@@ -27,7 +27,7 @@ def send_user_notification(message: str, room_name: str) -> str:
     quiet_end = auto_settings.get("quiet_hours_end", "07:00")
     
     # ログファイルパスを取得
-    log_f, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    log_f, _, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
     
     if utils.is_in_quiet_hours(quiet_start, quiet_end):
         # 通知禁止時間帯でもログには残す

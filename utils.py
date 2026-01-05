@@ -688,7 +688,7 @@ def get_last_log_timestamp(room_name: str) -> datetime.datetime:
     取得できない場合は、現在時刻を返す（無限ループ防止のため）。
     """
     import room_manager # 循環参照回避
-    log_path, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
+    log_path, _, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
     
     if not log_path or not os.path.exists(log_path):
         return datetime.datetime.now()

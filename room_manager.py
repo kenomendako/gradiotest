@@ -260,7 +260,7 @@ def get_all_personas_in_log(main_room_name: str, api_history_limit_key: str) -> 
     if not main_room_name:
         return []
 
-    log_file_path, _, _, _, _, _ = get_room_files_paths(main_room_name)
+    log_file_path, _, _, _, _, _, _ = get_room_files_paths(main_room_name)
     if not log_file_path or not os.path.exists(log_file_path):
         # ログファイルがない場合、ルーム名自体をペルソナと見なす
         # これは、room_config.json の main_persona_name を参照する将来の実装への布石

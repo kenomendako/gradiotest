@@ -110,7 +110,7 @@ class UnifiedTimer:
 
                 message_for_log = f"（システムタイマー：{theme}）"
 
-            log_f, _, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
+            log_f, _, _, _, _, _, _ = room_manager.get_room_files_paths(self.room_name)
             current_api_key_name = config_manager.get_latest_api_key_name_from_config()
             if not current_api_key_name or not log_f:
                 print(f"警告: APIキーまたはログファイルが見つかりません。")
