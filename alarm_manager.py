@@ -565,14 +565,8 @@ def check_autonomous_actions():
                 # auto_settings 内に個別の inactivity_minutes があればそれを使用、なければ定数を使用
                 cooldown_minutes = auto_settings.get("inactivity_minutes", constants.MIN_AUTONOMOUS_INTERVAL_MINUTES)
                 
-                # まずメモリ上の変数をチェック、なければ永続化データをチェック
-                last_trigger = _last_autonomous_trigger_time.get(room_folder)
-                if not last_trigger:
-                    # 永続化データから読み込み（アプリ再起動後対策）
-                    last_trigger = mm.get_last_autonomous_trigger()
-                    if last_trigger:
-                        # メモリにもキャッシュ
-                        _last_autonomous_trigger_time[room_folder] = last_trigger
+                # 【修正】常に永続化データから最新の値を読む（ui_handlers.pyでのリセットを反映するため）
+                last_trigger = mm.get_last_autonomous_trigger()
                 
                 if last_trigger:
                     minutes_since_trigger = (now - last_trigger).total_seconds() / 60
