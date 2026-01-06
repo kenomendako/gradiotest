@@ -9605,24 +9605,24 @@ def handle_clear_open_questions(room_name: str):
         return gr.update(), f"エラー: {e}"
 
 
-def handle_delete_selected_questions(room_name: str, selected_rows: list):
+def handle_delete_selected_questions(room_name: str, selected_topics: list):
     """
-    DataFrameで選択された問いを削除する。
+    Stateに保存された話題リストに対応する問いを削除する。
     
     Args:
         room_name: ルーム名
-        selected_rows: DataFrameの選択データ（[[話題, 背景, 優先度, 尋ねた日時], ...]）
+        selected_topics: 選択された話題のリスト
     
     Returns:
-        (open_questions_df, status_text)
+        (open_questions_df, status_text, reset_state)
     """
     if not room_name:
         gr.Warning("ルームが選択されていません。")
-        return gr.update(), "エラー: ルーム未選択"
+        return gr.update(), "エラー: ルーム未選択", []
     
-    if not selected_rows or len(selected_rows) == 0:
+    if not selected_topics or len(selected_topics) == 0:
         gr.Warning("削除する問いを選択してください。")
-        return gr.update(), "⚠️ 選択されていません"
+        return gr.update(), "⚠️ 選択されていません", []
     
     try:
         from motivation_manager import MotivationManager
@@ -9632,14 +9632,9 @@ def handle_delete_selected_questions(room_name: str, selected_rows: list):
         
         questions = state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
         
-        # 選択された話題を取得
-        selected_topics = set()
-        for row in selected_rows:
-            if isinstance(row, list) and len(row) > 0:
-                selected_topics.add(row[0])  # 最初の列が「話題」
-        
-        # 選択されていない問いだけ残す
-        remaining = [q for q in questions if q.get("topic") not in selected_topics]
+        # 選択された話題を削除
+        selected_set = set(selected_topics)
+        remaining = [q for q in questions if q.get("topic") not in selected_set]
         deleted_count = len(questions) - len(remaining)
         
         if "drives" in state and "curiosity" in state["drives"]:
@@ -9667,44 +9662,38 @@ def handle_delete_selected_questions(room_name: str, selected_rows: list):
                 asked_at if asked_at else "未回答"
             ])
         
-        return questions_data, f"🗑️ {deleted_count}件を削除しました"
+        return questions_data, f"🗑️ {deleted_count}件を削除しました", []
     
     except Exception as e:
         print(f"Delete Selected Questions Error: {e}")
         traceback.print_exc()
         gr.Error(f"削除に失敗しました: {e}")
-        return gr.update(), f"エラー: {e}"
+        return gr.update(), f"エラー: {e}", []
 
 
-def handle_resolve_selected_questions(room_name: str, selected_rows: list):
+def handle_resolve_selected_questions(room_name: str, selected_topics: list):
     """
-    DataFrameで選択された問いを解決済みにする（asked_atをマーク）。
+    Stateに保存された話題リストに対応する問いを解決済みにする。
     
     Args:
         room_name: ルーム名
-        selected_rows: DataFrameの選択データ（[[話題, 背景, 優先度, 尋ねた日時], ...]）
+        selected_topics: 選択された話題のリスト
     
     Returns:
-        (open_questions_df, status_text)
+        (open_questions_df, status_text, reset_state)
     """
     if not room_name:
         gr.Warning("ルームが選択されていません。")
-        return gr.update(), "エラー: ルーム未選択"
+        return gr.update(), "エラー: ルーム未選択", []
     
-    if not selected_rows or len(selected_rows) == 0:
+    if not selected_topics or len(selected_topics) == 0:
         gr.Warning("解決済みにする問いを選択してください。")
-        return gr.update(), "⚠️ 選択されていません"
+        return gr.update(), "⚠️ 選択されていません", []
     
     try:
         from motivation_manager import MotivationManager
         
         mm = MotivationManager(room_name)
-        
-        # 選択された話題を取得
-        selected_topics = []
-        for row in selected_rows:
-            if isinstance(row, list) and len(row) > 0:
-                selected_topics.append(row[0])  # 最初の列が「話題」
         
         # 各問いを解決済みにマーク
         resolved_count = 0
@@ -9735,13 +9724,48 @@ def handle_resolve_selected_questions(room_name: str, selected_rows: list):
                 asked_at if asked_at else "未回答"
             ])
         
-        return questions_data, f"✅ {resolved_count}件を解決済みにしました"
+        return questions_data, f"✅ {resolved_count}件を解決済みにしました", []
     
     except Exception as e:
         print(f"Resolve Selected Questions Error: {e}")
         traceback.print_exc()
         gr.Error(f"解決済みマークに失敗しました: {e}")
-        return gr.update(), f"エラー: {e}"
+        return gr.update(), f"エラー: {e}", []
+
+
+def handle_question_row_selection(df, evt: gr.SelectData):
+    """
+    DataFrameの行選択イベント。選択された行の話題をStateに保存。
+    
+    Args:
+        df: DataFrameのデータ（Pandas DataFrame）
+        evt: Gradio SelectData（選択されたセルの情報）
+    
+    Returns:
+        (selected_topics_list, status_text)
+    """
+    try:
+        if evt is None or evt.index is None:
+            return [], "---"
+        
+        # evt.indexは[行, 列]のリスト
+        row_idx = evt.index[0] if isinstance(evt.index, list) else evt.index
+        
+        # DataFrameから該当行の話題（最初の列）を取得
+        import pandas as pd
+        if isinstance(df, pd.DataFrame):
+            if row_idx < len(df):
+                topic = df.iloc[row_idx, 0]  # 最初の列が「話題」
+                return [topic], f"選択中: {topic}"
+        elif isinstance(df, list) and len(df) > row_idx:
+            topic = df[row_idx][0]  # リスト形式の場合
+            return [topic], f"選択中: {topic}"
+        
+        return [], "---"
+    except Exception as e:
+        print(f"Question Row Selection Error: {e}")
+        traceback.print_exc()
+        return [], "---"
 
 
 def handle_refresh_goals(room_name: str):

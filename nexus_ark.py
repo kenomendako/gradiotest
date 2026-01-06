@@ -1675,6 +1675,7 @@ try:
                                 interactive=True,  # 選択可能に
                                 wrap=True
                             )
+                            selected_question_topics_state = gr.State([])  # 選択された話題リスト
                             
                             with gr.Row():
                                 resolve_selected_questions_button = gr.Button("✅ 選択を解決済みに", variant="secondary")
@@ -2950,16 +2951,23 @@ try:
             outputs=[open_questions_display, open_questions_status]
         )
         
+        # selectイベント：選択された行の話題をStateに保存
+        open_questions_display.select(
+            fn=ui_handlers.handle_question_row_selection,
+            inputs=[open_questions_display],
+            outputs=[selected_question_topics_state, open_questions_status]
+        )
+        
         delete_selected_questions_button.click(
             fn=ui_handlers.handle_delete_selected_questions,
-            inputs=[current_room_name, open_questions_display],
-            outputs=[open_questions_display, open_questions_status]
+            inputs=[current_room_name, selected_question_topics_state],
+            outputs=[open_questions_display, open_questions_status, selected_question_topics_state]
         )
         
         resolve_selected_questions_button.click(
             fn=ui_handlers.handle_resolve_selected_questions,
-            inputs=[current_room_name, open_questions_display],
-            outputs=[open_questions_display, open_questions_status]
+            inputs=[current_room_name, selected_question_topics_state],
+            outputs=[open_questions_display, open_questions_status, selected_question_topics_state]
         )
         
         # --- Internal State Maintenance ---
