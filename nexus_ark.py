@@ -1683,10 +1683,23 @@ try:
                                 clear_open_questions_button = gr.Button("🗑️ 全てクリア", variant="stop")
                             
                             open_questions_status = gr.Markdown("---")
+                            
+                            gr.Markdown("#### 📈 感情モニタリング")
+                            user_emotion_history_plot = gr.LinePlot(
+                                x="timestamp", 
+                                y="value", 
+                                color="emotion",
+                                title="ユーザー感情の推移",
+                                tooltip=["timestamp", "emotion", "user_text"],
+                                height=250,
+                                width="100%",
+                                interactive=False
+                            )
+                            
                             internal_state_last_update = gr.Markdown("最終更新: ---")
 
-                        # --- 睡眠時記憶整理 ---
                         with gr.Accordion("💫 睡眠時記憶整理 (Sleep Consolidation)", open=False):
+
                             gr.Markdown(
                                 "**発生条件:** 自律行動が有効で、通知禁止時間帯（デフォルト: 0:00〜7:00）に無操作時間を超過すると、AIは「眠り」に入り夢日記を作成します。\n\n"
                                 "夢日記を作成する際に、以下の処理も連続して実行します。（チェックを変更すると即座に保存されます）"
@@ -2932,18 +2945,6 @@ try:
             inputs=[current_room_name],
             outputs=[short_term_goals_display, long_term_goals_display, goals_meta_display]
         )
-
-        # --- Internal State Events ---
-        refresh_internal_state_button.click(
-            fn=ui_handlers.handle_refresh_internal_state,
-            inputs=[current_room_name],
-            outputs=[
-                boredom_level_display, curiosity_level_display, 
-                goal_achievement_level_display, devotion_level_display,
-                dominant_drive_display, open_questions_display, internal_state_last_update,
-                open_questions_status
-            ]
-        )
         
         clear_open_questions_button.click(
             fn=ui_handlers.handle_clear_open_questions,
@@ -4092,6 +4093,19 @@ try:
             fn=ui_handlers.handle_outing_reload_logs,
             inputs=[current_room_name, outing_log_count_slider, outing_logs_include_timestamp, outing_logs_include_model],
             outputs=[outing_logs_text, outing_logs_chars]
+        )
+
+        # --- [Phase 2] 内的状態ダッシュボードの更新イベント ---
+        refresh_internal_state_button.click(
+            fn=ui_handlers.handle_refresh_internal_state,
+            inputs=[current_room_name],
+            outputs=[
+                boredom_level_display, curiosity_level_display, 
+                goal_achievement_level_display, devotion_level_display,
+                dominant_drive_display, open_questions_display, 
+                internal_state_last_update,
+                user_emotion_history_plot
+            ]
         )
 
         # --- 外部接続設定に基づいてserver_nameを決定 ---

@@ -10038,3 +10038,152 @@ def handle_watchlist_check_all(room_name: str, api_key_name: str):
         traceback.print_exc()
         gr.Error(f"チェックに失敗しました: {e}")
         return gr.update(), f"❌ エラー: {e}"
+
+def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, float, str, pd.DataFrame, str, pd.DataFrame, str]:
+    """
+    内的状態を再読み込みし、UIコンポーネントを更新する。
+    Return order:
+    1. boredom (Slider)
+    2. curiosity (Slider)
+    3. goal_drive (Slider)
+    4. devotion (Slider)
+    5. dominant_text (Textbox)
+    6. open_questions (DataFrame)
+    7. last_update (Markdown)
+    8. emotion_df (LinePlot)
+    9. goal_html (HTML)
+    """
+    from motivation_manager import MotivationManager
+    from goal_manager import GoalManager
+    import pandas as pd
+    
+    # 初期値（エラー時など）
+    empty_df = pd.DataFrame(columns=["話題", "背景・文脈", "優先度", "尋ねた日時"])
+    empty_emotion_df = pd.DataFrame(columns=["timestamp", "emotion", "user_text", "value"])
+    empty_html = "<div>目標データを読み込めませんでした</div>"
+    
+    if not room_name:
+        return (0, 0, 0, 0, "ルームを選択してください", empty_df, "最終更新: エラー", empty_emotion_df, empty_html)
+    
+    try:
+        mm = MotivationManager(room_name)
+        state = mm.get_internal_state()
+        drives = state.get("drives", {})
+        
+        # 1. Drive Levels (丸める)
+        boredom = round(drives.get("boredom", {}).get("level", 0.0), 2)
+        curiosity = round(drives.get("curiosity", {}).get("level", 0.0), 2)
+        goal_drive = round(drives.get("goal_achievement", {}).get("level", 0.0), 2)
+        devotion = round(drives.get("devotion", {}).get("level", 0.0), 2)
+        
+        # 2. Dominant Drive (ドライブに応じた動的情報)
+        dominant = mm.get_dominant_drive()
+        
+        if dominant == "boredom":
+            # 退屈：最終対話からの経過時間
+            last_interaction = drives.get("boredom", {}).get("last_interaction", "")
+            if last_interaction:
+                try:
+                    last_dt = datetime.datetime.fromisoformat(last_interaction)
+                    elapsed = datetime.datetime.now() - last_dt
+                    elapsed_mins = int(elapsed.total_seconds() / 60)
+                    dynamic_info = f"😴 退屈（Boredom）\n最終対話から {elapsed_mins} 分経過"
+                except:
+                    dynamic_info = "😴 退屈（Boredom）\n何か面白いことはないですか？"
+            else:
+                dynamic_info = "😴 退屈（Boredom）\n何か面白いことはないですか？"
+                
+        elif dominant == "curiosity":
+            # 好奇心：最も優先度の高い未解決の問い
+            questions = drives.get("curiosity", {}).get("open_questions", [])
+            if questions:
+                # priorityが高い順（数値が高いほど優先）にソートして先頭を取得
+                top_q = sorted(questions, key=lambda x: x.get("priority", 0), reverse=True)[0]
+                topic = top_q.get("topic", "不明")
+                dynamic_info = f"🧐 好奇心（Curiosity）\n最優先の問い: {topic}"
+            else:
+                dynamic_info = "🧐 好奇心（Curiosity）\n知りたいことがあります"
+                
+        elif dominant == "goal_achievement":
+            # 目標達成欲：最優先目標
+            from goal_manager import GoalManager
+            gm = GoalManager(room_name)
+            top_goal = gm.get_top_goal()
+            if top_goal:
+                goal_text = top_goal.get("goal", "")[:50]  # 長すぎる場合は切り詰め
+                if len(top_goal.get("goal", "")) > 50:
+                    goal_text += "..."
+                dynamic_info = f"🎯 目標達成欲（Goal Drive）\n最優先目標: {goal_text}"
+            else:
+                dynamic_info = "🎯 目標達成欲（Goal Drive）\n目標達成に向けて意欲的です"
+                
+        elif dominant == "devotion":
+            # 奉仕欲：直近のユーザー感情
+            user_emotion = drives.get("devotion", {}).get("user_emotional_state", "unknown")
+            emotion_display = {
+                "joy": "😊 喜び", "sadness": "😢 悲しみ", "anger": "😠 怒り",
+                "fear": "😨 恐れ", "surprise": "😲 驚き", "neutral": "😐 平静",
+                "unknown": "❓ 不明"
+            }.get(user_emotion, user_emotion)
+            dynamic_info = f"💕 奉仕欲（Devotion）\n直近のユーザー感情: {emotion_display}"
+        else:
+            dynamic_info = f"【{dominant.upper()}】"
+        
+        # 3. Open Questions (DataFrame)
+        questions = drives.get("curiosity", {}).get("open_questions", [])
+        df_data = []
+        for q in questions:
+            df_data.append([
+                q.get("topic", ""),
+                q.get("context", ""),
+                q.get("priority", 0),
+                q.get("detected_at", "")
+            ])
+        
+        if not df_data:
+            open_questions_df = empty_df
+        else:
+            open_questions_df = pd.DataFrame(df_data, columns=["話題", "背景・文脈", "優先度", "尋ねた日時"])
+
+        # 4. Emotion History (LinePlot)
+        if hasattr(mm, "get_user_emotion_history"):
+            emotion_history = mm.get_user_emotion_history(limit=50)
+        else:
+            emotion_history = []
+            
+        if emotion_history:
+            emotion_df = pd.DataFrame(emotion_history)
+            emotion_df['timestamp'] = pd.to_datetime(emotion_df['timestamp'])
+            try:
+                import pytz
+                jst = pytz.timezone('Asia/Tokyo')
+                emotion_df['timestamp'] = emotion_df['timestamp'].dt.tz_localize(jst)
+            except ImportError:
+                pass
+            
+            emotion_map = {
+                "joy": 1.0, "happy": 0.8, 
+                "neutral": 0.0,
+                "surprise": 0.2, "busy": -0.2, "tired": -0.4,
+                "sadness": -0.6, "sad": -0.6,
+                "anxious": -0.7, "fear": -0.8, "anger": -1.0, "stressed": -0.9
+            }
+            emotion_df['value'] = emotion_df['emotion'].map(lambda x: emotion_map.get(x, 0.0))
+        else:
+            emotion_df = empty_emotion_df
+
+        last_update = f"最終更新: {datetime.datetime.now().strftime('%H:%M:%S')}"
+        
+        # 戻り値: 8個 (goal_html と insights_text を削除)
+        return (
+            boredom, curiosity, goal_drive, devotion, 
+            dynamic_info, 
+            open_questions_df, 
+            last_update,
+            emotion_df
+        )
+        
+    except Exception as e:
+        print(f"内的状態リフレッシュエラー: {e}")
+        traceback.print_exc()
+        return (0, 0, 0, 0, f"エラー: {e}", empty_df, "更新失敗", empty_emotion_df)

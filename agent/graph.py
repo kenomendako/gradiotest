@@ -262,35 +262,17 @@ def retrieval_node(state: AgentState):
         return {"retrieved_context": ""}
 
     # --- [User Emotion Detection] ユーザー感情状態の検出 ---
-    # 奉仕欲ドライブを機能させるため、ユーザーの感情を軽量モデルで分析
+    # 奉仕欲ドライブを機能させるため、ユーザーの感情を分析してログに記録
     try:
         from motivation_manager import MotivationManager
-        
-        # 軽量モデルで感情ラベルを抽出
-        emotion_llm = LLMFactory.create_chat_model(
+        mm = MotivationManager(state['room_name'])
+        # 感情検出し、ログ保存とDevotion更新を一括で行う
+        mm.detect_process_and_log_user_emotion(
+            user_text=query_source,
             model_name=constants.INTERNAL_PROCESSING_MODEL,
-            api_key=state['api_key'],
-            generation_config={},
-            force_google=True
+            api_key=state['api_key']
         )
-        
-        emotion_prompt = f"""ユーザーのメッセージから感情状態を判定してください。
-
-メッセージ: {query_source[:500]}
-
-以下から1つだけ選んで、その単語のみを出力してください:
-stressed, sad, anxious, tired, busy, neutral, happy
-
-出力:"""
-        
-        detected_state = emotion_llm.invoke(emotion_prompt).content.strip().lower()
-        
-        # 有効な感情ラベルかチェック
-        valid_states = ["stressed", "sad", "anxious", "tired", "busy", "neutral", "happy"]
-        if detected_state in valid_states:
-            mm = MotivationManager(state['room_name'])
-            mm.set_user_emotional_state(detected_state)
-            print(f"  - [Emotion] ユーザー感情を検出: {detected_state}")
+        # print(f"  - [Emotion] 感情検出プロセス完了") # ログ過多防止のためコメントアウト
     except Exception as emotion_e:
         print(f"  - [Emotion] 感情検出でエラー（無視）: {emotion_e}")
 

@@ -16,6 +16,7 @@ import constants
 import room_manager
 import utils
 from goal_manager import GoalManager
+from gemini_api import get_configured_llm
 
 
 class MotivationManager:
@@ -40,10 +41,15 @@ class MotivationManager:
         
         # メモリディレクトリを作成（なければ）
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self._init_emotion_log()
         
         # 内部状態をロード
         self._state = self._load_state()
     
+    def get_internal_state(self) -> Dict:
+        """内部状態（Drivesなど）を取得する"""
+        return self._load_state()
+
     def _get_empty_state(self) -> Dict:
         """空の内部状態構造を返す"""
         return {
@@ -71,6 +77,128 @@ class MotivationManager:
             "motivation_log": None,
             "last_autonomous_trigger": None  # 最終自律行動発火時刻（永続化）
         }
+
+    def _init_emotion_log(self):
+        """感情ログファイルの初期化"""
+        self.emotion_log_file = self.memory_dir / "emotion_log.json"
+        if not self.emotion_log_file.exists():
+            with open(self.emotion_log_file, 'w', encoding='utf-8') as f:
+                json.dump([], f, indent=2, ensure_ascii=False)
+
+    def _load_emotion_log(self) -> List[Dict]:
+        """感情ログの読み込み"""
+        if self.emotion_log_file.exists():
+            try:
+                with open(self.emotion_log_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                return []
+        return []
+
+    def _append_emotion_log(self, emotion_data: Dict):
+        """感情ログへの追記（最新が先頭）"""
+        logs = self._load_emotion_log()
+        logs.insert(0, emotion_data)
+        # ログ肥大化防止（直近100件）
+        logs = logs[:100]
+        try:
+            with open(self.emotion_log_file, 'w', encoding='utf-8') as f:
+                json.dump(logs, f, indent=2, ensure_ascii=False)
+        except IOError as e:
+            print(f"[MotivationManager] 感情ログ保存エラー: {e}")
+
+    def detect_process_and_log_user_emotion(self, user_text: str, model_name: str, api_key: str):
+        """
+        ユーザーの感情を検出し、ログに保存し、Devotion Driveに反映する統合メソッド。
+        Graphなどから非同期的に呼ばれることを想定。
+        """
+        if not user_text or not user_text.strip():
+            return
+
+        # 1. 感情検出 (LLM使用)
+        try:
+            # プロンプト構築
+            prompt = f"""
+            Analyze the emotion of the following user input to the AI.
+            Classify it into exactly one of these categories: [joy, sadness, anger, fear, surprise, neutral].
+            Output ONLY the category name in lowercase.
+
+            User Input: "{user_text[:500]}"
+            """
+            
+            # 簡易モデル設定 (設定取得が面倒なので簡易的に構築するか、引数で貰う)
+            # ここでは引数の model_name, api_key を使用
+            # generation_config は空でデフォルト動作させる
+            llm = get_configured_llm(model_name, api_key, {})
+            
+            response = llm.invoke(prompt).content.strip().lower()
+            
+            # 正規化
+            valid_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral"]
+            if response not in valid_emotions:
+                response = "neutral"
+                
+            detected_emotion = response
+            
+        except Exception as e:
+            print(f"[MotivationManager] 感情検出エラー: {e}")
+            detected_emotion = "neutral"
+
+        # 2. ログ保存
+        log_entry = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "user_text_snippet": user_text[:50] + "..." if len(user_text) > 50 else user_text,
+            "emotion": detected_emotion
+        }
+        self._append_emotion_log(log_entry)
+
+        # 3. 内部状態(Devotion Drive)への反映
+        # ユーザーが悲しみや怒りを感じている場合、奉仕欲(Devotion)を高める
+        self._update_devotion_Based_on_emotion(detected_emotion)
+
+    def _update_devotion_Based_on_emotion(self, emotion: str):
+        """感情に基づいて奉仕欲を更新"""
+        devotion = self._state["drives"]["devotion"]
+        devotion["user_emotional_state"] = emotion
+        
+        # 感情によるブースト
+        if emotion in ["sadness", "anger", "fear"]:
+            # ネガティブな感情には寄り添いたい欲求が高まる
+            devotion["level"] = min(1.0, devotion["level"] + 0.3)
+        elif emotion == "joy":
+            # 喜びには共感するが、緊急性は低いので少し下げるか維持
+            # ここでは「維持」または「微増」
+            devotion["level"] = min(1.0, devotion["level"] + 0.1)
+        
+        self._save_state()
+
+    def get_user_emotion_history(self, limit: int = 10) -> List[Dict]:
+        """UI表示用の感情履歴取得"""
+        logs = self._load_emotion_log()
+        return logs[:limit]
+
+    def get_dominant_drive(self) -> str:
+        """
+        最も強い動機（Drive）を返す。
+        各動機の現在の計算値を比較し、最大のものを返す。
+        """
+        # 各動機レベルを計算
+        boredom = self.calculate_boredom()
+        curiosity = self.calculate_curiosity()
+        goal_achievement = self.calculate_goal_achievement()
+        devotion = self.calculate_devotion()
+        
+        drives = {
+            "boredom": boredom,
+            "curiosity": curiosity,
+            "goal_achievement": goal_achievement,
+            "devotion": devotion
+        }
+        
+        # 最大値の動機を返す（同値の場合はiterationの順序で先に来たものが選ばれる）
+        dominant = max(drives, key=drives.get)
+        return dominant
+
     
     def _load_state(self) -> Dict:
         """内部状態をファイルからロード"""
