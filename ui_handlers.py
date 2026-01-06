@@ -9663,7 +9663,7 @@ def handle_watchlist_delete(room_name: str, selected_data: list):
 
 
 def handle_watchlist_check_all(room_name: str, api_key_name: str):
-    """ウォッチリストの全URLをチェックする"""
+    """ウォッチリストの全URLをチェックし、変更があればペルソナに分析させる"""
     if not room_name:
         gr.Warning("ルームが選択されていません")
         return gr.update(), "ルームが選択されていません"
@@ -9671,6 +9671,7 @@ def handle_watchlist_check_all(room_name: str, api_key_name: str):
     try:
         from watchlist_manager import WatchlistManager
         from tools.watchlist_tools import _fetch_url_content
+        from alarm_manager import _summarize_watchlist_content, trigger_research_analysis
         
         manager = WatchlistManager(room_name)
         entries = manager.get_entries()
@@ -9679,7 +9680,7 @@ def handle_watchlist_check_all(room_name: str, api_key_name: str):
             return gr.update(), "ウォッチリストは空です"
         
         results = []
-        changes_found = 0
+        changes_found = []  # 詳細情報を含む辞書のリスト
         
         for entry in entries:
             if not entry.get("enabled", True):
@@ -9699,14 +9700,33 @@ def handle_watchlist_check_all(room_name: str, api_key_name: str):
             has_changes, diff_summary = manager.check_and_update(entry["id"], content)
             
             if has_changes:
-                changes_found += 1
+                # 【修正】軽量モデルでコンテンツを要約し、詳細情報を保存
+                content_summary = _summarize_watchlist_content(name, url, content, diff_summary)
+                
+                changes_found.append({
+                    "name": name,
+                    "url": url,
+                    "diff_summary": diff_summary,
+                    "content_summary": content_summary
+                })
                 results.append(f"🔔 {name}: 更新あり！ ({diff_summary})")
             else:
                 results.append(f"✅ {name}: {diff_summary}")
         
         # DataFrameを更新
         df_data = handle_watchlist_refresh(room_name)[0]
-        status = f"チェック完了: {len(results)}件中 {changes_found}件に更新あり"
+        
+        # 【修正】変更があった場合、ペルソナに分析させる
+        if changes_found:
+            current_api_key = api_key_name or config_manager.get_latest_api_key_name_from_config()
+            if current_api_key:
+                gr.Info(f"{len(changes_found)}件の更新を検出。ペルソナに分析を依頼中...")
+                trigger_research_analysis(room_name, current_api_key, "watchlist", changes_found)
+                status = f"✅ チェック完了: {len(results)}件中 {len(changes_found)}件に更新あり → ペルソナに分析を依頼しました"
+            else:
+                status = f"チェック完了: {len(results)}件中 {len(changes_found)}件に更新あり（APIキー未設定のため分析スキップ）"
+        else:
+            status = f"✅ チェック完了: {len(results)}件チェック、更新なし"
         
         gr.Info(status)
         return df_data, status
