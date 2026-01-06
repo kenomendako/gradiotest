@@ -9561,14 +9561,14 @@ def handle_refresh_internal_state(room_name: str):
         
         return (
             boredom, curiosity, goal_achievement, devotion,
-            dominant_text, questions_data, last_update_text
+            dominant_text, questions_data, last_update_text, "---"
         )
     
     except Exception as e:
         print(f"Internal State Load Error: {e}")
         traceback.print_exc()
         gr.Error(f"内的状態の読み込みに失敗しました: {e}")
-        return 0, 0, 0, 0, "", [], "最終更新: エラー"
+        return 0, 0, 0, 0, "", [], "最終更新: エラー", "⚠️ 読み込みエラー"
 
 
 def handle_clear_open_questions(room_name: str):
@@ -9586,17 +9586,16 @@ def handle_clear_open_questions(room_name: str):
         from motivation_manager import MotivationManager
         
         mm = MotivationManager(room_name)
-        state = mm._load_state()
         
-        # open_questionsをクリア
-        if "drives" in state and "curiosity" in state["drives"]:
-            state["drives"]["curiosity"]["open_questions"] = []
-            state["drives"]["curiosity"]["level"] = 0.0
+        # mm._state を直接クリア
+        if "drives" in mm._state and "curiosity" in mm._state["drives"]:
+            mm._state["drives"]["curiosity"]["open_questions"] = []
+            mm._state["drives"]["curiosity"]["level"] = 0.0
         
-        mm._save_state(state)
+        mm._save_state()
         
         gr.Info("未解決の問いをクリアしました。")
-        return [], "🗑️ クリア完了"
+        return [], "🗑️ クリア完了", []
     
     except Exception as e:
         print(f"Clear Open Questions Error: {e}")
@@ -9628,19 +9627,18 @@ def handle_delete_selected_questions(room_name: str, selected_topics: list):
         from motivation_manager import MotivationManager
         
         mm = MotivationManager(room_name)
-        state = mm._load_state()
         
-        questions = state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
+        questions = mm._state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
         
         # 選択された話題を削除
         selected_set = set(selected_topics)
         remaining = [q for q in questions if q.get("topic") not in selected_set]
         deleted_count = len(questions) - len(remaining)
         
-        if "drives" in state and "curiosity" in state["drives"]:
-            state["drives"]["curiosity"]["open_questions"] = remaining
+        if "drives" in mm._state and "curiosity" in mm._state["drives"]:
+            mm._state["drives"]["curiosity"]["open_questions"] = remaining
         
-        mm._save_state(state)
+        mm._save_state()
         
         gr.Info(f"{deleted_count}件の問いを削除しました。")
         
@@ -9704,8 +9702,7 @@ def handle_resolve_selected_questions(room_name: str, selected_topics: list):
         gr.Info(f"{resolved_count}件の問いを解決済みにしました。")
         
         # 更新後のDataFrameを返す
-        state = mm._load_state()
-        questions = state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
+        questions = mm._state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
         
         questions_data = []
         for q in questions:

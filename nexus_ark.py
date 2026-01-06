@@ -2938,17 +2938,17 @@ try:
             fn=ui_handlers.handle_refresh_internal_state,
             inputs=[current_room_name],
             outputs=[
-                boredom_level_display, curiosity_level_display,
+                boredom_level_display, curiosity_level_display, 
                 goal_achievement_level_display, devotion_level_display,
-                dominant_drive_display, open_questions_display,
-                internal_state_last_update
+                dominant_drive_display, open_questions_display, internal_state_last_update,
+                open_questions_status
             ]
         )
         
         clear_open_questions_button.click(
             fn=ui_handlers.handle_clear_open_questions,
             inputs=[current_room_name],
-            outputs=[open_questions_display, open_questions_status]
+            outputs=[open_questions_display, open_questions_status, selected_question_topics_state]
         )
         
         # selectイベント：選択された行の話題をStateに保存
