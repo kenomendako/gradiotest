@@ -3450,6 +3450,147 @@ def handle_dream_journal_selection_from_dropdown(room_name: str, selected_create
     except Exception as e:
         return f"詳細表示エラー: {e}"
 
+
+def handle_show_latest_dream(room_name: str):
+    """
+    夢日記を読み込み、最新のエントリを自動的に選択して表示する。
+    
+    Returns:
+        (date_dropdown, detail_text, year_filter, month_filter)
+    """
+    if not room_name:
+        return gr.update(choices=[]), "", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
+    
+    try:
+        from dreaming_manager import DreamingManager
+        dm = DreamingManager(room_name, "dummy_key")
+        insights = dm._load_insights()
+        
+        if not insights:
+            gr.Info("夢日記がありません。")
+            return gr.update(choices=[]), "夢日記がまだありません。", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
+        
+        # 最新順にソート
+        insights.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        
+        choices = []
+        years = set()
+        months = set()
+        
+        for item in insights:
+            created_at = item.get("created_at", "")
+            if not created_at:
+                continue
+            
+            date_part = created_at.split(" ")[0]
+            y, m, d = date_part.split("-")
+            years.add(y)
+            months.add(m)
+            
+            topic = item.get("trigger_topic", "話題なし")
+            topic_short = (topic[:15] + "..") if len(topic) > 15 else topic
+            label = f"{date_part} ({topic_short})"
+            choices.append((label, created_at))
+        
+        year_choices = ["すべて"] + sorted(list(years), reverse=True)
+        month_choices = ["すべて"] + sorted(list(months))
+        
+        # 最新のエントリを選択して詳細を表示
+        latest = insights[0]
+        latest_created_at = latest.get("created_at", "")
+        
+        details = (
+            f"【日付】 {latest.get('created_at')}\\n"
+            f"【トリガー】 {latest.get('trigger_topic')}\\n\\n"
+            f"## 💡 得られた洞察 (Insight)\\n"
+            f"{latest.get('insight', '（記録なし）')}\\n\\n"
+            f"## 💭 夢の日記 (Dream Log)\\n"
+            f"{latest.get('log_entry', '（記録なし）')}\\n\\n"
+            f"## 🧭 今後の指針 (Strategy)\\n"
+            f"{latest.get('strategy', '（記録なし）')}"
+        )
+        
+        gr.Info("最新の夢日記を表示しています。")
+        return (
+            gr.update(choices=choices, value=latest_created_at),
+            details,
+            gr.update(choices=year_choices, value="すべて"),
+            gr.update(choices=month_choices, value="すべて")
+        )
+        
+    except Exception as e:
+        print(f"夢日記最新表示エラー: {e}")
+        traceback.print_exc()
+        return gr.update(choices=[]), f"エラー: {e}", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
+
+
+def handle_show_latest_episodic(room_name: str):
+    """
+    エピソード記憶を読み込み、最新のエントリを自動的に選択して表示する。
+    
+    Returns:
+        (date_dropdown, detail_text, year_filter, month_filter)
+    """
+    if not room_name:
+        return gr.update(choices=[]), "", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
+    
+    try:
+        import json
+        from pathlib import Path
+        
+        episodic_path = Path(constants.ROOMS_DIR) / room_name / "memory" / "episodic_memory.json"
+        
+        if not episodic_path.exists():
+            gr.Info("エピソード記憶がありません。")
+            return gr.update(choices=[]), "エピソード記憶がまだありません。", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
+        
+        with open(episodic_path, 'r', encoding='utf-8') as f:
+            episodes = json.load(f)
+        
+        if not episodes:
+            return gr.update(choices=[]), "エピソード記憶がまだありません。", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
+        
+        # 最新順にソート
+        episodes.sort(key=lambda x: x.get("date", ""), reverse=True)
+        
+        choices = []
+        years = set()
+        months = set()
+        
+        for ep in episodes:
+            date_str = ep.get("date", "")
+            if not date_str:
+                continue
+            
+            parts = date_str.split("-")
+            if len(parts) >= 2:
+                years.add(parts[0])
+                months.add(parts[1])
+            
+            choices.append(date_str)
+        
+        year_choices = ["すべて"] + sorted(list(years), reverse=True)
+        month_choices = ["すべて"] + sorted(list(months))
+        
+        # 最新のエントリを選択して詳細を表示
+        latest = episodes[0]
+        latest_date = latest.get("date", "")
+        summary = latest.get("summary", "（なし）")
+        
+        gr.Info("最新のエピソード記憶を表示しています。")
+        return (
+            gr.update(choices=choices, value=latest_date),
+            summary,
+            gr.update(choices=year_choices, value="すべて"),
+            gr.update(choices=month_choices, value="すべて")
+        )
+        
+    except Exception as e:
+        print(f"エピソード記憶最新表示エラー: {e}")
+        traceback.print_exc()
+        return gr.update(choices=[]), f"エラー: {e}", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
+
+
 # --- 📌 エンティティ記憶 (Entity Memory) ハンドラ ---
 
 def handle_refresh_entity_list(room_name: str):
@@ -9461,6 +9602,145 @@ def handle_clear_open_questions(room_name: str):
         print(f"Clear Open Questions Error: {e}")
         traceback.print_exc()
         gr.Error(f"クリアに失敗しました: {e}")
+        return gr.update(), f"エラー: {e}"
+
+
+def handle_delete_selected_questions(room_name: str, selected_rows: list):
+    """
+    DataFrameで選択された問いを削除する。
+    
+    Args:
+        room_name: ルーム名
+        selected_rows: DataFrameの選択データ（[[話題, 背景, 優先度, 尋ねた日時], ...]）
+    
+    Returns:
+        (open_questions_df, status_text)
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(), "エラー: ルーム未選択"
+    
+    if not selected_rows or len(selected_rows) == 0:
+        gr.Warning("削除する問いを選択してください。")
+        return gr.update(), "⚠️ 選択されていません"
+    
+    try:
+        from motivation_manager import MotivationManager
+        
+        mm = MotivationManager(room_name)
+        state = mm._load_state()
+        
+        questions = state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
+        
+        # 選択された話題を取得
+        selected_topics = set()
+        for row in selected_rows:
+            if isinstance(row, list) and len(row) > 0:
+                selected_topics.add(row[0])  # 最初の列が「話題」
+        
+        # 選択されていない問いだけ残す
+        remaining = [q for q in questions if q.get("topic") not in selected_topics]
+        deleted_count = len(questions) - len(remaining)
+        
+        if "drives" in state and "curiosity" in state["drives"]:
+            state["drives"]["curiosity"]["open_questions"] = remaining
+        
+        mm._save_state(state)
+        
+        gr.Info(f"{deleted_count}件の問いを削除しました。")
+        
+        # 更新後のDataFrameを返す
+        questions_data = []
+        for q in remaining:
+            asked_at = q.get("asked_at", "")
+            if asked_at:
+                try:
+                    dt = datetime.datetime.fromisoformat(asked_at)
+                    asked_at = dt.strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    pass
+            
+            questions_data.append([
+                q.get("topic", ""),
+                q.get("context", ""),
+                round(q.get("priority", 0.5), 2),
+                asked_at if asked_at else "未回答"
+            ])
+        
+        return questions_data, f"🗑️ {deleted_count}件を削除しました"
+    
+    except Exception as e:
+        print(f"Delete Selected Questions Error: {e}")
+        traceback.print_exc()
+        gr.Error(f"削除に失敗しました: {e}")
+        return gr.update(), f"エラー: {e}"
+
+
+def handle_resolve_selected_questions(room_name: str, selected_rows: list):
+    """
+    DataFrameで選択された問いを解決済みにする（asked_atをマーク）。
+    
+    Args:
+        room_name: ルーム名
+        selected_rows: DataFrameの選択データ（[[話題, 背景, 優先度, 尋ねた日時], ...]）
+    
+    Returns:
+        (open_questions_df, status_text)
+    """
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return gr.update(), "エラー: ルーム未選択"
+    
+    if not selected_rows or len(selected_rows) == 0:
+        gr.Warning("解決済みにする問いを選択してください。")
+        return gr.update(), "⚠️ 選択されていません"
+    
+    try:
+        from motivation_manager import MotivationManager
+        
+        mm = MotivationManager(room_name)
+        
+        # 選択された話題を取得
+        selected_topics = []
+        for row in selected_rows:
+            if isinstance(row, list) and len(row) > 0:
+                selected_topics.append(row[0])  # 最初の列が「話題」
+        
+        # 各問いを解決済みにマーク
+        resolved_count = 0
+        for topic in selected_topics:
+            if mm.mark_question_asked(topic):
+                resolved_count += 1
+        
+        gr.Info(f"{resolved_count}件の問いを解決済みにしました。")
+        
+        # 更新後のDataFrameを返す
+        state = mm._load_state()
+        questions = state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
+        
+        questions_data = []
+        for q in questions:
+            asked_at = q.get("asked_at", "")
+            if asked_at:
+                try:
+                    dt = datetime.datetime.fromisoformat(asked_at)
+                    asked_at = dt.strftime("%Y-%m-%d %H:%M")
+                except ValueError:
+                    pass
+            
+            questions_data.append([
+                q.get("topic", ""),
+                q.get("context", ""),
+                round(q.get("priority", 0.5), 2),
+                asked_at if asked_at else "未回答"
+            ])
+        
+        return questions_data, f"✅ {resolved_count}件を解決済みにしました"
+    
+    except Exception as e:
+        print(f"Resolve Selected Questions Error: {e}")
+        traceback.print_exc()
+        gr.Error(f"解決済みマークに失敗しました: {e}")
         return gr.update(), f"エラー: {e}"
 
 

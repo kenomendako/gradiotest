@@ -1524,7 +1524,9 @@ try:
                         # --- [Phase 14] エピソード記憶閲覧 ---
                         with gr.Accordion("📚 エピソード記憶（中期記憶）の管理", open=False):
                             episodic_memory_info_display = gr.Markdown("昨日までの会話ログを日ごとに要約し、中期記憶として保存します。\n**最新の記憶:** (未取得)")
-                            refresh_episodic_button = gr.Button("📚 エピソード記憶を読み込む", variant="primary")
+                            with gr.Row():
+                                refresh_episodic_button = gr.Button("📚 エピソード記憶を読み込む", variant="primary")
+                                show_latest_episodic_button = gr.Button("📄 最新を表示", variant="secondary")
                             
                             with gr.Row():
                                 episodic_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
@@ -1549,7 +1551,9 @@ try:
                         # --- 夢日記 ---
                         with gr.Accordion("🌙 夢日記 (Dream Journal)", open=False):
                             gr.Markdown("AIが通知禁止時間帯（寝ている間）に見た夢の記録です。\n過去の記憶と直近の出来事を照らし合わせ、AIが得た「洞察」や「深層心理」を閲覧できます。")
-                            refresh_dream_button = gr.Button("🌛 夢日記を読み込む", variant="primary")
+                            with gr.Row():
+                                refresh_dream_button = gr.Button("🌛 夢日記を読み込む", variant="primary")
+                                show_latest_dream_button = gr.Button("📄 最新を表示", variant="secondary")
                             
                             with gr.Row():
                                 dream_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
@@ -1662,18 +1666,23 @@ try:
                             )
                             
                             gr.Markdown("#### ❓ 未解決の問い（好奇心の源泉）")
+                            gr.Markdown("行を選択してから操作ボタンをクリックしてください。", elem_id="open_questions_hint")
                             open_questions_display = gr.Dataframe(
                                 headers=["話題", "背景・文脈", "優先度", "尋ねた日時"],
                                 datatype=["str", "str", "number", "str"],
                                 row_count=(3, "dynamic"),
                                 col_count=(4, "fixed"),
-                                interactive=False,
+                                interactive=True,  # 選択可能に
                                 wrap=True
                             )
                             
                             with gr.Row():
-                                clear_open_questions_button = gr.Button("🗑️ 未解決の問いをクリア", variant="stop")
-                                internal_state_last_update = gr.Markdown("最終更新: ---")
+                                resolve_selected_questions_button = gr.Button("✅ 選択を解決済みに", variant="secondary")
+                                delete_selected_questions_button = gr.Button("🗑️ 選択を削除", variant="stop")
+                                clear_open_questions_button = gr.Button("🗑️ 全てクリア", variant="stop")
+                            
+                            open_questions_status = gr.Markdown("---")
+                            internal_state_last_update = gr.Markdown("最終更新: ---")
 
                         # --- 睡眠時記憶整理 ---
                         with gr.Accordion("💫 睡眠時記憶整理 (Sleep Consolidation)", open=False):
@@ -2938,7 +2947,19 @@ try:
         clear_open_questions_button.click(
             fn=ui_handlers.handle_clear_open_questions,
             inputs=[current_room_name],
-            outputs=[open_questions_display, internal_state_last_update]
+            outputs=[open_questions_display, open_questions_status]
+        )
+        
+        delete_selected_questions_button.click(
+            fn=ui_handlers.handle_delete_selected_questions,
+            inputs=[current_room_name, open_questions_display],
+            outputs=[open_questions_display, open_questions_status]
+        )
+        
+        resolve_selected_questions_button.click(
+            fn=ui_handlers.handle_resolve_selected_questions,
+            inputs=[current_room_name, open_questions_display],
+            outputs=[open_questions_display, open_questions_status]
         )
         
         # --- Internal State Maintenance ---
@@ -3062,6 +3083,12 @@ try:
             outputs=[dream_date_dropdown, dream_detail_text, dream_year_filter, dream_month_filter]
         )
         
+        show_latest_dream_button.click(
+            fn=ui_handlers.handle_show_latest_dream,
+            inputs=[current_room_name],
+            outputs=[dream_date_dropdown, dream_detail_text, dream_year_filter, dream_month_filter]
+        )
+        
         dream_year_filter.change(
             fn=ui_handlers.handle_dream_filter_change,
             inputs=[current_room_name, dream_year_filter, dream_month_filter],
@@ -3083,6 +3110,12 @@ try:
         # --- [Phase 14] Episodic Memory Browser Events ---
         refresh_episodic_button.click(
             fn=ui_handlers.handle_refresh_episodic_entries,
+            inputs=[current_room_name],
+            outputs=[episodic_date_dropdown, episodic_detail_text, episodic_year_filter, episodic_month_filter]
+        )
+        
+        show_latest_episodic_button.click(
+            fn=ui_handlers.handle_show_latest_episodic,
             inputs=[current_room_name],
             outputs=[episodic_date_dropdown, episodic_detail_text, episodic_year_filter, episodic_month_filter]
         )
