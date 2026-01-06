@@ -261,6 +261,39 @@ def retrieval_node(state: AgentState):
         print("  - [Retrieval Skip] 検索対象となるテキストコンテンツが含まれていません。")
         return {"retrieved_context": ""}
 
+    # --- [User Emotion Detection] ユーザー感情状態の検出 ---
+    # 奉仕欲ドライブを機能させるため、ユーザーの感情を軽量モデルで分析
+    try:
+        from motivation_manager import MotivationManager
+        
+        # 軽量モデルで感情ラベルを抽出
+        emotion_llm = LLMFactory.create_chat_model(
+            model_name=constants.INTERNAL_PROCESSING_MODEL,
+            api_key=state['api_key'],
+            generation_config={},
+            force_google=True
+        )
+        
+        emotion_prompt = f"""ユーザーのメッセージから感情状態を判定してください。
+
+メッセージ: {query_source[:500]}
+
+以下から1つだけ選んで、その単語のみを出力してください:
+stressed, sad, anxious, tired, busy, neutral, happy
+
+出力:"""
+        
+        detected_state = emotion_llm.invoke(emotion_prompt).content.strip().lower()
+        
+        # 有効な感情ラベルかチェック
+        valid_states = ["stressed", "sad", "anxious", "tired", "busy", "neutral", "happy"]
+        if detected_state in valid_states:
+            mm = MotivationManager(state['room_name'])
+            mm.set_user_emotional_state(detected_state)
+            print(f"  - [Emotion] ユーザー感情を検出: {detected_state}")
+    except Exception as emotion_e:
+        print(f"  - [Emotion] 感情検出でエラー（無視）: {emotion_e}")
+
     # 2. クエリ生成AI（Flash Lite）による判断
     api_key = state['api_key']
     room_name = state['room_name']
@@ -612,6 +645,38 @@ def context_generator_node(state: AgentState):
             dream_insights_text += f"\n\n{goals_text}\n"
     except Exception as e:
         print(f"  - [Context] 目標データの読み込みエラー: {e}")
+
+    # --- [Internal State] 内的状態の簡易版注入 ---
+    # 通常対話時にもAIが自己の動機を意識できるようにする
+    try:
+        from motivation_manager import MotivationManager
+        mm = MotivationManager(room_name)
+        
+        # 全動機を計算して最も高い動機を取得
+        drives = {
+            "boredom": mm.calculate_boredom(),
+            "curiosity": mm.calculate_curiosity(),
+            "goal_achievement": mm.calculate_goal_achievement(),
+            "devotion": mm.calculate_devotion()
+        }
+        
+        dominant_drive = max(drives, key=drives.get)
+        drive_level = drives[dominant_drive]
+        
+        # 閾値以上の動機がある場合のみ注入（トークン節約）
+        if drive_level >= 0.4:
+            drive_label = mm.DRIVE_LABELS.get(dominant_drive, dominant_drive)
+            narrative = mm._generate_narrative(dominant_drive, drive_level)
+            
+            internal_state_brief = (
+                f"\n### 今のあなたの気持ち\n"
+                f"- 最も強い動機: {drive_label}（強さ: {drive_level:.1f}）\n"
+                f"- {narrative}\n"
+            )
+            dream_insights_text += internal_state_brief
+            print(f"  - [Context] 内的状態を注入: {drive_label} ({drive_level:.2f})")
+    except Exception as e:
+        print(f"  - [Context] 内的状態の読み込みエラー: {e}")
 
     action_plan_context = ""
     try:
@@ -1128,6 +1193,32 @@ def agent_node(state: AgentState):
 
         loop_count += 1
         if not getattr(response, "tool_calls", None):
+            # --- [未解決の問い自動解決] 対話終了時に問いの解決判定を実行 ---
+            try:
+                from motivation_manager import MotivationManager
+                mm = MotivationManager(state['room_name'])
+                
+                # 直近会話をテキスト化
+                recent_turns = []
+                for msg in history_messages[-10:]:  # 直近10件
+                    if isinstance(msg, (HumanMessage, AIMessage)):
+                        content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                        role = "ユーザー" if isinstance(msg, HumanMessage) else "AI"
+                        recent_turns.append(f"{role}: {content[:500]}")
+                
+                if recent_turns:
+                    recent_text = "\n".join(recent_turns)
+                    resolved = mm.auto_resolve_questions(recent_text, state['api_key'])
+                    if resolved:
+                        print(f"  - [Agent] 未解決の問い {len(resolved)}件を解決済みとしてマーク")
+                    
+                    # 古い問いの優先度を下げる（毎回ではなくたまに実行）
+                    if loop_count == 0:  # 最初のループ時のみ
+                        mm.decay_old_questions()
+            except Exception as mm_e:
+                print(f"  - [Agent] 問い自動解決処理でエラー（無視）: {mm_e}")
+            # --- 自動解決ここまで ---
+            
             return {"messages": [response], "loop_count": loop_count, "last_successful_response": response, "model_name": state['model_name']}
         else:
             return {"messages": [response], "loop_count": loop_count, "model_name": state['model_name']}

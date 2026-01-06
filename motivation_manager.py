@@ -428,6 +428,147 @@ class MotivationManager:
         
         return max(unanswered, key=lambda q: q.get("priority", 0))
     
+    def get_open_questions_for_context(self) -> str:
+        """
+        未解決の問いをAI判定用のテキストとして返す。
+        
+        Returns:
+            判定に使うためのフォーマット済みテキスト
+        """
+        questions = self._state["drives"]["curiosity"].get("open_questions", [])
+        unanswered = [q for q in questions if not q.get("asked_at")]
+        
+        if not unanswered:
+            return ""
+        
+        parts = []
+        for i, q in enumerate(unanswered, 1):
+            topic = q.get("topic", "")
+            context = q.get("context", "")
+            parts.append(f"{i}. 「{topic}」（背景: {context}）" if context else f"{i}. 「{topic}」")
+        
+        return "\n".join(parts)
+    
+    def auto_resolve_questions(self, recent_conversation: str, api_key: str) -> List[str]:
+        """
+        対話内容から解決済みの問いを自動判定し、マークする。
+        
+        Args:
+            recent_conversation: 直近の会話テキスト
+            api_key: LLM呼び出し用のAPIキー
+        
+        Returns:
+            解決されたと判定された問いのトピックリスト
+        """
+        import constants
+        from llm_factory import LLMFactory
+        
+        questions_text = self.get_open_questions_for_context()
+        if not questions_text:
+            return []
+        
+        try:
+            llm_flash = LLMFactory.create_chat_model(
+                model_name=constants.INTERNAL_PROCESSING_MODEL,
+                api_key=api_key,
+                generation_config={},
+                force_google=True
+            )
+            
+            prompt = f"""あなたはAIの記憶管理アシスタントです。
+以下の「未解決の問い」のうち、「直近の会話」で回答・解決・言及された可能性のあるものを判定してください。
+
+【未解決の問い】
+{questions_text}
+
+【直近の会話】
+{recent_conversation[-3000:]}
+
+【判定ルール】
+- その問いのトピックについて、会話で明確に話題になった場合は「解決」とみなす
+- 部分的に触れられた場合も「解決」とみなす（再度聞く必要がないため）
+- 全く触れられていない場合は「未解決」のまま
+
+【出力形式】
+解決した問いの番号をカンマ区切りで出力してください。
+例: 1,3
+何も解決していない場合は NONE と出力してください。
+"""
+            
+            response = llm_flash.invoke(prompt).content.strip()
+            
+            if response == "NONE" or not response:
+                return []
+            
+            # 番号をパース
+            resolved_indices = []
+            for part in response.replace(" ", "").split(","):
+                try:
+                    resolved_indices.append(int(part))
+                except ValueError:
+                    continue
+            
+            # 対応する問いをマーク
+            questions = self._state["drives"]["curiosity"].get("open_questions", [])
+            unanswered = [q for q in questions if not q.get("asked_at")]
+            
+            resolved_topics = []
+            for idx in resolved_indices:
+                if 1 <= idx <= len(unanswered):
+                    topic = unanswered[idx - 1].get("topic")
+                    if topic:
+                        self.mark_question_asked(topic)
+                        resolved_topics.append(topic)
+                        print(f"  - [Motivation] 問い「{topic}」を解決済みとしてマークしました")
+            
+            return resolved_topics
+            
+        except Exception as e:
+            print(f"[MotivationManager] 問い自動解決でエラー: {e}")
+            return []
+    
+    def decay_old_questions(self, days_threshold: int = 14) -> int:
+        """
+        古い問いの優先度を自動的に下げる。
+        
+        Args:
+            days_threshold: この日数以上経過した問いの優先度を下げる
+        
+        Returns:
+            優先度を下げた問いの数
+        """
+        questions = self._state["drives"]["curiosity"].get("open_questions", [])
+        now = datetime.datetime.now()
+        decayed_count = 0
+        
+        for q in questions:
+            if q.get("asked_at"):  # 既に解決済みはスキップ
+                continue
+            
+            source_date_str = q.get("source_date")
+            if not source_date_str:
+                continue
+            
+            try:
+                source_date = datetime.datetime.strptime(source_date_str, "%Y-%m-%d")
+                age_days = (now - source_date).days
+                
+                if age_days >= days_threshold:
+                    current_priority = q.get("priority", 0.5)
+                    # 優先度を半減（最低0.1）
+                    new_priority = max(0.1, current_priority * 0.5)
+                    if new_priority < current_priority:
+                        q["priority"] = new_priority
+                        decayed_count += 1
+            except ValueError:
+                continue
+        
+        if decayed_count > 0:
+            self._save_state()
+            print(f"  - [Motivation] 古い問い{decayed_count}件の優先度を下げました")
+        
+        return decayed_count
+
     # ========================================
     # 自律行動発火時刻の永続化
     # ========================================
