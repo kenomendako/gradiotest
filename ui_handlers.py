@@ -9668,6 +9668,8 @@ def handle_watchlist_check_all(room_name: str, api_key_name: str):
         gr.Warning("ルームが選択されていません")
         return gr.update(), "ルームが選択されていません"
     
+    gr.Info("🔄 全件チェックを開始しています...")
+    
     try:
         from watchlist_manager import WatchlistManager
         from tools.watchlist_tools import _fetch_url_content
