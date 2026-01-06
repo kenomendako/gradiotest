@@ -4,38 +4,37 @@
 **ブランチ**: `improve/scenery-image-time-priority`
 
 ## 問題概要
-1. 情景画像のフォールバック検索で、「冬の昼」の画像がない場合に「冬の夜」が表示されてしまう
-2. `get_time_of_day`が返す詳細な時間帯名（`late_morning`等）と画像ファイル名の簡略名（`morning`等）が不一致
+1. 画像検索で「冬の昼」がない場合に「冬の夜」が表示される（季節優先になっていた）
+2. `get_time_of_day`の詳細名（`late_morning`等）と画像ファイル名の簡略名（`morning`等）が不一致
+3. 昼間に夜の画像が表示される違和感
 
 ## 修正内容
 
 ### 変更ファイル
-- [utils.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/utils.py) の `find_scenery_image` 関数 (v3 → v5)
+- `utils.py` の `find_scenery_image` 関数 (v3 → v6)
 
-### 変更後の検索優先順位
-1. `場所_現在季節_時間帯.png` (完全一致)
-2. `場所_現在季節_時間帯(簡略).png` (時間帯フォールバック)
-3. `場所_[他の季節]_時間帯.png` (季節フォールバック)
-4. `場所_時間帯.png` (時間帯のみ)
-5. `場所_季節.png` (季節のみ)
-6. `場所.png` (デフォルト)
+### 新機能
 
-### 季節フォールバック順序
-現在季節から逆順に遡る: 冬 → 秋 → 夏 → 春
+#### 1. 季節フォールバック
+同じ時間帯で季節を遡る: 冬 → 秋 → 夏 → 春
 
-### 時間帯フォールバックマッピング
-- `late_morning` → `morning`
-- `early_morning` → `morning`
-- `afternoon` → `noon`
-- `evening` → `night`
-- `midnight` → `night`
+#### 2. 明るさベースの時間帯フォールバック
+昼間時間帯は最終的に`morning`までフォールバック:
+```
+afternoon → noon → late_morning → morning
+```
+
+夜間時間帯は`night`にフォールバック:
+```
+evening → night
+midnight → night
+```
 
 ## 検証結果
-- 構文チェック: ✅ 成功
-- インポートテスト: ✅ 成功
-- 動作テスト: ✅ 成功（`キッチン_autumn_morning.png`が正しく選択された）
-- 構文チェック: ✅ 成功
-- インポートテスト: ✅ 成功
+| ケース | 結果 |
+|--------|------|
+| `late_morning` + `winter` | ✅ `キッチン_autumn_morning.png` |
+| `afternoon` + `winter` | ✅ `キッチン_autumn_morning.png` |
 
-## 今後の関連課題
-INBOX項目「情景描写画像の切り替えチェック」もこの修正で解決される可能性あり。
+## 効果
+少ない画像枚数でも違和感のない表示を実現。画像生成コストの削減に貢献。
