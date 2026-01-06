@@ -1,6 +1,6 @@
 # 📊 プロジェクトステータス
 
-> 最終更新: 2026-01-05 (スケジューラバグ修正)
+> 最終更新: 2026-01-06 (内省ダッシュボードUI Phase 1)
 
 ---
 
@@ -25,6 +25,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2026-01-06 | **内省ダッシュボードUI (Phase 1) 実装完了**<br>・未解決の問いの個別削除・解決済みマーク機能<br>・夢日記・エピソード記憶の「最新を表示」ショートカット<br>・DataFrame選択バグ（Pandas真理値判定エラー）の根本解決 | [レポート](file:///C:/Users/baken/.gemini/antigravity/brain/de4b5d8d-2913-451f-bef7-73f1f346dfa3/walkthrough.md) |
 | 2026-01-05 | **文脈分析・統合エンジン (Phase 3) 実装完了**<br>・研究・分析ノートのUI/ハンドラ実装<br>・自律的分析ツール (`read`/`plan_edit`) の導入<br>・即時分析フロー (`trigger_research_analysis`) の構築<br>・全システム 6変数化 (research_notes.md) 対応 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_context_analysis_engine_phase3.md) |
 | 2026-01-05 | **スケジューラ関連バグ修正**<br>・ウォッチリスト「毎日指定時刻」巡回が発火しない問題<br>・自律行動クールダウンが通常会話でリセットされない問題 | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_scheduler_bugfixes.md) |
 | 2026-01-05 | **Webエージェント機能強化 (Phase 2 + PDF対応)**<br>・Tavily高精度検索統合<br>・ウォッチリスト管理UI（追加/削除/編集）<br>・AIによる自動監視・変更検知ツール<br>・毎時15分の自動チェック・通知統合<br>・**PDF読み取り機能（pypdf統合）** | [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_web_agent_phase2_complete.md) |
