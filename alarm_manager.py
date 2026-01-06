@@ -70,6 +70,69 @@ def delete_alarm(alarm_id: str):
         return True
     return False
 
+
+def _summarize_watchlist_content(name: str, url: str, new_content: str, diff_summary: str) -> str:
+    """
+    軽量モデル（gemini-2.5-flash-lite）を使用して、ウォッチリスト更新内容を要約する。
+    
+    Args:
+        name: サイト名
+        url: URL
+        new_content: 新しいコンテンツ（最大文字数に制限）
+        diff_summary: 差分サマリー（例: "+69行追加、-47行削除"）
+    
+    Returns:
+        要約テキスト
+    """
+    try:
+        from google import genai
+        
+        # APIキーを取得
+        api_key_name = config_manager.get_latest_api_key_name_from_config()
+        if not api_key_name:
+            return f"（要約生成失敗: APIキーが設定されていません）"
+        
+        api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+        if not api_key:
+            return f"（要約生成失敗: APIキーが見つかりません）"
+        
+        # 軽量モデルを使用
+        client = genai.Client(api_key=api_key)
+        
+        # コンテンツを制限（トークン節約）
+        content_preview = new_content[:3000] if len(new_content) > 3000 else new_content
+        
+        prompt = f"""以下のWebページの更新内容を簡潔に要約してください。
+ユーザーに報告するための情報として、重要なポイントのみを抽出してください。
+
+【サイト名】{name}
+【URL】{url}
+【変更規模】{diff_summary}
+
+【コンテンツ】
+{content_preview}
+
+【出力ルール】
+- 箇条書きで3〜5点に要約
+- 専門用語があれば簡単に説明
+- 新しい情報や重要な更新を優先
+- 出力は2〜3パラグラフ以内"""
+
+        response = client.models.generate_content(
+            model=constants.INTERNAL_PROCESSING_MODEL,
+            contents=prompt
+        )
+        
+        if response and response.text:
+            print(f"  ✅ {name}: コンテンツ要約を生成しました")
+            return response.text.strip()
+        else:
+            return f"（要約生成失敗: 応答なし）"
+            
+    except Exception as e:
+        print(f"  ⚠️ コンテンツ要約エラー ({name}): {e}")
+        return f"（要約生成失敗: {e}）"
+
 def _send_discord_notification(webhook_url, message_text):
     if not webhook_url:
         print("警告 [Alarm]: Discord Webhook URLが空のため、通知を送信できませんでした。")
@@ -499,8 +562,29 @@ def trigger_research_analysis(room_name: str, api_key_name: str, reason: str, de
 
     # 分析理由に応じたプロンプト
     if reason == "watchlist":
-        event_desc = "\n".join(details) if isinstance(details, list) else str(details)
-        instruction = f"（システム通知：ウォッチリストに更新がありました。内容を分析し、研究ノートに記録、または必要ならユーザーに報告してください。）\n\n{event_desc}"
+        # 【修正】詳細情報がリスト（辞書）形式の場合、コンテンツ要約を含めて整形
+        if isinstance(details, list) and details and isinstance(details[0], dict):
+            event_parts = []
+            for item in details:
+                part = f"""
+【{item.get('name', '不明なサイト')}】
+- URL: {item.get('url', '')}
+- 変更規模: {item.get('diff_summary', '不明')}
+- 内容要約:
+{item.get('content_summary', '（要約なし）')}
+"""
+                event_parts.append(part)
+            event_desc = "\n".join(event_parts)
+        else:
+            # 後方互換性：旧形式（文字列リスト）の場合
+            event_desc = "\n".join(details) if isinstance(details, list) else str(details)
+        
+        instruction = f"""（システム通知：ウォッチリストに更新がありました。以下は軽量AIモデルが生成した要約です。）
+
+**重要**: 以下の情報はシステムが取得・要約済みです。`check_watchlist`ツールを呼び出す必要はありません。
+この情報を分析し、重要な発見があれば研究ノートに記録するか、ユーザーへの報告が必要か判断してください。
+
+{event_desc}"""
     elif reason == "autonomous":
         instruction = f"（システム通知：定期的な文脈分析の時間です。最近の状況やログを振り返り、新たな洞察がないか確認してください。）"
     else:
@@ -819,7 +903,15 @@ def check_watchlist_scheduled():
                     has_changes, diff_summary = manager.check_and_update(entry["id"], content)
                     
                     if has_changes:
-                        changes_found.append(f"🔔 {name}: {diff_summary}")
+                        # 【修正】軽量モデルでコンテンツを要約し、詳細情報として保存
+                        content_summary = _summarize_watchlist_content(name, url, content, diff_summary)
+                        
+                        changes_found.append({
+                            "name": name,
+                            "url": url,
+                            "diff_summary": diff_summary,
+                            "content_summary": content_summary
+                        })
                         print(f"  🔔 {name}: 更新あり ({diff_summary})")
                     else:
                         print(f"  ✅ {name}: {diff_summary}")
@@ -830,12 +922,15 @@ def check_watchlist_scheduled():
                     effective_settings = config_manager.get_effective_settings(room_folder)
                     watchlist_settings = effective_settings.get("watchlist_settings", {})
                     
+                    # 通知用の簡易フォーマット
+                    notification_lines = [f"🔔 {c['name']}: {c['diff_summary']}" for c in changes_found]
+                    
                     if watchlist_settings.get("notify_on_change", False):
-                        notification_message = f"📋 ウォッチリスト更新通知\n\n" + "\n".join(changes_found)
+                        notification_message = f"📋 ウォッチリスト更新通知\n\n" + "\n".join(notification_lines)
                         send_notification(room_folder, notification_message, {})
                         print(f"  📤 {room_folder}: 変更通知を送信しました")
                     
-                    # 【Phase 3】ウォッチリスト更新時に文脈分析をトリガー
+                    # 【Phase 3】ウォッチリスト更新時に文脈分析をトリガー（詳細情報付き）
                     current_api_key = config_manager.get_latest_api_key_name_from_config()
                     if current_api_key:
                         trigger_research_analysis(room_folder, current_api_key, "watchlist", changes_found)
