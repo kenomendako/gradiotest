@@ -1871,14 +1871,17 @@ def handle_message_submission(
                     print(f"  - ✅ {reason}！画像をAIに送信します")
                     
                     # 画像をリサイズしてBase64エンコード（コスト削減）
-                    encoded_image = utils.resize_image_for_api(current_scenery_image, max_size=512)
+                    resize_result = utils.resize_image_for_api(current_scenery_image, max_size=512)
                     
-                    if encoded_image:
-                        print(f"  - ✅ 画像リサイズ成功 (Base64: {len(encoded_image)} chars)")
+                    if resize_result:
+                        # ★修正: resize_image_for_apiはタプル(base64_string, format)を返す
+                        encoded_image, output_format = resize_result
+                        mime_type = f"image/{output_format}"
+                        print(f"  - ✅ 画像リサイズ成功 (Base64: {len(encoded_image)} chars, format: {output_format})")
                         # ユーザーの発言の前に情景画像を挿入
                         scenery_parts = [
                             {"type": "text", "text": "（システム：現在の光景）"},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded_image}"}}
+                            {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded_image}"}}
                         ]
                         user_prompt_parts_for_api = scenery_parts + user_prompt_parts_for_api
                         
@@ -1888,6 +1891,7 @@ def handle_message_submission(
                             {"last_sent_scenery_image": current_scenery_image}
                         )
                         print(f"  - ✅ 画像送信完了＆記録更新")
+
                     else:
                         print(f"  - ❌ 画像リサイズ失敗")
                 else:
