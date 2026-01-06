@@ -407,13 +407,17 @@ def get_time_of_day(hour: int) -> str:
 
 def find_scenery_image(room_name: str, location_id: str, season_en: str = None, time_of_day_en: str = None) -> Optional[str]:
     """
-    【v3: 高精度検索】
+    【v4: 時間帯優先フォールバック】
     指定された場所と時間コンテキストに最も一致する情景画像を検索する。
-    優先順位:
+    
+    優先順位（INBOXの要件に基づく改善版）:
     1. 場所_季節_時間帯 (完全一致)
-    2. 場所_時間帯 (時間コンテキスト優先)
-    3. 場所_季節 (季節コンテキスト)
-    4. 場所 (デフォルト)
+    2. 場所_[他の季節]_時間帯 (同じ時間帯で季節を遡る)
+    3. 場所_時間帯 (時間帯のみ)
+    4. 場所_季節 (季節のみ)
+    5. 場所 (デフォルト)
+    
+    例: 「冬の昼」がなければ「秋の昼」→「夏の昼」→「春の昼」を検索
     """
     if not room_name or not location_id: return None
     image_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
@@ -424,13 +428,35 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
     effective_season = season_en or get_season(now.month)
     effective_time_of_day = time_of_day_en or get_time_of_day(now.hour)
     
-    # 検索対象候補（優先順位順）
-    candidates = [
-        f"{location_id}_{effective_season}_{effective_time_of_day}.png",
-        f"{location_id}_{effective_time_of_day}.png",
-        f"{location_id}_{effective_season}.png",
-        f"{location_id}.png"
-    ]
+    # --- 季節フォールバック順序を生成（現在季節から逆順に遡る）---
+    SEASONS_ORDER = ["spring", "summer", "autumn", "winter"]
+    def get_season_fallback_order(current_season: str) -> list:
+        if current_season not in SEASONS_ORDER:
+            return SEASONS_ORDER
+        idx = SEASONS_ORDER.index(current_season)
+        # 現在季節から逆順に並べる（例: winter → autumn → summer → spring）
+        return [SEASONS_ORDER[(idx - i) % 4] for i in range(4)]
+    
+    season_fallback = get_season_fallback_order(effective_season)
+    
+    # --- 検索対象候補（優先順位順）を構築 ---
+    candidates = []
+    
+    # 1. 完全一致: 場所_現在季節_時間帯
+    candidates.append(f"{location_id}_{effective_season}_{effective_time_of_day}.png")
+    
+    # 2. 同じ時間帯 + 別の季節（現在季節以外を順に追加）
+    for season in season_fallback[1:]:  # 現在季節は既に追加済みなのでスキップ
+        candidates.append(f"{location_id}_{season}_{effective_time_of_day}.png")
+    
+    # 3. 時間帯のみ
+    candidates.append(f"{location_id}_{effective_time_of_day}.png")
+    
+    # 4. 季節のみ（現在季節）
+    candidates.append(f"{location_id}_{effective_season}.png")
+    
+    # 5. デフォルト
+    candidates.append(f"{location_id}.png")
 
     # 1. 直接一致を確認
     for cand in candidates:
@@ -441,13 +467,24 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
     # 2. ワイルドカード検索（接頭辞一致。例: '書斎_night_2.png' なども許容）
     try:
         files = os.listdir(image_dir)
-        # 優先順位に基づき接頭辞で検索
-        search_prefixes = [
-            f"{location_id}_{effective_season}_{effective_time_of_day}_",
-            f"{location_id}_{effective_time_of_day}_",
-            f"{location_id}_{effective_season}_",
-            f"{location_id}_"
-        ]
+        # 優先順位に基づき接頭辞で検索（時間帯優先版）
+        search_prefixes = []
+        
+        # 2a. 完全一致パターン（季節 + 時間帯）
+        search_prefixes.append(f"{location_id}_{effective_season}_{effective_time_of_day}_")
+        
+        # 2b. 同じ時間帯 + 別の季節パターン
+        for season in season_fallback[1:]:
+            search_prefixes.append(f"{location_id}_{season}_{effective_time_of_day}_")
+        
+        # 2c. 時間帯のみパターン
+        search_prefixes.append(f"{location_id}_{effective_time_of_day}_")
+        
+        # 2d. 季節のみパターン
+        search_prefixes.append(f"{location_id}_{effective_season}_")
+        
+        # 2e. 場所のみパターン（最低優先度）
+        search_prefixes.append(f"{location_id}_")
         
         for prefix in search_prefixes:
             for f in files:

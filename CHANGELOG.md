@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased] - 次回リリース予定
 
+### Changed - 仕様変更
+
+#### 🌄 情景画像検索の優先順位改善 (2026-01-06)
+- 「季節より時間帯優先」のフォールバックロジックを実装
+- 例: 「冬の昼」がなければ「秋の昼」→「夏の昼」→「春の昼」の順で検索
+- 以前は「冬の夜」が優先されていたが、同じ時間帯の画像を優先するよう変更
+- [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-06_scenery_image_time_priority.md)
+
 ### Fixed - バグ修正
 
 #### 🛠️ ツール関連バグ3件を修正 (2026-01-06)

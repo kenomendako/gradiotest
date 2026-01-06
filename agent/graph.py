@@ -1002,135 +1002,131 @@ def agent_node(state: AgentState):
             print(f"  [{actual_idx:3d}] {msg_type:15} | tool_calls={1 if has_tool_calls else 0} | sig={1 if has_sig else 0} | {content_preview[:40]}")
         print(f"--- [GEMINI3_DEBUG] 送信メッセージ構造 完了 ---\n")
 
-    # --- [リトライ機構] 空応答（ANOMALY）対策 ---
-    max_agent_retries = 2
-    final_response_msg = None
-    
-    for attempt in range(max_agent_retries + 1):
-        try:
-            if attempt > 0:
-                print(f"  - [再試行] 応答が空だったため、再実行します... ({attempt}/{max_agent_retries})")
-                # 少し待機（通信の安定化を期待）
-                time.sleep(1)
-
-            print(f"  - AIモデルにリクエストを送信中 (Streaming)... [試行 {attempt + 1}]")
-            stream_start_time = time.time()
-            
-            chunks = []
-            # ... (ストリーム受信)
+    try:
+        # --- [リトライ機構] 空応答（ANOMALY）対策 ---
+        max_agent_retries = 2
+        
+        for attempt in range(max_agent_retries + 1):
             try:
-                for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
-                    if not chunks:
-                        # 最初のチャンク受信時刻
-                        pass
-                    chunks.append(chunk)
-            except Exception as e:
-                print(f"--- [警告] ストリーミング中に例外が発生しました: {e} ---")
-                if not chunks: raise e
+                if attempt > 0:
+                    print(f"  - [再試行] 応答が空だったため、再実行します... ({attempt}/{max_agent_retries})")
+                    # 少し待機（通信の安定化を期待）
+                    time.sleep(1)
 
-            if not chunks:
-                if attempt < max_agent_retries:
-                    continue # 次の試行へ
-                combined_text = "(System): （AIからの応答が空でした。モデルの制限や安全フィルターにより出力が抑制された可能性があります。）"
-                all_tool_calls_chunks = []
-                response_metadata = {}
-                additional_kwargs = {}
-            else:
-                total_stream_time = time.time() - stream_start_time
-                print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
-
-                # チャンクの結合
-                merged_chunk = chunks[0]
-                for c in chunks[1:]: merged_chunk += c
+                print(f"  - AIモデルにリクエストを送信中 (Streaming)... [試行 {attempt + 1}]")
+                stream_start_time = time.time()
                 
-                all_tool_calls_chunks = getattr(merged_chunk, "tool_calls", [])
-                response_metadata = getattr(merged_chunk, "response_metadata", {}) or {}
-                additional_kwargs = getattr(merged_chunk, "additional_kwargs", {}) or {}
-                
-                # ... (署名抽出ロジックは既存のものを維持)
-                # ★ デバッグ: Gemini 3 思考署名の確認
-                if state.get("debug_mode", False):
-                    gemini_signatures = additional_kwargs.get("__gemini_function_call_thought_signatures__")
-                    if not gemini_signatures:
-                        found_sig = None
-                        for c in chunks:
-                            if isinstance(c.content, list):
-                                for part in c.content:
-                                    if isinstance(part, dict) and 'extras' in part:
-                                        sig = part['extras'].get('signature')
-                                        if sig: found_sig = sig; break
-                            if found_sig: break
-                        if found_sig:
-                            sig_dict = {}
-                            if all_tool_calls_chunks:
-                                for tc in all_tool_calls_chunks:
-                                    tc_id = tc.get("id")
-                                    if tc_id: sig_dict[tc_id] = found_sig
-                            additional_kwargs["__gemini_function_call_thought_signatures__"] = sig_dict if sig_dict else [found_sig]
+                chunks = []
+                # ... (ストリーム受信)
+                try:
+                    for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
+                        chunks.append(chunk)
+                except Exception as e:
+                    print(f"--- [警告] ストリーミング中に例外が発生しました: {e} ---")
+                    if not chunks: raise e
 
-                # テキスト抽出
-                text_parts = []
-                thought_buffer = []
-                is_collecting_thought = False
-
-                for chunk in chunks:
-                    chunk_content = chunk.content
-                    if not chunk_content: continue
-                    if isinstance(chunk_content, str):
-                        if is_collecting_thought and thought_buffer:
-                            text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n"); thought_buffer = []; is_collecting_thought = False
-                        if chunk_content.strip(): text_parts.append(chunk_content)
-                    elif isinstance(chunk_content, list):
-                        for part in chunk_content:
-                            if not isinstance(part, dict): continue
-                            p_type = part.get("type")
-                            if p_type == "text":
-                                if is_collecting_thought and thought_buffer:
-                                    text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n"); thought_buffer = []; is_collecting_thought = False
-                                text_val = part.get("text", ""); 
-                                if text_val: text_parts.append(text_val)
-                            elif p_type in ("thought", "thinking"):
-                                t_text = part.get("thinking") or part.get("thought", "")
-                                if t_text and t_text.strip(): thought_buffer.append(t_text); is_collecting_thought = True
-                if is_collecting_thought and thought_buffer:
-                    text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n")
-                
-                combined_text = "".join(text_parts)
-
-                # 異常検知 check
-                if not combined_text.strip() and not all_tool_calls_chunks:
-                    print(f"  - ⚠️ [ANOMALY] 有効な応答が空でした。 (attempt {attempt + 1})")
+                if not chunks:
                     if attempt < max_agent_retries:
                         continue # 次の試行へ
+                    combined_text = "(System): （AIからの応答が空でした。モデルの制限や安全フィルターにより出力が抑制された可能性があります。）"
+                    all_tool_calls_chunks = []
+                    response_metadata = {}
+                    additional_kwargs = {}
+                else:
+                    total_stream_time = time.time() - stream_start_time
+                    print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
 
-                # ループを抜ける条件（正常な応答が得られた）
-                break
+                    # チャンクの結合
+                    merged_chunk = chunks[0]
+                    for c in chunks[1:]: merged_chunk += c
+                    
+                    all_tool_calls_chunks = getattr(merged_chunk, "tool_calls", [])
+                    response_metadata = getattr(merged_chunk, "response_metadata", {}) or {}
+                    additional_kwargs = getattr(merged_chunk, "additional_kwargs", {}) or {}
+                    
+                    # ★ デバッグ: Gemini 3 思考署名の確認
+                    if state.get("debug_mode", False):
+                        gemini_signatures = additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                        if not gemini_signatures:
+                            found_sig = None
+                            for c in chunks:
+                                if isinstance(c.content, list):
+                                    for part in c.content:
+                                        if isinstance(part, dict) and 'extras' in part:
+                                            sig = part['extras'].get('signature')
+                                            if sig: found_sig = sig; break
+                                if found_sig: break
+                            if found_sig:
+                                sig_dict = {}
+                                if all_tool_calls_chunks:
+                                    for tc in all_tool_calls_chunks:
+                                        tc_id = tc.get("id")
+                                        if tc_id: sig_dict[tc_id] = found_sig
+                                additional_kwargs["__gemini_function_call_thought_signatures__"] = sig_dict if sig_dict else [found_sig]
 
-        except Exception as e:
-            print(f"--- [警告] agent_node 試行 {attempt + 1} でエラーが発生しました: {e} ---")
-            if attempt < max_agent_retries:
-                time.sleep(2) # エラー時は少し長めに待機
-                continue
-            raise e
+                    # テキスト抽出
+                    text_parts = []
+                    thought_buffer = []
+                    is_collecting_thought = False
 
-    # --- [結果の統合] ---
-    if chunks and merged_chunk:
-        merged_chunk.content = combined_text
-        response = merged_chunk
-    else:
-        response = AIMessage(
-            content=combined_text,
-            additional_kwargs=additional_kwargs,
-            response_metadata=response_metadata,
-            tool_calls=all_tool_calls_chunks
-        )
-    
-    # 署名確保
-    captured_signature = additional_kwargs.get("__gemini_function_call_thought_signatures__")
-    if captured_signature:
-        signature_manager.save_turn_context(state['room_name'], captured_signature, all_tool_calls_chunks)
+                    for chunk in chunks:
+                        chunk_content = chunk.content
+                        if not chunk_content: continue
+                        if isinstance(chunk_content, str):
+                            if is_collecting_thought and thought_buffer:
+                                text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n"); thought_buffer = []; is_collecting_thought = False
+                            if chunk_content.strip(): text_parts.append(chunk_content)
+                        elif isinstance(chunk_content, list):
+                            for part in chunk_content:
+                                if not isinstance(part, dict): continue
+                                p_type = part.get("type")
+                                if p_type == "text":
+                                    if is_collecting_thought and thought_buffer:
+                                        text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n"); thought_buffer = []; is_collecting_thought = False
+                                    text_val = part.get("text", ""); 
+                                    if text_val: text_parts.append(text_val)
+                                elif p_type in ("thought", "thinking"):
+                                    t_text = part.get("thinking") or part.get("thought", "")
+                                    if t_text and t_text.strip(): thought_buffer.append(t_text); is_collecting_thought = True
+                    if is_collecting_thought and thought_buffer:
+                        text_parts.append(f"[THOUGHT]\n{''.join(thought_buffer)}\n[/THOUGHT]\n")
+                    
+                    combined_text = "".join(text_parts)
 
-    loop_count += 1
+                    # 異常検知 check
+                    if not combined_text.strip() and not all_tool_calls_chunks:
+                        print(f"  - ⚠️ [ANOMALY] 有効な応答が空でした。 (attempt {attempt + 1})")
+                        if attempt < max_agent_retries:
+                            continue # 次の試行へ
+
+                    # ループを抜ける条件（正常な応答が得られた）
+                    break
+
+            except Exception as e:
+                print(f"--- [警告] agent_node 試行 {attempt + 1} でエラーが発生しました: {e} ---")
+                if attempt < max_agent_retries:
+                    time.sleep(2) # エラー時は少し長めに待機
+                    continue
+                raise e
+
+        # --- [結果の統合] ---
+        if chunks and merged_chunk:
+            merged_chunk.content = combined_text
+            response = merged_chunk
+        else:
+            response = AIMessage(
+                content=combined_text,
+                additional_kwargs=additional_kwargs,
+                response_metadata=response_metadata,
+                tool_calls=all_tool_calls_chunks
+            )
+        
+        # 署名確保
+        captured_signature = additional_kwargs.get("__gemini_function_call_thought_signatures__")
+        if captured_signature:
+            signature_manager.save_turn_context(state['room_name'], captured_signature, all_tool_calls_chunks)
+
+        loop_count += 1
         if not getattr(response, "tool_calls", None):
             return {"messages": [response], "loop_count": loop_count, "last_successful_response": response, "model_name": state['model_name']}
         else:
