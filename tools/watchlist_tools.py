@@ -32,7 +32,7 @@ def _fetch_url_content(url: str) -> tuple[bool, str]:
                 api_key=config_manager.TAVILY_API_KEY,
                 extract_depth="basic"
             )
-            results = extractor.invoke([url])
+            results = extractor.invoke({"urls": [url]})
             
             if results and isinstance(results, dict) and "results" in results:
                 for result in results["results"]:

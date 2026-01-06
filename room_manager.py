@@ -79,6 +79,7 @@ def ensure_room_files(room_name: str) -> bool:
             os.path.join(backup_base_dir, "core_memories"),
             os.path.join(backup_base_dir, "secret_diaries"),
             os.path.join(backup_base_dir, "configs"),
+            os.path.join(backup_base_dir, "research_notes"),
         ]
         dirs_to_create.append(backup_base_dir)
         dirs_to_create.extend(backup_sub_dirs)
@@ -311,14 +312,16 @@ def create_backup(room_name: str, file_type: str) -> Optional[str]:
         'core_memory': ("core_memory.txt", os.path.join(constants.ROOMS_DIR, room_name, "core_memory.txt")),
         'secret_diary': ("secret_diary.txt", os.path.join(constants.ROOMS_DIR, room_name, "private", "secret_diary.txt")),
         'room_config': ("room_config.json", os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")),
-        'creative_notes': ("creative_notes.md", os.path.join(constants.ROOMS_DIR, room_name, "creative_notes.md"))
+        'creative_notes': ("creative_notes.md", os.path.join(constants.ROOMS_DIR, room_name, "creative_notes.md")),
+        'research_notes': (constants.RESEARCH_NOTES_FILENAME, os.path.join(constants.ROOMS_DIR, room_name, constants.RESEARCH_NOTES_FILENAME))
     }
     folder_map = {
         'log': "logs", 'memory': "memories", 'notepad': "notepads",
         'world_setting': "world_settings", 'system_prompt': "system_prompts",
         'core_memory': "core_memories", 'secret_diary': "secret_diaries",
         'room_config': "configs",
-        'creative_notes': "creative_notes"
+        'creative_notes': "creative_notes",
+        'research_notes': "research_notes"
     }
 
     if file_type not in file_map:
