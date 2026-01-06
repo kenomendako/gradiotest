@@ -407,17 +407,20 @@ def get_time_of_day(hour: int) -> str:
 
 def find_scenery_image(room_name: str, location_id: str, season_en: str = None, time_of_day_en: str = None) -> Optional[str]:
     """
-    【v4: 時間帯優先フォールバック】
+    【v5: 時間帯・季節両方のフォールバック】
     指定された場所と時間コンテキストに最も一致する情景画像を検索する。
     
     優先順位（INBOXの要件に基づく改善版）:
     1. 場所_季節_時間帯 (完全一致)
-    2. 場所_[他の季節]_時間帯 (同じ時間帯で季節を遡る)
-    3. 場所_時間帯 (時間帯のみ)
-    4. 場所_季節 (季節のみ)
-    5. 場所 (デフォルト)
+    2. 場所_季節_時間帯(簡略) (時間帯名の簡略版でフォールバック)
+    3. 場所_[他の季節]_時間帯 (同じ時間帯で季節を遡る)
+    4. 場所_時間帯 (時間帯のみ)
+    5. 場所_季節 (季節のみ)
+    6. 場所 (デフォルト)
     
-    例: 「冬の昼」がなければ「秋の昼」→「夏の昼」→「春の昼」を検索
+    例: 
+    - 「冬の昼」がなければ「秋の昼」→「夏の昼」→「春の昼」を検索
+    - 「late_morning」がなければ「morning」で検索
     """
     if not room_name or not location_id: return None
     image_dir = os.path.join(constants.ROOMS_DIR, room_name, "spaces", "images")
@@ -437,53 +440,75 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
         # 現在季節から逆順に並べる（例: winter → autumn → summer → spring）
         return [SEASONS_ORDER[(idx - i) % 4] for i in range(4)]
     
+    # --- 時間帯フォールバックマッピング（詳細名 → 簡略名）---
+    TIME_FALLBACK_MAP = {
+        "early_morning": ["morning"],       # 早朝 → 朝
+        "late_morning": ["morning"],        # 昼前 → 朝
+        "afternoon": ["noon"],              # 昼下がり → 昼
+        "evening": ["night"],               # 夕方 → 夜
+        "midnight": ["night"],              # 深夜 → 夜
+        # 以下は変換不要（そのまま）
+        "morning": [],
+        "night": [],
+        "noon": [],
+    }
+    
+    def get_time_fallbacks(time_name: str) -> list:
+        """時間帯名のフォールバックリストを生成（元の名前を含む）"""
+        result = [time_name]
+        if time_name in TIME_FALLBACK_MAP:
+            result.extend(TIME_FALLBACK_MAP[time_name])
+        return result
+    
     season_fallback = get_season_fallback_order(effective_season)
+    time_fallbacks = get_time_fallbacks(effective_time_of_day)
     
     # --- 検索対象候補（優先順位順）を構築 ---
     candidates = []
     
-    # 1. 完全一致: 場所_現在季節_時間帯
-    candidates.append(f"{location_id}_{effective_season}_{effective_time_of_day}.png")
+    # 1. 季節 + 時間帯の組み合わせ（時間帯フォールバック対応）
+    for time_name in time_fallbacks:
+        # 1a. 現在季節 + 時間帯
+        candidates.append(f"{location_id}_{effective_season}_{time_name}.png")
+        # 1b. 他の季節 + 同じ時間帯
+        for season in season_fallback[1:]:
+            candidates.append(f"{location_id}_{season}_{time_name}.png")
     
-    # 2. 同じ時間帯 + 別の季節（現在季節以外を順に追加）
-    for season in season_fallback[1:]:  # 現在季節は既に追加済みなのでスキップ
-        candidates.append(f"{location_id}_{season}_{effective_time_of_day}.png")
+    # 2. 時間帯のみ（フォールバック対応）
+    for time_name in time_fallbacks:
+        candidates.append(f"{location_id}_{time_name}.png")
     
-    # 3. 時間帯のみ
-    candidates.append(f"{location_id}_{effective_time_of_day}.png")
-    
-    # 4. 季節のみ（現在季節）
+    # 3. 季節のみ（現在季節）
     candidates.append(f"{location_id}_{effective_season}.png")
     
-    # 5. デフォルト
+    # 4. デフォルト
     candidates.append(f"{location_id}.png")
 
-    # 1. 直接一致を確認
+    # 直接一致を確認
     for cand in candidates:
         path = os.path.join(image_dir, cand)
         if os.path.exists(path):
             return path
 
-    # 2. ワイルドカード検索（接頭辞一致。例: '書斎_night_2.png' なども許容）
+    # ワイルドカード検索（接頭辞一致。例: '書斎_night_2.png' なども許容）
     try:
         files = os.listdir(image_dir)
-        # 優先順位に基づき接頭辞で検索（時間帯優先版）
         search_prefixes = []
         
-        # 2a. 完全一致パターン（季節 + 時間帯）
-        search_prefixes.append(f"{location_id}_{effective_season}_{effective_time_of_day}_")
+        # 季節 + 時間帯パターン（時間帯フォールバック対応）
+        for time_name in time_fallbacks:
+            search_prefixes.append(f"{location_id}_{effective_season}_{time_name}_")
+            for season in season_fallback[1:]:
+                search_prefixes.append(f"{location_id}_{season}_{time_name}_")
         
-        # 2b. 同じ時間帯 + 別の季節パターン
-        for season in season_fallback[1:]:
-            search_prefixes.append(f"{location_id}_{season}_{effective_time_of_day}_")
+        # 時間帯のみパターン
+        for time_name in time_fallbacks:
+            search_prefixes.append(f"{location_id}_{time_name}_")
         
-        # 2c. 時間帯のみパターン
-        search_prefixes.append(f"{location_id}_{effective_time_of_day}_")
-        
-        # 2d. 季節のみパターン
+        # 季節のみパターン
         search_prefixes.append(f"{location_id}_{effective_season}_")
         
-        # 2e. 場所のみパターン（最低優先度）
+        # 場所のみパターン（最低優先度）
         search_prefixes.append(f"{location_id}_")
         
         for prefix in search_prefixes:
