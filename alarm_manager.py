@@ -579,12 +579,32 @@ def trigger_research_analysis(room_name: str, api_key_name: str, reason: str, de
             # 後方互換性：旧形式（文字列リスト）の場合
             event_desc = "\n".join(details) if isinstance(details, list) else str(details)
         
+        # 【追加】通知禁止時間帯の情報を取得
+        effective_settings = config_manager.get_effective_settings(room_name)
+        auto_settings = effective_settings.get("autonomous_settings", {})
+        quiet_start = auto_settings.get("quiet_hours_start", "00:00")
+        quiet_end = auto_settings.get("quiet_hours_end", "07:00")
+        is_quiet = utils.is_in_quiet_hours(quiet_start, quiet_end)
+        
+        if is_quiet:
+            notification_info = (
+                f"\n\n**【通知禁止時間帯です】**\n"
+                f"現在は通知禁止時間帯（{quiet_start}〜{quiet_end}）のため、"
+                f"`send_user_notification`は使用しないでください。重要な発見は研究ノートに記録してください。"
+            )
+        else:
+            notification_info = (
+                f"\n\n**【通知について】**\n"
+                f"ユーザーにとって極めて重要な情報があれば、`send_user_notification`ツールで報告してください。"
+                f"通常の更新は研究ノートへの記録のみで十分です。"
+            )
+        
         instruction = f"""（システム通知：ウォッチリストに更新がありました。以下は軽量AIモデルが生成した要約です。）
 
 **重要**: 以下の情報はシステムが取得・要約済みです。`check_watchlist`ツールを呼び出す必要はありません。
 この情報を分析し、重要な発見があれば研究ノートに記録するか、ユーザーへの報告が必要か判断してください。
 
-{event_desc}"""
+{event_desc}{notification_info}"""
     elif reason == "autonomous":
         instruction = f"（システム通知：定期的な文脈分析の時間です。最近の状況やログを振り返り、新たな洞察がないか確認してください。）"
     else:
@@ -918,17 +938,9 @@ def check_watchlist_scheduled():
                 
                 # 変更があった場合、通知を送信（オプション）
                 if changes_found:
-                    # 設定を確認して通知するかどうか決定
-                    effective_settings = config_manager.get_effective_settings(room_folder)
-                    watchlist_settings = effective_settings.get("watchlist_settings", {})
-                    
-                    # 通知用の簡易フォーマット
-                    notification_lines = [f"🔔 {c['name']}: {c['diff_summary']}" for c in changes_found]
-                    
-                    if watchlist_settings.get("notify_on_change", False):
-                        notification_message = f"📋 ウォッチリスト更新通知\n\n" + "\n".join(notification_lines)
-                        send_notification(room_folder, notification_message, {})
-                        print(f"  📤 {room_folder}: 変更通知を送信しました")
+                    # 【修正】直接の通知送信を廃止し、ペルソナ経由に統一
+                    # ペルソナが send_user_notification ツールで通知するか判断する
+                    # 通知禁止時間帯もペルソナのプロンプトで制御される
                     
                     # 【Phase 3】ウォッチリスト更新時に文脈分析をトリガー（詳細情報付き）
                     current_api_key = config_manager.get_latest_api_key_name_from_config()
