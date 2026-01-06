@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - バグ修正
 
+#### 🛠️ ツール関連バグ3件を修正 (2026-01-06)
+- **`research_notes` バックアップタイプ未登録**: `room_manager.py` の `create_backup` マップに `research_notes` を追加
+- **Tavily Extract バリデーションエラー**: `watchlist_tools.py` で `invoke([url])` → `invoke({"urls": [url]})` に修正
+- **情景画像 Base64 パディングエラー**: `ui_handlers.py` で `resize_image_for_api` の戻り値タプルを正しく展開するよう修正
+
 #### 🛠️ 自動要約閾値スライダーの即時保存が動作しない問題を修正 (2026-01-05)
 - **問題**: 自動要約設定のチェックボックスでは「個別設定を保存しました」通知が出るが、閾値スライダーを変更しても通知が出ず、設定が保存されなかった
 - **原因**: `room_individual_settings_inputs`リストから`sleep_consolidation_extract_questions_cb`（未解決の問い抽出チェックボックス）が欠落しており、`handle_save_room_settings`関数への引数が1つズレていた
