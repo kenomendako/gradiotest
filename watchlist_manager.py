@@ -233,8 +233,8 @@ class WatchlistManager:
         previous_content = self._load_cache(url, "latest")
         
         if previous_content is None:
-            # 初回取得
-            return False, "初回取得（比較対象なし）"
+            # 初回取得 → 変更ありとして扱う（ペルソナに報告するため）
+            return True, "初回取得（新規コンテンツ）"
         
         if previous_content == new_content:
             return False, "変更なし"
