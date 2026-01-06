@@ -440,17 +440,22 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
         # 現在季節から逆順に並べる（例: winter → autumn → summer → spring）
         return [SEASONS_ORDER[(idx - i) % 4] for i in range(4)]
     
-    # --- 時間帯フォールバックマッピング（詳細名 → 簡略名）---
+    # --- 時間帯フォールバックマッピング（明るさベース）---
+    # 昼間の時間帯（明るい）→ 最終的に morning までフォールバック
+    # 夜の時間帯（暗い）→ night にフォールバック
+    # これにより「昼下がりの画像がなくても夜の画像より朝の画像を優先」を実現
     TIME_FALLBACK_MAP = {
-        "early_morning": ["morning"],       # 早朝 → 朝
-        "late_morning": ["morning"],        # 昼前 → 朝
-        "afternoon": ["noon"],              # 昼下がり → 昼
-        "evening": ["night"],               # 夕方 → 夜
-        "midnight": ["night"],              # 深夜 → 夜
-        # 以下は変換不要（そのまま）
+        # 昼間時間帯グループ（明るい画像を優先）
+        "early_morning": ["morning"],                      # 早朝 → 朝
+        "late_morning": ["morning"],                       # 昼前 → 朝
+        "afternoon": ["noon", "late_morning", "morning"],  # 昼下がり → 昼 → 昼前 → 朝
+        "noon": ["late_morning", "morning"],               # 昼 → 昼前 → 朝
+        # 夜間時間帯グループ（暗い画像を優先）
+        "evening": ["night"],                              # 夕方 → 夜
+        "midnight": ["night"],                             # 深夜 → 夜
+        # 基本時間帯（変換不要）
         "morning": [],
         "night": [],
-        "noon": [],
     }
     
     def get_time_fallbacks(time_name: str) -> list:
