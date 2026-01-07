@@ -1469,18 +1469,21 @@ def _stream_and_handle_response(
                                     header = f"## AGENT:{current_room}"                        
                         
                         elif isinstance(msg, ToolMessage):
-                            # 【記憶検索ツールはログに保存しない】
-                            # これらのツールはAIペルソナ用であり、結果をチャット欄に表示する必要がない。
-                            # 自動記憶想起（retrieval_node）と同様のアプローチを取る。
+                            # 【記憶検索ツールはアナウンスのみ保存】
+                            # 生の検索結果（大量の会話ログ）はログに保存せず、
+                            # 「ツールを使用しました」というアナウンスだけを保存する。
                             memory_search_tools = ["recall_memories", "search_past_conversations"]
                             if msg.name in memory_search_tools:
-                                print(f"--- [記憶検索ツール] '{msg.name}' の結果はログに保存しません（AIコンテキストのみ） ---")
-                                continue  # ログに保存せずスキップ
-                            
-                            formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
-                            content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
-                            # ツール名とコールIDをヘッダーに埋め込む
-                            header = f"## SYSTEM:tool_result:{msg.name}:{msg.tool_call_id}"
+                                formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                                # 生の結果（[RAW_RESULT]）は含めない。アナウンスのみ。
+                                content_to_log = formatted_tool_result if formatted_tool_result else f"🛠️ ツール「{msg.name}」を実行しました。"
+                                header = f"## SYSTEM:tool_result:{msg.name}:{msg.tool_call_id}"
+                                print(f"--- [記憶検索ツール] '{msg.name}' のアナウンスをログに保存（生の結果は除外） ---")
+                            else:
+                                formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
+                                content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
+                                # ツール名とコールIDをヘッダーに埋め込む
+                                header = f"## SYSTEM:tool_result:{msg.name}:{msg.tool_call_id}"
                         
                         side_effect_tools = ["plan_main_memory_edit", "plan_secret_diary_edit", "plan_notepad_edit", "plan_world_edit", "set_personal_alarm", "set_timer", "set_pomodoro_timer"]
                         if isinstance(msg, ToolMessage) and msg.name in side_effect_tools and "Error" not in str(msg.content) and "エラー" not in str(msg.content):
