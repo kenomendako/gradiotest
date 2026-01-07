@@ -938,6 +938,7 @@ def handle_save_room_settings(
     scenery_send_mode: str,  # 情景画像送信タイミング: 「変更時のみ」 or 「毎ターン」
     enable_scenery_system: bool,
     auto_memory_enabled: bool,
+    enable_self_awareness: bool,
     api_history_limit: str,
     thinking_level: str,
     episode_memory_days: str,
@@ -1015,6 +1016,7 @@ def handle_save_room_settings(
         "scenery_send_mode": scenery_send_mode if scenery_send_mode in ["変更時のみ", "毎ターン"] else "変更時のみ",
         "enable_scenery_system": bool(enable_scenery_system),
         "auto_memory_enabled": bool(auto_memory_enabled),
+        "enable_self_awareness": bool(enable_self_awareness),
         "api_history_limit": history_limit_key,
         "thinking_level": thinking_level_key,
         "episode_memory_lookback_days": episode_days_key,

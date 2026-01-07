@@ -2552,6 +2552,7 @@ try:
             room_scenery_send_mode_dropdown,
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
+            room_enable_self_awareness_checkbox,
             room_api_history_limit_dropdown,
             room_thinking_level_dropdown,
             room_episode_memory_days_dropdown,
@@ -2694,14 +2695,13 @@ try:
             outputs=token_count_display
         )
         
-        # display_thoughts以外のチェックボックスのイベント
         other_context_checkboxes = [
             room_send_thoughts_checkbox, 
             room_enable_retrieval_checkbox, 
             room_add_timestamp_checkbox, 
             room_send_current_time_checkbox,
             room_send_notepad_checkbox, room_use_common_prompt_checkbox, room_send_core_memory_checkbox, 
-            enable_scenery_system_checkbox, auto_memory_enabled_checkbox
+            enable_scenery_system_checkbox, auto_memory_enabled_checkbox, room_enable_self_awareness_checkbox
         ]
         for checkbox in other_context_checkboxes:
              checkbox.change(fn=ui_handlers.handle_context_settings_change, inputs=context_token_calc_inputs, outputs=token_count_display)
