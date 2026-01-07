@@ -1469,6 +1469,14 @@ def _stream_and_handle_response(
                                     header = f"## AGENT:{current_room}"                        
                         
                         elif isinstance(msg, ToolMessage):
+                            # 【記憶検索ツールはログに保存しない】
+                            # これらのツールはAIペルソナ用であり、結果をチャット欄に表示する必要がない。
+                            # 自動記憶想起（retrieval_node）と同様のアプローチを取る。
+                            memory_search_tools = ["recall_memories", "search_past_conversations"]
+                            if msg.name in memory_search_tools:
+                                print(f"--- [記憶検索ツール] '{msg.name}' の結果はログに保存しません（AIコンテキストのみ） ---")
+                                continue  # ログに保存せずスキップ
+                            
                             formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                             content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
                             # ツール名とコールIDをヘッダーに埋め込む

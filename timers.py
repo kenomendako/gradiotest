@@ -161,6 +161,12 @@ class UnifiedTimer:
 
                         for msg in new_messages:
                             if isinstance(msg, ToolMessage):
+                                # 【記憶検索ツールはログに保存しない】
+                                memory_search_tools = ["recall_memories", "search_past_conversations"]
+                                if msg.name in memory_search_tools:
+                                    print(f"--- [記憶検索ツール] '{msg.name}' の結果はログに保存しません（AIコンテキストのみ） ---")
+                                    continue
+                                
                                 # UI表示用に見やすく整形
                                 formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                                 # ログ形式に合わせて整形

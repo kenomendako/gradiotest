@@ -27,7 +27,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`retrieval_node` から知識ベース検索を除外**
   - 自動記憶想起は日記・エンティティ記憶のみ
   - 知識ベースはAIが能動的にツールで検索
+- **記憶検索ツールの結果をチャットログに保存しないよう修正**
+  - `recall_memories`と`search_past_conversations`の結果はUIに表示されず、AIコンテキストのみで使用
+  - これにより、コンテキスト圧迫とAPIコスト増加を防止
 - **ドキュメント更新**: `MEMORY_SYSTEM_SPECIFICATION.md` に新ツール構成を反映
+
 
 #### 📚 記憶システム仕様書の更新 (2026-01-07)
 - **能動的記憶想起 (Active Memory Recall)**: `retrieval_node`による自動検索フローを明記
