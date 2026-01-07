@@ -154,6 +154,8 @@
   - ✅ コアメモリ要約を簡潔化（5〜10行、最大1000文字）
   - ✅ ツール説明をSkills化（短縮形式に変更）
   - ✅ `search_past_conversations`ツールを除外
+  - ✅ **2026-01-07 復活**: `search_past_conversations`をAIペルソナ用キーワード検索ツールとして再追加
+  - レポート: [2026-01-07_memory_search_redesign.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-07_memory_search_redesign.md)
 
 - [x] **日記検索(search_memory)のRAG化** 🆕
   - ✅ 完了 (2025-12-31): `rag_manager.py`に日記インデックス化追加、`search_memory`をRAGベクトル検索に変更
