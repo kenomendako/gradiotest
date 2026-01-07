@@ -12,6 +12,7 @@ Nexus Arkの記憶システムは、AIペルソナに**長期記憶**と**自律
 graph TB
     subgraph "会話時に参照"
         SP[システムプロンプト]
+        RN[検索ノード<br/>retrieval_node]
     end
     
     subgraph "記憶コンポーネント"
@@ -36,8 +37,9 @@ graph TB
     DI --> SP
     GL --> SP
     IS -.-> |Internal State Log| SP
-    EM -.->|RAG検索| SP
-    KB -.->|RAG検索| SP
+    EM -.->|RAG検索| RN
+    KB -.->|RAG検索| RN
+    RN --> SP
     
     DR --> DI
     DR --> GL
@@ -113,7 +115,9 @@ graph TB
 
 **プロンプト注入**:
 - 現在の会話ログの最古日付から遡ってN日分を注入
-- 設定: `episode_memory_lookback_days`
+- 設定: `episode_memory_lookback_days` (デフォルト14日)
+- `oldest_log_date_str` (生ログの最古日付) 以前の記憶を、指定日数分だけ遡って要約注入
+
 
 **更新タイミング**: 睡眠時記憶整理
 
@@ -320,7 +324,88 @@ Created: 2026-01-01 12:00:00
 
 **対応形式**: `.txt`, `.md`, `.pdf` など
 
-**プロンプト注入**: `search_knowledge_base` ツール使用時
+**プロンプト注入**: 
+- `search_knowledge_base` ツール使用時
+- 会話ごとの自動検索（retrieval_node）でヒット時
+
+
+---
+
+## 能動的記憶想起 (Active Memory Recall)
+
+Nexus Arkは、ユーザーの発言に対して受動的に応答するだけでなく、必要に応じて**能動的に記憶を検索**し、コンテキストを補完します。
+
+### 処理フロー (`retrieval_node`)
+
+1. **検索要否の判断**:
+   - 軽量LLM (`INTERNAL_PROCESSING_MODEL`) が、ユーザーの直前の発言を分析。
+   - 過去の情報の参照が必要かを判断し、「検索クエリ」を生成。
+   - ※ 設定 `enable_auto_retrieval` でON/OFF可能。
+
+2. **多角的検索**:
+   以下のソースを並行して検索し、結果を統合します。
+
+   - **知識ベース (Knowledge Base)**: ユーザーが提供した外部ドキュメント。
+   - **日記・過去の記憶 (Diary/Memory)**: AI自身の過去の経験、感情の記録。
+   - **エンティティ記憶 (Entity Memory)**: 特定の人物・事物に関する詳細プロファイル。
+
+3. **コンテキスト注入**:
+   検索結果は `retrieval_node` の出力としてシステムプロンプトに動的に挿入され、続く応答生成で使用されます。
+
+---
+
+## RAG検索システム (RAG System)
+
+`rag_manager.py` が管理する、長期記憶と外部知識の検索基盤です。
+
+### アーキテクチャ
+
+ハイブリッドなインデックス管理により、更新頻度の異なるデータを効率的に扱います。
+
+#### 1. 静的インデックス (`faiss_index_static`)
+- **対象**: 
+  - 過去ログアーカイブ (`log_archives/*.txt`)
+  - エピソード記憶 (`episodic_memory.json`)
+  - 夢日記 (`insights.json`)
+  - 日記ファイル (`memory/memory*.txt`)
+- **特徴**: 更新頻度が低い、または追記型データ。
+- **更新**: `update_memory_index()` で差分のみを定期的にベクトル化。
+
+#### 2. 動的インデックス (`faiss_index_dynamic`)
+- **対象**: 
+  - 知識ベース (`knowledge/*.md`, `*.txt`)
+- **特徴**: ユーザーによる追加・編集が発生するデータ。
+- **更新**: `update_knowledge_index()` でフォルダ内を全再構築。
+
+#### 3. 現行ログインデックス (`current_log_index`)
+- **対象**: 
+  - 現在進行中のログ (`log.txt`)
+- **特徴**: 頻繁に更新される。
+- **更新**: 必要なタイミングでオンデマンドに近い形で更新。
+
+### キーワード検索との併用
+- **意味検索 (Vector Search)**: 文脈理解による検索（FAISS）。
+- **スコア閾値**: 類似度スコアによる足切りを実施し、ノイズを低減。
+
+---
+
+## 記憶関連ツール (Memory Tools)
+
+AIペルソナが自律的に記憶を操作するために、以下のツールが定義されています。
+
+| ツール名 | 説明 |
+|---------|------|
+| `search_memory` | 日記（過去の経験・感情）をキーワード・意味検索する。 |
+| `search_knowledge_base` | 知識ベース（外部ドキュメント）と過去の記憶を統合検索する。 |
+| `read_main_memory` | 現在の主観的記憶（`memory_main.txt`）の全文を読む。 |
+| `plan_main_memory_edit` | 主観的記憶の編集・追記を計画する（永続化のため）。 |
+| `read_secret_diary` | 秘密の日記を読む。 |
+| `read_entity_memory` | 特定のエンティティ（人物など）の詳細を読む。 |
+| `search_entity_memory` | エンティティ記憶の中から関連する項目を探す。 |
+| `list_entity_memories` | 記憶しているエンティティの一覧を取得する。 |
+
+> [!NOTE]
+> 以前存在した `search_past_conversations` は、RAGシステムの統合により `search_knowledge_base` または `retrieval_node` の自動検索に機能統合されました。
 
 ---
 
