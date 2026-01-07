@@ -16,8 +16,9 @@ from langgraph.graph import StateGraph, END, START, add_messages
 from agent.prompts import CORE_PROMPT_TEMPLATE
 from tools.space_tools import set_current_location, read_world_settings, plan_world_edit, _apply_world_edits
 from tools.memory_tools import (
-    search_memory,
+    recall_memories,
     search_past_conversations,
+    search_memory,  # 内部使用のみ（retrieval_nodeで使用）
     read_main_memory, plan_main_memory_edit, _apply_main_memory_edits,
     read_secret_diary, plan_secret_diary_edit, _apply_secret_diary_edits
 )
@@ -61,20 +62,25 @@ except ImportError:
 
 all_tools = [
     set_current_location, read_world_settings, plan_world_edit,
-    search_memory,
-    # search_past_conversations,  # [2024-12-28 最適化] RAG検索(search_knowledge_base)がカバーするため除外
+    # --- 記憶検索ツール ---
+    recall_memories,  # 統合記憶検索（日記・過去ログ・エピソード記憶）
+    search_past_conversations,  # キーワード完全一致検索（最終手段）
+    # --- 日記・メモ操作ツール ---
     read_main_memory, plan_main_memory_edit, read_secret_diary, plan_secret_diary_edit,
     read_full_notepad, plan_notepad_edit,
+    # --- Web系ツール ---
     web_search_tool, read_url_tool,
     generate_image,
     set_personal_alarm,
     set_timer, set_pomodoro_timer,
-    search_knowledge_base,
+    # --- 知識ベース・エンティティ検索ツール ---
+    search_knowledge_base,  # 外部資料・マニュアル検索
+    read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory,
+    # --- アクション・通知ツール ---
     schedule_next_action, cancel_action_plan, read_current_plan,
     send_user_notification,
     read_creative_notes, plan_creative_notes_edit,
-    read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory,
-    # ウォッチリストツール
+    # --- ウォッチリストツール ---
     add_to_watchlist, remove_from_watchlist, get_watchlist, check_watchlist, update_watchlist_interval,
     read_research_notes, plan_research_notes_edit
 ]
@@ -356,39 +362,29 @@ def retrieval_node(state: AgentState):
             # さらに安全マージンとして +2 (直前のシステムメッセージ等) しておくと確実
             exclude_count = int(history_limit_option) * 2 + 2
 
-        # 3a. 知識ベース (RAG)
-        from tools.knowledge_tools import search_knowledge_base
-        kb_result = search_knowledge_base.func(query=search_query, room_name=room_name, api_key=api_key)
-        
-        # 修正: 判定ロジックを「禁句除外」から「成功ヘッダーの確認」に変更
-        # ツールが返す "【知識ベースからの検索結果：" というヘッダーがあれば成功とみなす
-        if kb_result and "【知識ベースからの検索結果：" in kb_result:
-             print(f"    -> 知識ベース: ヒット ({len(kb_result)} chars)")
-             results.append(kb_result)
-        else:
-             # ヒットしなかった場合のログ出力（デバッグ用）
-             preview = kb_result[:50].replace('\n', '') if kb_result else "None"
-             print(f"    -> 知識ベース: なし (Result: {preview}...)")
-
-        # ▼▼▼ [2024-12-28 最適化] 過去ログ検索を除外 ▼▼▼
-        # キーワードマッチ方式はノイズが多いため、RAG検索（知識ベース）に統合。
-        # AIが能動的に過去ログを検索したい場合は search_past_conversations ツールを直接使用可能。
+        # ▼▼▼ [2025-01-07 リデザイン] 知識ベース検索を除外 ▼▼▼
+        # 知識ベースは「外部資料・マニュアル」用であり、会話コンテキストへの自動注入は不適切。
+        # AIが能動的に資料を調べたい場合は search_knowledge_base ツールを使用する。
         # ---
-        # 3b. 過去ログ (削除済み - RAGがログアーカイブをカバー)
-        # from tools.memory_tools import search_past_conversations
-        # log_result = search_past_conversations.func(...)
+        # 3a. 知識ベース (削除済み - AIがツールで能動的に検索)
+        # from tools.knowledge_tools import search_knowledge_base
+        # kb_result = search_knowledge_base.func(...)
+        # ▲▲▲ 知識ベース除外ここまで ▲▲▲
+
+        # ▼▼▼ [2024-12-28 最適化] 過去ログキーワード検索を除外 ▼▼▼
+        # キーワードマッチ方式はノイズが多いため除外。
+        # AIが能動的に検索したい場合は search_past_conversations ツールを使用可能。
         # ▲▲▲ 過去ログ検索除外ここまで ▲▲▲
 
-        # 3c. 日記 (Memory) - キーワード「思い」「記憶」を含む場合、または他に結果がない場合
-        if not results or "思い" in search_query or "記憶" in search_query:
-            from tools.memory_tools import search_memory
-            mem_result = search_memory.func(query=search_query, room_name=room_name, api_key=api_key)
-            # 日記検索のヘッダーチェック
-            if mem_result and "【記憶検索の結果：" in mem_result:
-                print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
-                results.append(mem_result)
-            else:
-                print(f"    -> 日記: なし")
+        # 3b. 日記 (Memory) - 常に検索
+        from tools.memory_tools import search_memory
+        mem_result = search_memory.func(query=search_query, room_name=room_name, api_key=api_key)
+        # 日記検索のヘッダーチェック
+        if mem_result and "【記憶検索の結果：" in mem_result:
+            print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
+            results.append(mem_result)
+        else:
+            print(f"    -> 日記: なし")
 
         # 3d. エンティティ記憶 (Entity Memory) [New]
         try:
@@ -736,39 +732,46 @@ def context_generator_node(state: AgentState):
         "set_current_location": "現在地を移動する",
         "read_world_settings": "世界設定を読む",
         "plan_world_edit": "世界設定の編集を計画する",
-        "search_memory": "日記から記憶を検索する",
+        # --- 記憶検索ツール ---
+        "recall_memories": "過去の体験や会話を思い出す（RAG検索）",
+        "search_past_conversations": "会話ログをキーワード完全一致で検索する（最終手段）",
+        # --- 日記・メモ操作ツール ---
         "read_main_memory": "主観日記を読む",
         "plan_main_memory_edit": "日記の編集を計画する",
         "read_secret_diary": "秘密日記を読む",
         "plan_secret_diary_edit": "秘密日記の編集を計画する",
         "read_full_notepad": "メモ帳を読む",
         "plan_notepad_edit": "メモ帳の編集を計画する",
+        # --- Web系ツール ---
         "web_search_tool": "ウェブ検索する",
         "read_url_tool": "URLの内容を読む",
         "generate_image": "画像を生成する",
         "set_personal_alarm": "アラームを設定する",
         "set_timer": "タイマーを設定する",
         "set_pomodoro_timer": "ポモドーロタイマーを設定する",
-        "search_knowledge_base": "知識ベースと過去の記憶を検索する",
+        # --- 知識ベース・エンティティツール ---
+        "search_knowledge_base": "外部資料・マニュアルを調べる",
+        "read_entity_memory": "特定の対象（人物・事物）に関する詳細な記憶を読む",
+        "write_entity_memory": "特定の対象に関する記憶を保存・更新する",
+        "list_entity_memories": "記憶している対象の一覧を表示する",
+        "search_entity_memory": "関連するエンティティ記憶を検索する",
+        # --- アクション・通知ツール ---
         "schedule_next_action": "次の行動を予約する",
         "cancel_action_plan": "行動計画をキャンセルする",
         "read_current_plan": "現在の行動計画を読む",
         "send_user_notification": "ユーザーに通知を送る",
         "read_creative_notes": "創作ノートを読む",
         "plan_creative_notes_edit": "創作ノートに書く",
-        "read_entity_memory": "特定の対象（人物・事物）に関する詳細な記憶を読む",
-        "write_entity_memory": "特定の対象に関する記憶を保存・更新する",
-        "list_entity_memories": "記憶している対象の一覧を表示する",
-        "search_entity_memory": "関連するエンティティ記憶を検索する",
-        # ウォッチリストツール
+        # --- ウォッチリストツール ---
         "add_to_watchlist": "URLをウォッチリストに追加する",
         "remove_from_watchlist": "URLをウォッチリストから削除する",
         "get_watchlist": "ウォッチリストを表示する",
         "check_watchlist": "ウォッチリストの更新をチェックする",
         "update_watchlist_interval": "URLの監視頻度を変更する",
         "read_research_notes": "研究・分析ノートを読み取る",
-        "plan_research_notes_edit": "研究・分析ノートの編集（分析結果の記録など）を計画する",
+        "plan_research_notes_edit": "研究・分析ノートの編集を計画する",
     }
+
     tools_list_parts = []
     for tool in current_tools:
         short_desc = tool_short_descriptions.get(tool.name, tool.description[:30] + "...")

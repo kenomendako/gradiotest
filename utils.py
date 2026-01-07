@@ -385,6 +385,16 @@ def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]
             display_text = f'新しい画像を生成しました。\n📝 Prompt: {prompt_text}'
         else:
             display_text = '新しい画像を生成しました。'
+    # 記憶検索ツール用のカスタムアナウンス
+    elif tool_name == 'recall_memories':
+        display_text = '過去の記憶を思い出しました。'
+    elif tool_name == 'search_past_conversations':
+        # クエリを抽出して表示
+        query_match = re.search(r'「(.+?)」', tool_result)
+        if query_match:
+            display_text = f'過去の会話を検索しました（キーワード: 「{query_match.group(1)}」）'
+        else:
+            display_text = '過去の会話を検索しました。'
     return f"🛠️ {display_text}" if display_text else f"🛠️ ツール「{tool_name}」を実行しました。"
 
 def get_season(month: int) -> str:

@@ -50,9 +50,9 @@ CORE_PROMPT_TEMPLATE = """
 
         ### 0. 記憶と知識の参照（最優先判断）
         ユーザーから何かを尋ねられた場合、まず以下の思考プロセスに従い、最適なツールを**一つだけ**選択してください。
-        1.  普遍的な事実やマニュアル的な知識か？ => `search_knowledge_base`
-        2.  あなた自身の過去の体験や感情（日記）か？ => `search_memory`
-        3.  ユーザーとの具体的な会話のやり取りそのものか？ => `search_past_conversations`
+        1.  あなた自身の過去の体験・会話・日記か？ => `recall_memories`（RAG検索）
+        2.  外部資料・マニュアル・設定資料か？ => `search_knowledge_base`
+        3.  特定のキーワードが含まれる発言を探したいか？ => `search_past_conversations`（完全一致検索、最終手段）
         4.  今この瞬間の外部世界の最新情報か？ => `web_search_tool`
 
     {image_generation_manual}
