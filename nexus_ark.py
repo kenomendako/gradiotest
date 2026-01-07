@@ -862,6 +862,12 @@ try:
                                 visible=True
                             )
                             auto_memory_enabled_checkbox = gr.Checkbox(label="対話の自動記憶を有効化", interactive=True, visible=False)
+                            room_enable_self_awareness_checkbox = gr.Checkbox(
+                                label="自己意識機能（動機・感情検出・夢の指針・目標）",
+                                info="▼AIが動機や感情を認識し、夢の指針や目標をコンテキストに含めます。OFFにするとAPIコストを削減できます。",
+                                interactive=True,
+                                value=True
+                            )
 
                         with gr.Accordion("✨ 自律行動設定 (Beta)", open=False):
                             gr.Markdown(
@@ -1632,8 +1638,8 @@ try:
                                     placeholder="最終省察レベル、週次/月次省察の日付が表示されます"
                                 )
 
-                        # --- 🧠 内的状態 (Internal State) ---
-                        with gr.Accordion("🧠 内的状態 (Internal State)", open=False):
+                        # --- 🧠 自己意識 (Self-Awareness) ---
+                        with gr.Accordion("🧠 自己意識 (Self-Awareness)", open=False):
                             gr.Markdown("ペルソナの内発的な動機と、気になっている話題を確認できます。")
                             refresh_internal_state_button = gr.Button("🧠 内的状態を読み込む", variant="primary")
                             
@@ -2025,6 +2031,7 @@ try:
             enable_scenery_system_checkbox,
             auto_memory_enabled_checkbox,
             room_auto_summary_checkbox,
+            room_enable_self_awareness_checkbox,
         ]
         
         context_token_calc_inputs = [
@@ -2068,6 +2075,7 @@ try:
             room_send_scenery_checkbox,
             room_scenery_send_mode_dropdown,
             auto_memory_enabled_checkbox,
+            room_enable_self_awareness_checkbox,
             room_settings_info,
             scenery_image_display,
             enable_scenery_system_checkbox,

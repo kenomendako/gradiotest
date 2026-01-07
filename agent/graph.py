@@ -263,18 +263,21 @@ def retrieval_node(state: AgentState):
 
     # --- [User Emotion Detection] ユーザー感情状態の検出 ---
     # 奉仕欲ドライブを機能させるため、ユーザーの感情を分析してログに記録
-    try:
-        from motivation_manager import MotivationManager
-        mm = MotivationManager(state['room_name'])
-        # 感情検出し、ログ保存とDevotion更新を一括で行う
-        mm.detect_process_and_log_user_emotion(
-            user_text=query_source,
-            model_name=constants.INTERNAL_PROCESSING_MODEL,
-            api_key=state['api_key']
-        )
-        # print(f"  - [Emotion] 感情検出プロセス完了") # ログ過多防止のためコメントアウト
-    except Exception as emotion_e:
-        print(f"  - [Emotion] 感情検出でエラー（無視）: {emotion_e}")
+    # 【自己意識機能】トグルがOFFの場合はスキップ
+    enable_self_awareness = state.get("generation_config", {}).get("enable_self_awareness", True)
+    if enable_self_awareness:
+        try:
+            from motivation_manager import MotivationManager
+            mm = MotivationManager(state['room_name'])
+            # 感情検出し、ログ保存とDevotion更新を一括で行う
+            mm.detect_process_and_log_user_emotion(
+                user_text=query_source,
+                model_name=constants.INTERNAL_PROCESSING_MODEL,
+                api_key=state['api_key']
+            )
+            # print(f"  - [Emotion] 感情検出プロセス完了") # ログ過多防止のためコメントアウト
+        except Exception as emotion_e:
+            print(f"  - [Emotion] 感情検出でエラー（無視）: {emotion_e}")
 
     # 2. クエリ生成AI（Flash Lite）による判断
     api_key = state['api_key']
@@ -602,63 +605,67 @@ def context_generator_node(state: AgentState):
             episodic_memory_section = ""
 
     # --- [Project Morpheus] 夢想（深層意識）の注入 ---
+    # 【自己意識機能】トグルがOFFの場合はスキップ
+    enable_self_awareness = state.get("generation_config", {}).get("enable_self_awareness", True)
     dream_insights_text = ""
-    try:
-        # APIキーが必要だが、context_generator_nodeにはstate['api_key']がある
-        dm = DreamingManager(room_name, state['api_key'])
-        # 最新1件の「指針」のみを取得（コスト最適化）
-        recent_insights = dm.get_recent_insights_text(limit=1)
-        
-        if recent_insights:
-            dream_insights_text = (
-                f"\n### 深層意識（今日の指針）\n"
-                f"{recent_insights}\n"
-            )
-    except Exception as e:
-        print(f"  - [Context] 夢想データの読み込みエラー: {e}")
-        dream_insights_text = ""
     
-    # --- [Goal Memory] 目標の注入 ---
-    goals_text = ""
-    try:
-        gm = GoalManager(room_name)
-        goals_text = gm.get_goals_for_prompt()
-        if goals_text:
-            dream_insights_text += f"\n\n{goals_text}\n"
-    except Exception as e:
-        print(f"  - [Context] 目標データの読み込みエラー: {e}")
-
-    # --- [Internal State] 内的状態の簡易版注入 ---
-    # 通常対話時にもAIが自己の動機を意識できるようにする
-    try:
-        from motivation_manager import MotivationManager
-        mm = MotivationManager(room_name)
-        
-        # 全動機を計算して最も高い動機を取得
-        drives = {
-            "boredom": mm.calculate_boredom(),
-            "curiosity": mm.calculate_curiosity(),
-            "goal_achievement": mm.calculate_goal_achievement(),
-            "devotion": mm.calculate_devotion()
-        }
-        
-        dominant_drive = max(drives, key=drives.get)
-        drive_level = drives[dominant_drive]
-        
-        # 閾値以上の動機がある場合のみ注入（トークン節約）
-        if drive_level >= 0.4:
-            drive_label = mm.DRIVE_LABELS.get(dominant_drive, dominant_drive)
-            narrative = mm._generate_narrative(dominant_drive, drive_level)
+    if enable_self_awareness:
+        try:
+            # APIキーが必要だが、context_generator_nodeにはstate['api_key']がある
+            dm = DreamingManager(room_name, state['api_key'])
+            # 最新1件の「指針」のみを取得（コスト最適化）
+            recent_insights = dm.get_recent_insights_text(limit=1)
             
-            internal_state_brief = (
-                f"\n### 今のあなたの気持ち\n"
-                f"- 最も強い動機: {drive_label}（強さ: {drive_level:.1f}）\n"
-                f"- {narrative}\n"
-            )
-            dream_insights_text += internal_state_brief
-            print(f"  - [Context] 内的状態を注入: {drive_label} ({drive_level:.2f})")
-    except Exception as e:
-        print(f"  - [Context] 内的状態の読み込みエラー: {e}")
+            if recent_insights:
+                dream_insights_text = (
+                    f"\n### 深層意識（今日の指針）\n"
+                    f"{recent_insights}\n"
+                )
+        except Exception as e:
+            print(f"  - [Context] 夢想データの読み込みエラー: {e}")
+            dream_insights_text = ""
+        
+        # --- [Goal Memory] 目標の注入 ---
+        goals_text = ""
+        try:
+            gm = GoalManager(room_name)
+            goals_text = gm.get_goals_for_prompt()
+            if goals_text:
+                dream_insights_text += f"\n\n{goals_text}\n"
+        except Exception as e:
+            print(f"  - [Context] 目標データの読み込みエラー: {e}")
+
+        # --- [Internal State] 内的状態の簡易版注入 ---
+        # 通常対話時にもAIが自己の動機を意識できるようにする
+        try:
+            from motivation_manager import MotivationManager
+            mm = MotivationManager(room_name)
+            
+            # 全動機を計算して最も高い動機を取得
+            drives = {
+                "boredom": mm.calculate_boredom(),
+                "curiosity": mm.calculate_curiosity(),
+                "goal_achievement": mm.calculate_goal_achievement(),
+                "devotion": mm.calculate_devotion()
+            }
+            
+            dominant_drive = max(drives, key=drives.get)
+            drive_level = drives[dominant_drive]
+            
+            # 閾値以上の動機がある場合のみ注入（トークン節約）
+            if drive_level >= 0.4:
+                drive_label = mm.DRIVE_LABELS.get(dominant_drive, dominant_drive)
+                narrative = mm._generate_narrative(dominant_drive, drive_level)
+                
+                internal_state_brief = (
+                    f"\n### 今のあなたの気持ち\n"
+                    f"- 最も強い動機: {drive_label}（強さ: {drive_level:.1f}）\n"
+                    f"- {narrative}\n"
+                )
+                dream_insights_text += internal_state_brief
+                print(f"  - [Context] 内的状態を注入: {drive_label} ({drive_level:.2f})")
+        except Exception as e:
+            print(f"  - [Context] 内的状態の読み込みエラー: {e}")
 
     action_plan_context = ""
     try:
