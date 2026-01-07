@@ -1,4 +1,4 @@
-# tools/memory_tools.py (v20: Final Architecture)
+# tools/memory_tools.py (v21: Memory Search Redesign)
 
 import re
 from langchain_core.tools import tool
@@ -19,10 +19,77 @@ import random
 import config_manager
 
 @tool
+def recall_memories(query: str, room_name: str, api_key: str) -> str:
+    """
+    あなたの過去の体験、会話、思い出を検索します。
+    ユーザーとの過去の出来事や、自分の日記・感情の記録を思い出したい場合に使用します。
+    検索対象: 日記、過去の会話ログアーカイブ、エピソード記憶、夢の記録
+    query: 思い出したい事柄に関する自然言語のキーワード（例：「初めて会った日のこと」「旅行の話」）
+    """
+    if not query or not room_name:
+        return "【エラー】検索クエリとルーム名が必要です。"
+    
+    if not api_key:
+        return "【エラー】APIキーが必要です。"
+
+    print(f"--- 統合記憶検索(RAG)開始: クエリ='{query}', ルーム='{room_name}' ---")
+    
+    try:
+        import rag_manager
+        rm = rag_manager.RAGManager(room_name, api_key)
+        
+        # 検索実行（日記・過去ログ・エピソード記憶・夢日記を対象）
+        # 知識ベース（knowledge）は除外されている
+        results = rm.search(query, k=10, score_threshold=0.80)
+        
+        # 知識ベースの結果を除外（念のため）
+        memory_results = [r for r in results if r.metadata.get("type") != "knowledge"]
+        
+        print(f"  - RAG検索結果: 全{len(results)}件中、記憶{len(memory_results)}件")
+        
+        if not memory_results:
+            return f"【検索結果】「{query}」に関する記憶は見つかりませんでした。"
+        
+        result_text = f"【記憶検索の結果：「{query}」】\n\n"
+        for doc in memory_results[:7]:  # 最大7件
+            source = doc.metadata.get("source", "不明")
+            doc_type = doc.metadata.get("type", "unknown")
+            
+            # ソースタイプに応じたラベル付け
+            if doc_type == "diary":
+                label = "日記"
+            elif doc_type == "log_archive":
+                label = "過去の会話"
+            elif doc_type == "episodic_memory":
+                date = doc.metadata.get("date", "")
+                label = f"エピソード記憶（{date}）"
+            elif doc_type == "dream_insight":
+                label = "夢の記録"
+            else:
+                label = source
+            
+            # 長すぎる場合はトリミング
+            content = doc.page_content
+            if len(content) > 500:
+                content = content[:500] + "..."
+            result_text += f"--- [{label}] ---\n{content}\n\n"
+        
+        return result_text.strip()
+        
+    except Exception as e:
+        print(f"  - RAG検索エラー: {e}")
+        traceback.print_exc()
+        return f"【エラー】記憶検索中にエラーが発生しました: {e}"
+
+@tool
 def search_past_conversations(query: str, room_name: str, api_key: str, exclude_recent_messages: int = 0) -> str:
     """
-    ユーザーとの過去の会話ログ全体（アーカイブやインポートされたものを含む）から、特定の出来事や話題について検索する場合に使用します。
+    【キーワード完全一致検索】通常の記憶検索（recall_memories）で見つからない場合に使用します。
+    過去の会話ログから、特定の単語やフレーズを含む発言を探し出します。
+    recall_memoriesとは異なり、意味ではなくキーワードの一致で検索するため、
+    「あの時〇〇って言ってたよね？」のような引用探しに適しています。
     """
+
     if not query or not room_name or not api_key:
         return "【エラー】検索クエリ、ルーム名、APIキーは必須です。"
 

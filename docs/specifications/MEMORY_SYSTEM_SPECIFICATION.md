@@ -342,12 +342,16 @@ Nexus Arkは、ユーザーの発言に対して受動的に応答するだけ�
    - 過去の情報の参照が必要かを判断し、「検索クエリ」を生成。
    - ※ 設定 `enable_auto_retrieval` でON/OFF可能。
 
-2. **多角的検索**:
-   以下のソースを並行して検索し、結果を統合します。
+2. **検索対象** (2025-01-07 リデザイン):
+   以下のソースをRAG検索し、結果をコンテキストに注入します。
 
-   - **知識ベース (Knowledge Base)**: ユーザーが提供した外部ドキュメント。
-   - **日記・過去の記憶 (Diary/Memory)**: AI自身の過去の経験、感情の記録。
-   - **エンティティ記憶 (Entity Memory)**: 特定の人物・事物に関する詳細プロファイル。
+   - **日記 (Diary)**: AI自身の過去の経験、感情の記録（`memory_main.txt`, `memory_archived_*.txt`）
+   - **エンティティ記憶 (Entity Memory)**: 特定の人物・事物に関する詳細プロファイル
+
+   > [!IMPORTANT]
+   > **知識ベースは自動検索対象から除外されました。**
+   > 知識ベースは「外部資料・マニュアル」用であり、会話コンテキストへの自動注入は不適切と判断したため。
+   > AIが資料を調べたい場合は `search_knowledge_base` ツールを能動的に使用します。
 
 3. **コンテキスト注入**:
    検索結果は `retrieval_node` の出力としてシステムプロンプトに動的に挿入され、続く応答生成で使用されます。
@@ -394,19 +398,37 @@ Nexus Arkは、ユーザーの発言に対して受動的に応答するだけ�
 
 AIペルソナが自律的に記憶を操作するために、以下のツールが定義されています。
 
+### 検索ツール
+
+| ツール名 | 検索方式 | 検索対象 | 用途 |
+|---------|---------|---------|------|
+| `recall_memories` | RAG（意味検索） | 日記、過去ログアーカイブ、エピソード記憶、夢の記録 | 過去の体験・会話・思い出を思い出す |
+| `search_knowledge_base` | RAG（意味検索） | 知識ベース（`knowledge/`フォルダ内のドキュメント） | 外部資料・マニュアル・設定資料を調べる |
+| `search_past_conversations` | キーワード完全一致 | 会話ログ（`log.txt`, `log_archives/`, `log_import_source/`） | 特定フレーズの引用探し（最終手段） |
+| `search_entity_memory` | キーワードマッチ | エンティティ記憶（`entity_memory/`） | 特定の人物・事物に関する記憶を検索 |
+
+> [!TIP]
+> **ツール選択の判断基準**
+> 1. 過去の体験・会話・日記を思い出したい → `recall_memories`
+> 2. 外部資料・マニュアルを調べたい → `search_knowledge_base`
+> 3. 特定のキーワードが含まれる発言を探したい → `search_past_conversations`
+
+### 読み取り・編集ツール
+
 | ツール名 | 説明 |
 |---------|------|
-| `search_memory` | 日記（過去の経験・感情）をキーワード・意味検索する。 |
-| `search_knowledge_base` | 知識ベース（外部ドキュメント）と過去の記憶を統合検索する。 |
-| `read_main_memory` | 現在の主観的記憶（`memory_main.txt`）の全文を読む。 |
-| `plan_main_memory_edit` | 主観的記憶の編集・追記を計画する（永続化のため）。 |
-| `read_secret_diary` | 秘密の日記を読む。 |
-| `read_entity_memory` | 特定のエンティティ（人物など）の詳細を読む。 |
-| `search_entity_memory` | エンティティ記憶の中から関連する項目を探す。 |
-| `list_entity_memories` | 記憶しているエンティティの一覧を取得する。 |
+| `read_main_memory` | 現在の主観的記憶（`memory_main.txt`）の全文を読む |
+| `plan_main_memory_edit` | 主観的記憶の編集・追記を計画する |
+| `read_secret_diary` | 秘密の日記を読む |
+| `plan_secret_diary_edit` | 秘密の日記の編集を計画する |
+| `read_entity_memory` | 特定のエンティティの詳細を読む |
+| `write_entity_memory` | エンティティ記憶を更新する |
+| `list_entity_memories` | 記憶しているエンティティの一覧を取得する |
 
-> [!NOTE]
-> 以前存在した `search_past_conversations` は、RAGシステムの統合により `search_knowledge_base` または `retrieval_node` の自動検索に機能統合されました。
+> [!WARNING]
+> **知識ベースに日記・思い出を入れる運用は非推奨**
+> 知識ベースは「外部ドキュメント」用に設計されており、日記と混在すると検索精度が低下します。
+> 日記は `memory_main.txt`、詳細情報は `entity_memory` に保存してください。
 
 ---
 
@@ -462,6 +484,7 @@ sequenceDiagram
 
 | 日付 | 内容 |
 |------|------|
+| 2026-01-07 | 記憶検索ツールをリデザイン。`recall_memories`を新規追加、`search_past_conversations`を復活、`retrieval_node`から知識ベース検索を除外 |
 | 2026-01-06 | 感情ログ（`emotion_log.json`）と感情グラフ可視化を追加 |
 | 2026-01-06 | 動的ドライブ情報表示（最強ドライブに応じた文脈表示）を追加 |
 | 2026-01-06 | 内省ダッシュボードUI仕様を追加 |
