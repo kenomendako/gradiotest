@@ -99,11 +99,18 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
     val = current_config.get("last_api_history_limit_option", "all")
     history_limit_option = str(val).strip()
     
-    config_exclude_count = 0
+    # 現在送信中のログを除外するための件数を計算
+    # 「all」の場合でも、最低限のデフォルト除外（20ターン = 約40メッセージ）を適用
+    # これにより「今話している内容」がノイズとして混入することを防止
+    DEFAULT_EXCLUDE_TURNS = 20  # デフォルトで20ターン分を除外
+    
     if history_limit_option == "all":
-        config_exclude_count = 999999
+        # 「全履歴送信」設定でも、検索時は最新20ターン分を除外
+        config_exclude_count = DEFAULT_EXCLUDE_TURNS * 2 + 2
     elif history_limit_option.isdigit():
         config_exclude_count = int(history_limit_option) * 2 + 2
+    else:
+        config_exclude_count = DEFAULT_EXCLUDE_TURNS * 2 + 2
     
     final_exclude_count = max(exclude_recent_messages, config_exclude_count)
     
