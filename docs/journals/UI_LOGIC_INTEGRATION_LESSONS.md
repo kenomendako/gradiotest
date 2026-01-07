@@ -686,3 +686,41 @@ def handle_something_change(room_name: str, new_mode: str):
 *   **関連ドキュメント:**
     - [レッスン41: get_room_files_paths は6変数でアンパックせよ](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gradio_notes.md#レッスン41get_room_files_paths-は6変数でアンパックせよ2026-01-05)
     - [技術レポート: get_room_files_paths 6変数化](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_get_room_files_paths_6var.md)
+
+---
+
+## 教訓 46: 新しいUIコンポーネント追加時の「9ステップ契約」(2026-01-07)
+
+*   **発生した問題:**
+    送信コンテキスト設定に新しいチェックボックス（自己意識機能トグル）を追加したところ、以下の問題が連鎖的に発生した：
+    1. 起動時に `ValueError: Cannot process this value as an Image, it is of type: <class 'bool'>` エラー
+    2. 設定を変更しても通知が表示されない
+    3. 設定が `room_config.json` に保存されない
+    4. バックエンド（エージェント）で設定が反映されない
+
+*   **原因:**
+    UIコンポーネントの追加には、UI定義だけでなく、イベント登録、ハンドラ戻り値、保存ロジック、バックエンド参照など、**最低9箇所の同期的な変更**が必要だった。1箇所でも漏れると、異なる症状のエラーが発生する。
+
+*   **解決アーキテクチャ：「9ステップ契約」チェックリスト**
+    新しいUIコンポーネント（特にチェックボックス等の設定項目）を追加する際は、以下の全ステップを確実に実行する：
+
+    | # | 対象ファイル | 変更箇所 | 目的 |
+    |---|-------------|----------|------|
+    | 1 | `nexus_ark.py` | コンポーネント定義 | UI部品を作成 |
+    | 2 | `nexus_ark.py` | `initial_load_chat_outputs` | 起動時にハンドラから値を受け取る |
+    | 3 | `ui_handlers.py` | ハンドラ戻り値（通常ケース） | 起動時・ルーム変更時に値を返す |
+    | 4 | `ui_handlers.py` | ハンドラ戻り値（空ルームケース） | ルーム未選択時のデフォルト値 |
+    | 5 | `nexus_ark.py` | `context_checkboxes` 等 | トークン計算更新のイベント登録 |
+    | 6 | `nexus_ark.py` | `room_individual_settings_inputs` | 設定保存イベントの対象に含める |
+    | 7 | `nexus_ark.py` | `other_context_checkboxes` 等 | 変更イベントの登録 |
+    | 8 | `ui_handlers.py` | `handle_save_room_settings` 引数 | 関数が値を受け取れるようにする |
+    | 9 | `ui_handlers.py` | `new_settings` 辞書 | 値を `room_config.json` に保存 |
+
+    さらに、バックエンドで設定を使用する場合は：
+    | 10 | `agent/graph.py` 等 | `state.get("generation_config", {}).get("key", default)` | 設定値を参照して動作を分岐 |
+
+*   **教訓:**
+    Nexus ArkのUI設定系コンポーネントは、**UI・イベント・ハンドラ・永続化・バックエンドの5層にまたがる複雑な連携**で成り立っている。新しいコンポーネントを追加する際は、「1箇所追加すれば動く」と思わず、この9ステップ（または10ステップ）契約を必ず確認すること。
+
+*   **関連ドキュメント:**
+    - [技術レポート: 自己意識機能トグル](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-07_self_awareness_toggle.md)
