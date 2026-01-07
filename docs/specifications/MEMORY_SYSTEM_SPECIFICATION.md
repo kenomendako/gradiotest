@@ -366,14 +366,51 @@ Nexus Arkは、ユーザーの発言に対して受動的に応答するだけ�
 
 ハイブリッドなインデックス管理により、更新頻度の異なるデータを効率的に扱います。
 
+```mermaid
+graph TB
+    subgraph "インデックス構成"
+        SI[静的インデックス<br/>faiss_index_static]
+        DI[動的インデックス<br/>faiss_index_dynamic]
+        CLI[現行ログインデックス<br/>current_log_index]
+    end
+    
+    subgraph "データソース"
+        LA[ログアーカイブ<br/>log_archives/*.txt]
+        EM[エピソード記憶<br/>episodic_memory.json]
+        DM[夢日記<br/>insights.json]
+        DY[日記ファイル<br/>memory*.txt]
+        KB[知識ベース<br/>knowledge/*.md]
+        CL[現行ログ<br/>log.txt]
+    end
+    
+    LA --> SI
+    EM --> SI
+    DM --> SI
+    DY --> SI
+    KB --> DI
+    CL --> CLI
+    
+    subgraph "検索"
+        QE[クエリ埋め込み]
+        VS[ベクトル類似度検索]
+        TH[閾値フィルタリング]
+    end
+    
+    SI --> VS
+    DI --> VS
+    QE --> VS
+    VS --> TH
+```
+
 #### 1. 静的インデックス (`faiss_index_static`)
 - **対象**: 
   - 過去ログアーカイブ (`log_archives/*.txt`)
   - エピソード記憶 (`episodic_memory.json`)
   - 夢日記 (`insights.json`)
-  - 日記ファイル (`memory/memory*.txt`)
+  - 日記ファイル (`memory/memory*.txt`, `memory/memory_archived_*.txt`)
 - **特徴**: 更新頻度が低い、または追記型データ。
 - **更新**: `update_memory_index()` で差分のみを定期的にベクトル化。
+- **差分検出**: `processed_static_files.json` でインデックス済みファイルを記録し、重複処理を回避。
 
 #### 2. 動的インデックス (`faiss_index_dynamic`)
 - **対象**: 
@@ -387,10 +424,141 @@ Nexus Arkは、ユーザーの発言に対して受動的に応答するだけ�
 - **特徴**: 頻繁に更新される。
 - **更新**: 必要なタイミングでオンデマンドに近い形で更新。
 
+---
+
 ### 検索アルゴリズム
-- **ベクトル検索 (Vector Search)**: FAISSを用いた意味検索。文脈理解に基づく柔軟な検索が可能。
-- **フィルタリング**: 類似度スコアによる閾値判定を実施し、関連性の低い結果を除外。
-- ※キーワード検索（BM25等）とのハイブリッド検索は現時点では実装されていません。
+
+#### ベクトル検索 (Vector Search)
+- **ライブラリ**: FAISS (Facebook AI Similarity Search)
+- **距離関数**: L2距離（ユークリッド距離）
+- **特徴**: 意味的な類似性に基づく柔軟な検索が可能
+
+#### 検索フロー
+1. クエリをエンベディングモデルでベクトル化
+2. 静的・動的インデックスそれぞれで類似度検索を実行
+3. 結果を統合し、スコアでソート（昇順：低いほど類似）
+4. 閾値でフィルタリングし、関連性の高い結果のみ返却
+
+```python
+# 検索の流れ（rag_manager.py より抜粋）
+results_with_scores = []
+dynamic_results = dynamic_db.similarity_search_with_score(query, k=k)
+static_results = static_db.similarity_search_with_score(query, k=k)
+# 統合してスコアでソート
+results_with_scores.sort(key=lambda x: x[1])
+# 閾値でフィルタ
+filtered_docs = [doc for doc, score in results_with_scores if score <= score_threshold]
+```
+
+> [!NOTE]
+> **ハイブリッド検索（BM25等）は現時点では未実装**
+> キーワード検索とベクトル検索を組み合わせたハイブリッド検索は、将来の改善候補として検討中です。
+> 現在は `search_past_conversations` ツールでキーワード検索を補完しています。
+
+---
+
+### 精度向上のための手法
+
+現在のRAGシステムでは、以下の手法で検索精度を向上させています。
+
+#### 1. チャンク分割戦略 (Chunking Strategy)
+
+```python
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=300,      # 1チャンクあたり300文字
+    chunk_overlap=50     # 隣接チャンク間で50文字重複
+)
+```
+
+| パラメータ | 値 | 説明 |
+|-----------|-----|------|
+| `chunk_size` | 300 | 小さめのチャンクで文脈の粒度を高く保つ |
+| `chunk_overlap` | 50 | 文脈の断絶を防ぐための重複領域 |
+
+> [!TIP]
+> **チャンクサイズの選択理由**
+> - 日本語の場合、300文字は自然な段落サイズに近い
+> - 小さなチャンクは精度を上げるが、検索結果が断片的になりやすい
+> - 50文字のオーバーラップで、文境界での情報欠落を軽減
+
+#### 2. 類似度スコア閾値 (Similarity Threshold)
+
+| 用途 | 閾値 | 説明 |
+|------|------|------|
+| 記憶検索 (`recall_memories`) | 0.80 | やや厳格。関連性の高い結果のみ |
+| 一般RAG検索 | 0.75 | 標準的な閾値 |
+| 自動記憶想起 (`retrieval_node`) | 0.75 | 自動注入時の品質担保 |
+
+> [!IMPORTANT]
+> **スコアの解釈 (L2距離の場合)**
+> - スコアが **低いほど** 類似度が **高い**
+> - 0.0 = 完全一致
+> - 1.0 = かなり異なる
+> - 2.0以上 = ほぼ無関係
+
+#### 3. エンベディングモデル
+
+| モード | モデル | 特徴 |
+|--------|--------|------|
+| API (デフォルト) | `models/text-embedding-004` | 高品質、APIコスト発生 |
+| ローカル | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 無料、オフライン対応 |
+
+**タスクタイプ指定** (APIモード):
+```python
+task_type="retrieval_document"  # ドキュメント検索に最適化
+```
+
+#### 4. 増分インデックス更新 (Incremental Indexing)
+
+- **差分検出**: `processed_static_files.json` でインデックス済みファイル/エピソードを記録
+- **チェックポイント保存**: 5アイテムごとにインデックスを保存し、中断時のデータロスを最小化
+- **ハッシュベース変更検出**: 日記ファイルは内容のMD5ハッシュで変更を検出
+
+```python
+# 日記ファイルの変更検出例
+content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+record_id = f"diary:{filename}:{content_hash}"
+```
+
+#### 5. メタデータによるソース識別
+
+すべてのドキュメントにメタデータを付与し、検索結果のフィルタリングと表示を改善:
+
+| type | 説明 |
+|------|------|
+| `log_archive` | 過去の会話ログアーカイブ |
+| `episodic_memory` | エピソード記憶（日次要約） |
+| `dream_insight` | 夢日記・深層心理の記録 |
+| `diary` | 主観的日記（memory*.txt） |
+| `knowledge` | 知識ベースドキュメント |
+| `current_log` | 現行ログ |
+
+#### 6. APIレート制限対策
+
+```python
+BATCH_SIZE = 20  # 一度にベクトル化するドキュメント数
+time.sleep(2)    # バッチ間の待機時間（APIモード時）
+```
+
+リトライロジック:
+- 429エラー検知時は指数バックオフで再試行
+- 最大3回リトライ、失敗時はバッチをスキップ
+
+---
+
+### 検索結果の品質管理
+
+#### UI表示での生データ除外 (2026-01-07)
+
+記憶検索ツール（`recall_memories`, `search_past_conversations`）の結果は：
+- **チャットログに保存されるのはアナウンスのみ**（例：「🛠️ 過去の会話を検索しました」）
+- **生の検索結果（会話ログ本文）はログに保存されない**
+- 検索結果はAIのコンテキストとしてのみ使用され、ユーザーには表示されない
+
+これにより以下を実現:
+- コンテキストウィンドウの圧迫防止
+- APIコストの削減
+- チャット履歴の可読性維持
 
 ---
 
@@ -429,6 +597,7 @@ AIペルソナが自律的に記憶を操作するために、以下のツール
 > **知識ベースに日記・思い出を入れる運用は非推奨**
 > 知識ベースは「外部ドキュメント」用に設計されており、日記と混在すると検索精度が低下します。
 > 日記は `memory_main.txt`、詳細情報は `entity_memory` に保存してください。
+
 
 ---
 
@@ -484,6 +653,8 @@ sequenceDiagram
 
 | 日付 | 内容 |
 |------|------|
+| 2026-01-07 | RAG検索システムの詳細仕様を追記: アーキテクチャ図、検索アルゴリズム、精度向上手法（チャンク分割、閾値設定、増分更新、メタデータ管理）を文書化 |
+| 2026-01-07 | 記憶検索ツールの結果UI表示仕様を追記: アナウンスのみログ保存、生データ除外 |
 | 2026-01-07 | 記憶検索ツールをリデザイン。`recall_memories`を新規追加、`search_past_conversations`を復活、`retrieval_node`から知識ベース検索を除外 |
 | 2026-01-06 | 感情ログ（`emotion_log.json`）と感情グラフ可視化を追加 |
 | 2026-01-06 | 動的ドライブ情報表示（最強ドライブに応じた文脈表示）を追加 |
