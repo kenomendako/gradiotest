@@ -686,6 +686,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         effective_settings["send_core_memory"], effective_settings["send_scenery"],
         effective_settings.get("scenery_send_mode", "変更時のみ"),  # room_scenery_send_mode_dropdown
         effective_settings["auto_memory_enabled"],
+        effective_settings.get("enable_self_awareness", True),  # room_enable_self_awareness_checkbox
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path,
         effective_settings.get("enable_scenery_system", True),
@@ -2303,6 +2304,7 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
                 False, # send_scenery
                 "変更時のみ", # scenery_send_mode
                 False, # auto_memory_enabled
+                True,  # enable_self_awareness
                 "ℹ️ *ルームを選択してください*", None,  # room_settings_info, scenery_image
                 True, gr.update(open=False),  # enable_scenery_system, profile_scenery_accordion
                 gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(constants.DEFAULT_API_HISTORY_LIMIT_OPTION, "20往復")),  # room_api_history_limit_dropdown
