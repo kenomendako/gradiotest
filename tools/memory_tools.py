@@ -186,9 +186,19 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         # 1. 日付順（新しい順）にソート
         found_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
         
-        # 2. 上位5件（またはもう少し多くても可）を取得
-        # 生テキストの場合、文脈が長いので件数は絞ったほうが良い
-        limited_blocks = found_blocks[:5]
+        # 2. 時間帯別枠取り：新しい記憶と古い記憶の両方をカバー
+        # - 新しい方から最大2件
+        # - 古い方から最大2件（重複回避）
+        # これにより「最近の発言」と「昔の発言」の両方が検索結果に含まれる
+        if len(found_blocks) <= 4:
+            # 4件以下ならそのまま全部返す
+            limited_blocks = found_blocks
+        else:
+            newest = found_blocks[:2]  # 新しい方から2件
+            oldest = found_blocks[-2:]  # 古い方から2件
+            # 重複を除いて結合（新しい順を維持）
+            limited_blocks = newest + [b for b in oldest if b not in newest]
+            print(f"  - [Search] 時間帯別枠取り: 新{len(newest)}件 + 古{len([b for b in oldest if b not in newest])}件 = {len(limited_blocks)}件")
 
         result_parts = [f'【過去の会話ログからの検索結果：「{query}」】\n']
         
