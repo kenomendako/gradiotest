@@ -15,6 +15,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - エピソード記憶のプロンプトと同様のアプローチを採用
 - これにより、要約もペルソナの世界観に沿った呼称で記録される
 
+#### 📚 記憶システム仕様書の更新 (2026-01-07)
+- **能動的記憶想起 (Active Memory Recall)**: `retrieval_node`による自動検索フローを明記
+- **RAGアーキテクチャ**: 静的/動的/現行ログインデックスの役割分担を記述
+- **記憶ツール一覧**: `search_memory`や`read_entity_memory`などのツール仕様を追加
+- **検索アルゴリズム**: ベクトル検索（FAISS）のみ稼働している現状を反映（キーワード検索の記述を削除）
+- ファイル: `docs/specifications/MEMORY_SYSTEM_SPECIFICATION.md`
+
 #### 🧠 自己意識機能トグル (2026-01-07)
 
 - **送信コンテキスト設定に「自己意識機能」チェックボックスを追加**
