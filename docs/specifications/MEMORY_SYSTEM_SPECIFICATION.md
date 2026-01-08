@@ -649,6 +649,7 @@ AIペルソナが自律的に記憶を操作するために、以下のツール
 | `recall_memories` | RAG（意味検索） | 日記、過去ログアーカイブ、エピソード記憶、夢の記録 | 過去の体験・会話・思い出を思い出す |
 | `search_knowledge_base` | RAG（意味検索） | 知識ベース（`knowledge/`フォルダ内のドキュメント） | 外部資料・マニュアル・設定資料を調べる |
 | `search_past_conversations` | キーワード完全一致 | 会話ログ（`log.txt`, `log_archives/`, `log_import_source/`） | 特定フレーズの引用探し（最終手段） |
+| `read_memory_context` | テキスト完全一致 | 会話ログ、日記（`memory*.txt`） | 検索結果で切り詰められた文章の続きを読む |
 | `search_entity_memory` | キーワードマッチ | エンティティ記憶（`entity_memory/`） | 特定の人物・事物に関する記憶を検索 |
 
 > [!TIP]
@@ -729,6 +730,7 @@ sequenceDiagram
 
 | 日付 | 内容 |
 |------|------|
+| 2026-01-08 | 記憶検索「続きを読む」ツール `read_memory_context` を追加 |
 | 2026-01-07 | RAG検索システムの詳細仕様を追記: アーキテクチャ図、検索アルゴリズム、精度向上手法（チャンク分割、閾値設定、増分更新、メタデータ管理）を文書化 |
 | 2026-01-07 | 記憶検索ツールの結果UI表示仕様を追記: アナウンスのみログ保存、生データ除外 |
 | 2026-01-07 | 記憶検索ツールをリデザイン。`recall_memories`を新規追加、`search_past_conversations`を復活、`retrieval_node`から知識ベース検索を除外 |

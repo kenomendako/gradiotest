@@ -19,6 +19,7 @@ from tools.space_tools import set_current_location, read_world_settings, plan_wo
 from tools.memory_tools import (
     recall_memories,
     search_past_conversations,
+    read_memory_context,  # 記憶の続きを読む [2026-01-08 NEW]
     search_memory,  # 内部使用のみ（retrieval_nodeで使用）
     read_main_memory, plan_main_memory_edit, _apply_main_memory_edits,
     read_secret_diary, plan_secret_diary_edit, _apply_secret_diary_edits
@@ -66,6 +67,7 @@ all_tools = [
     # --- 記憶検索ツール ---
     recall_memories,  # 統合記憶検索（日記・過去ログ・エピソード記憶）
     search_past_conversations,  # キーワード完全一致検索（最終手段）
+    read_memory_context,  # 検索結果の続きを読む [2026-01-08 NEW]
     # --- 日記・メモ操作ツール ---
     read_main_memory, plan_main_memory_edit, read_secret_diary, plan_secret_diary_edit,
     read_full_notepad, plan_notepad_edit,
@@ -938,6 +940,7 @@ def context_generator_node(state: AgentState):
         # --- 記憶検索ツール ---
         "recall_memories": "過去の体験や会話を思い出す（RAG検索）",
         "search_past_conversations": "会話ログをキーワード完全一致で検索する（最終手段）",
+        "read_memory_context": "検索結果で切り詰められた文章の続きを読む",
         # --- 日記・メモ操作ツール ---
         "read_main_memory": "主観日記を読む",
         "plan_main_memory_edit": "日記の編集を計画する",

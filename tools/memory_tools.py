@@ -239,6 +239,113 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         return f"【エラー】過去ログ検索中に予期せぬエラーが発生しました: {e}"
 
 @tool
+def read_memory_context(search_text: str, room_name: str, context_lines: int = 30) -> str:
+    """
+    記憶検索結果で切り詰められた部分の周辺コンテキストを取得します。
+    search_past_conversationsやrecall_memoriesの結果で「続きがあります」と
+    表示された場合に、その前後の文脈を読みたいときに使用します。
+    
+    search_text: 検索したい特定のテキスト断片（検索結果に含まれていた一部の文章）
+    context_lines: 取得する周辺行数（デフォルト30行）
+    """
+    if not search_text or not room_name:
+        return "【エラー】検索テキストとルーム名が必要です。"
+    
+    # 検索テキストが短すぎる場合は警告
+    if len(search_text) < 10:
+        return "【エラー】検索テキストが短すぎます。検索結果に含まれていた文章の一部（10文字以上）を指定してください。"
+    
+    print(f"--- 記憶コンテキスト取得開始: テキスト='{search_text[:50]}...', ルーム='{room_name}' ---")
+    
+    try:
+        base_path = Path(constants.ROOMS_DIR) / room_name
+        search_paths = [str(base_path / "log.txt")]
+        search_paths.extend(glob.glob(str(base_path / "log_archives" / "*.txt")))
+        search_paths.extend(glob.glob(str(base_path / "log_import_source" / "*.txt")))
+        
+        # 日記ファイルも検索対象に追加
+        memory_dir = base_path / "memory"
+        if memory_dir.exists():
+            search_paths.extend(glob.glob(str(memory_dir / "memory*.txt")))
+        
+        found_context = None
+        found_source = None
+        
+        for file_path_str in search_paths:
+            file_path = Path(file_path_str)
+            if not file_path.exists() or file_path.stat().st_size == 0:
+                continue
+            
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # 検索テキストが含まれているかチェック
+                if search_text not in content:
+                    continue
+                
+                lines = content.split('\n')
+                
+                # 検索テキストを含む行を見つける
+                target_line_idx = None
+                for i, line in enumerate(lines):
+                    if search_text in line:
+                        target_line_idx = i
+                        break
+                
+                # 行が見つからない場合（複数行にまたがる場合）
+                if target_line_idx is None:
+                    # 全体から該当部分を抽出
+                    start_idx = content.find(search_text)
+                    if start_idx != -1:
+                        # 前後2000文字を取得
+                        context_start = max(0, start_idx - 1000)
+                        context_end = min(len(content), start_idx + len(search_text) + 1000)
+                        found_context = content[context_start:context_end]
+                        found_source = file_path.name
+                        break
+                else:
+                    # 行ベースで前後のコンテキストを取得
+                    start_line = max(0, target_line_idx - context_lines // 2)
+                    end_line = min(len(lines), target_line_idx + context_lines // 2)
+                    
+                    context_lines_list = lines[start_line:end_line]
+                    found_context = '\n'.join(context_lines_list)
+                    found_source = file_path.name
+                    break
+                    
+            except Exception as e:
+                print(f"  - ファイル読み込みエラー ({file_path.name}): {e}")
+                continue
+        
+        if not found_context:
+            return f"【検索結果】指定されたテキスト「{search_text[:30]}...」を含む記憶は見つかりませんでした。"
+        
+        # 上限（2000文字）を適用
+        MAX_CONTEXT_LENGTH = 2000
+        if len(found_context) > MAX_CONTEXT_LENGTH:
+            # 検索テキストの位置を中心に切り出す
+            search_pos = found_context.find(search_text)
+            if search_pos != -1:
+                half_len = MAX_CONTEXT_LENGTH // 2
+                start = max(0, search_pos - half_len)
+                end = min(len(found_context), search_pos + len(search_text) + half_len)
+                found_context = found_context[start:end]
+                if start > 0:
+                    found_context = "...（前略）...\n" + found_context
+                if end < len(found_context):
+                    found_context = found_context + "\n...（後略）..."
+        
+        result = f"【記憶コンテキスト】（出典: {found_source}）\n\n{found_context}"
+        print(f"  - コンテキスト取得成功: {len(found_context)}文字")
+        return result
+        
+    except Exception as e:
+        print(f"  - 記憶コンテキスト取得エラー: {e}")
+        traceback.print_exc()
+        return f"【エラー】記憶コンテキスト取得中にエラーが発生しました: {e}"
+
+@tool
 def search_memory(query: str, room_name: str, api_key: str) -> str:
     """
     あなたの長期記憶（日記アーカイブを含む）の中から、指定されたクエリに最も関連する日記の断片を検索します。
