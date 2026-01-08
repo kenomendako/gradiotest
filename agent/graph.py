@@ -346,26 +346,30 @@ def _keyword_search_for_retrieval(
         reverse=True
     )
     
-    if len(sorted_blocks) <= 5:
-        return sorted_blocks
+    # 重複を除去（コンテンツベース）
+    unique_blocks = []
+    seen_contents = set()
+    for b in sorted_blocks:
+        content_key = b.get('content', '')[:200]  # 先頭200文字で重複判定
+        if content_key not in seen_contents:
+            seen_contents.add(content_key)
+            unique_blocks.append(b)
     
-    newest = sorted_blocks[:2]   # 新しい方から2件
-    oldest = sorted_blocks[-2:]  # 古い方から2件
+    if len(unique_blocks) <= 5:
+        return unique_blocks
+    
+    # 時間帯別に選択
+    newest = unique_blocks[:2]   # 新しい方から2件
+    oldest = unique_blocks[-2:]  # 古い方から2件
     
     # 中間部分からランダムに1件選択
-    middle = sorted_blocks[2:-2]
+    middle = unique_blocks[2:-2]
     random_middle = [random.choice(middle)] if middle else []
     
-    # 重複を除いて結合
-    selected = list(newest)
-    for b in oldest:
-        if b not in selected:
-            selected.append(b)
-    for b in random_middle:
-        if b not in selected:
-            selected.append(b)
+    # 結合（既に重複除去済みなのでそのまま）
+    selected = list(newest) + [b for b in oldest if b not in newest] + [b for b in random_middle if b not in newest and b not in oldest]
     
-    print(f"    -> [時間帯別枠取り] 全{len(found_blocks)}件 → 新{len(newest)}+古{len([b for b in oldest if b not in newest])}+中間{len([b for b in random_middle if b not in selected[:4]])}={len(selected)}件")
+    print(f"    -> [時間帯別枠取り] 全{len(found_blocks)}件 → 重複除去後{len(unique_blocks)}件 → 選択{len(selected)}件")
     
     return selected[:5]
 # ▲▲▲ キーワード検索用内部関数ここまで ▲▲▲
