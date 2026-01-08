@@ -194,18 +194,26 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         found_blocks.sort(key=lambda x: x.get('date') or '0000-00-00', reverse=True)
         
         # 2. 時間帯別枠取り：新しい記憶と古い記憶の両方をカバー
-        # - 新しい方から最大2件
-        # - 古い方から最大2件（重複回避）
-        # これにより「最近の発言」と「昔の発言」の両方が検索結果に含まれる
-        if len(found_blocks) <= 4:
-            # 4件以下ならそのまま全部返す
+        # [2026-01-07 拡張] 新2 + 古2 + 中間ランダム1 = 計5件
+        # これにより「最近の発言」「中間の発言」「昔の発言」がバランスよく検索結果に含まれる
+        if len(found_blocks) <= 5:
+            # 5件以下ならそのまま全部返す
             limited_blocks = found_blocks
         else:
-            newest = found_blocks[:2]  # 新しい方から2件
+            newest = found_blocks[:2]   # 新しい方から2件
             oldest = found_blocks[-2:]  # 古い方から2件
-            # 重複を除いて結合（新しい順を維持）
-            limited_blocks = newest + [b for b in oldest if b not in newest]
-            print(f"  - [Search] 時間帯別枠取り: 新{len(newest)}件 + 古{len([b for b in oldest if b not in newest])}件 = {len(limited_blocks)}件")
+            # 中間部分からランダムに1件選択
+            middle = found_blocks[2:-2]
+            random_middle = [random.choice(middle)] if middle else []
+            # 重複を除いて結合
+            limited_blocks = list(newest)
+            for b in oldest:
+                if b not in limited_blocks:
+                    limited_blocks.append(b)
+            for b in random_middle:
+                if b not in limited_blocks:
+                    limited_blocks.append(b)
+            print(f"  - [Search] 時間帯別枠取り: 新{len(newest)}+古{len([b for b in oldest if b not in newest])}+中間{len([b for b in random_middle if b not in limited_blocks[:4]])}={len(limited_blocks)}件")
 
         result_parts = [f'【過去の会話ログからの検索結果：「{query}」】\n']
         
@@ -214,7 +222,10 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
             source_file = res['source']
             raw_content = res['content']
             
-            # 生テキストをそのまま提示
+            # [2026-01-07 追加] 長すぎるブロックを切り捨て（500文字上限）
+            if len(raw_content) > 500:
+                raw_content = raw_content[:500] + "\n...（続きがあります）"
+            
             result_parts.append(f"- [出典: {source_file}, {date_str}]\n{raw_content}")
         
         final_result = "\n\n".join(result_parts)

@@ -6,6 +6,7 @@ import re
 import traceback
 import json
 import time
+import glob
 from datetime import datetime
 from typing import TypedDict, Annotated, List, Literal, Tuple, Optional
 
@@ -229,6 +230,146 @@ def generate_scenery_context(
         space_def = "（エラー）"
     return location_display_name, space_def, scenery_text
 
+# ▼▼▼ [2026-01-07 ハイブリッド検索] キーワード検索用内部関数 ▼▼▼
+def _keyword_search_for_retrieval(
+    keywords: list,
+    room_name: str,
+    exclude_recent_count: int
+) -> list:
+    """
+    retrieval_node専用のキーワード検索。
+    search_past_conversationsツールのロジックを流用するが、
+    より厳格なフィルタリングを適用。
+    
+    時間帯別枠取り: 新2 + 古2 + 中間ランダム1 = 計5件
+    """
+    import random
+    from pathlib import Path
+    
+    if not keywords or not room_name:
+        return []
+    
+    base_path = Path(constants.ROOMS_DIR) / room_name
+    search_paths = [str(base_path / "log.txt")]
+    search_paths.extend(glob.glob(str(base_path / "log_archives" / "*.txt")))
+    search_paths.extend(glob.glob(str(base_path / "log_import_source" / "*.txt")))
+    
+    found_blocks = []
+    date_patterns = [
+        re.compile(r'(\d{4}-\d{2}-\d{2}) \(...\) \d{2}:\d{2}:\d{2}'),
+        re.compile(r'###\s*(\d{4}-\d{2}-\d{2})')
+    ]
+    
+    search_keywords = [k.lower() for k in keywords]
+    
+    for file_path_str in search_paths:
+        file_path = Path(file_path_str)
+        if not file_path.exists() or file_path.stat().st_size == 0:
+            continue
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+        except Exception:
+            continue
+        
+        # USER/AGENT のヘッダーのみを対象（SYSTEMは除外）
+        header_indices = [
+            i for i, line in enumerate(lines)
+            if re.match(r"^(## (?:USER|AGENT):.*)$", line.strip())
+        ]
+        if not header_indices:
+            continue
+        
+        search_end_line = len(lines)
+        
+        # log.txt の場合、最新N件を除外（送信ログ除外）
+        if file_path.name == "log.txt" and exclude_recent_count > 0:
+            msg_count = len(header_indices)
+            if msg_count <= exclude_recent_count:
+                continue
+            else:
+                cutoff_header_index = header_indices[-exclude_recent_count]
+                search_end_line = cutoff_header_index
+        
+        processed_blocks_content = set()
+        
+        for i, line in enumerate(lines[:search_end_line]):
+            if any(k in line.lower() for k in search_keywords):
+                # ヘッダーを探す
+                start_index = 0
+                for h_idx in reversed(header_indices):
+                    if h_idx <= i:
+                        start_index = h_idx
+                        break
+                
+                # 次のヘッダーまでをブロックとする
+                end_index = len(lines)
+                for h_idx in header_indices:
+                    if h_idx > start_index:
+                        end_index = h_idx
+                        break
+                
+                block_content = "".join(lines[start_index:end_index]).strip()
+                
+                # 重複チェック
+                if block_content in processed_blocks_content:
+                    continue
+                processed_blocks_content.add(block_content)
+                
+                # 短すぎるブロックを除外
+                if len(block_content) < 30:
+                    continue
+                
+                # 日付を抽出
+                block_date = None
+                for pattern in date_patterns:
+                    matches = list(pattern.finditer(block_content))
+                    if matches:
+                        block_date = matches[-1].group(1)
+                        break
+                
+                found_blocks.append({
+                    "content": block_content,
+                    "date": block_date,
+                    "source": file_path.name
+                })
+    
+    if not found_blocks:
+        return []
+    
+    # 時間帯別枠取り: 新2 + 古2 + 中間ランダム1 = 計5件
+    # 日付順ソート（新しい順）
+    sorted_blocks = sorted(
+        found_blocks,
+        key=lambda x: x.get('date') or '0000-00-00',
+        reverse=True
+    )
+    
+    if len(sorted_blocks) <= 5:
+        return sorted_blocks
+    
+    newest = sorted_blocks[:2]   # 新しい方から2件
+    oldest = sorted_blocks[-2:]  # 古い方から2件
+    
+    # 中間部分からランダムに1件選択
+    middle = sorted_blocks[2:-2]
+    random_middle = [random.choice(middle)] if middle else []
+    
+    # 重複を除いて結合
+    selected = list(newest)
+    for b in oldest:
+        if b not in selected:
+            selected.append(b)
+    for b in random_middle:
+        if b not in selected:
+            selected.append(b)
+    
+    print(f"    -> [時間帯別枠取り] 全{len(found_blocks)}件 → 新{len(newest)}+古{len([b for b in oldest if b not in newest])}+中間{len([b for b in random_middle if b not in selected[:4]])}={len(selected)}件")
+    
+    return selected[:5]
+# ▲▲▲ キーワード検索用内部関数ここまで ▲▲▲
+
 def retrieval_node(state: AgentState):
     """
     ユーザーの入力に基づいて、知識ベース、過去ログ、日記から関連情報を検索し、
@@ -300,47 +441,78 @@ def retrieval_node(state: AgentState):
     
     decision_prompt = f"""
     あなたは、検索クエリ生成の専門家です。
-    ユーザーの発言から、過去のログや知識ベースを検索するための「最適な検索キーワード群」を抽出してください。
+    ユーザーの発言から、2種類の検索キーワードを抽出してください。
 
     【ユーザーの発言】
     {query_source}
 
     【タスク】
-    ユーザーの発言から「過去の情報を参照する必要があるか」を判断する。
-    
     1.  **検索不要な場合**: `NONE` とだけ出力。
-    2.  **検索必要な場合**: 以下のルールでキーワードを生成して出力。
+    2.  **検索必要な場合**: 以下の形式で2行出力。
 
-    【キーワード抽出の絶対ルール（ノイズ除去）】
-    *   **「検索対象そのもの」**だけを抽出する。
-    *   **「前置き」「検索する理由」「直前の話題の引き継ぎ」は検索の邪魔になるため、絶対に含めないこと。**
+    【出力形式】（必ずこの形式で）
+    RAG: [意味検索用キーワード（類義語・関連語を含む広いキーワード群）]
+    KEYWORD: [完全一致検索用キーワード（固有名詞・特定フレーズのみ、0-3語）]
+
+    【RAG行のルール】
+    *   「検索対象そのもの」だけを抽出する。
+    *   「前置き」「検索する理由」は絶対に含めない。
+    *   類義語や関連語も想像して含める（意味検索の精度向上のため）。
     *   名詞（固有名詞、専門用語）を中心に構成する。
-    *   類義語や関連語も想像して含める（OR検索の効果を高めるため）。
-    *   キーワード間は半角スペースで区切る。
 
-    【思考プロセスと出力例】
-    ユーザー：「RAGの改良してるんだけど、田中さんのこと覚えてる？」
-    *   思考: 「RAGの改良」はただの前置き（理由）であり、検索したい対象ではない。検索対象は「田中さん」のみ。
-    *   出力: `田中さん 友人 知り合い`
+    【KEYWORD行のルール】
+    *   過去ログで完全一致検索するための「特徴的な固有名詞・フレーズ」のみ抽出。
+    *   特徴的なキーワードがなければ KEYWORD: NONE と出力。
+    *   最大3語まで。無理に最大数抽出しなくてよい。
+    *   一般的な単語（例：話、こと、とき）は含めない。
 
+    【出力例1】
+    ユーザー：「田中さんのこと覚えてる？」
+    RAG: 田中さん 友人 知り合い
+    KEYWORD: 田中
+
+    【出力例2】
     ユーザー：「海に行った時の話なんだけど」
-    *   思考: 「話なんだけど」は不要。「海」と「行った（旅行）」が対象。
-    *   出力: `海 ビーチ 旅行 夏 思い出 砂浜`
-    
+    RAG: 海 ビーチ 旅行 夏 思い出 砂浜
+    KEYWORD: NONE
+
+    【出力例3】
+    ユーザー：「今日は何してたの？」
+    NONE
+
     【制約事項】
-    - **文章や質問文は禁止。** 単語の羅列のみを出力すること。
-    - **思考プロセスや解説は一切出力しないこと。**
+    - 思考プロセスや解説は一切出力しないこと。
+    - 必ずRAG: とKEYWORD: の2行形式、またはNONEのみを出力。
     """
 
     try:
         decision_response = llm_flash.invoke(decision_prompt).content.strip()
         
-        if decision_response == "NONE":
+        if decision_response.upper() == "NONE":
             print("  - [Retrieval] 判断: 検索不要 (AI判断)")
             return {"retrieved_context": ""}
-            
-        search_query = decision_response
-        print(f"  - [Retrieval] 判断: 検索実行 (クエリ: '{search_query}')")
+        
+        # RAG: とKEYWORD: の2行形式をパース
+        rag_query = ""
+        keyword_query = ""
+        for line in decision_response.split("\n"):
+            line = line.strip()
+            if line.upper().startswith("RAG:"):
+                rag_query = line[4:].strip()
+            elif line.upper().startswith("KEYWORD:"):
+                kw_part = line[8:].strip()
+                if kw_part.upper() != "NONE":
+                    keyword_query = kw_part
+        
+        # 後方互換: RAG:がない場合は全体をRAGクエリとして扱う
+        if not rag_query and decision_response.upper() != "NONE":
+            rag_query = decision_response
+        
+        print(f"  - [Retrieval] RAGクエリ: '{rag_query}'")
+        if keyword_query:
+            print(f"  - [Retrieval] キーワードクエリ: '{keyword_query}'")
+        else:
+            print(f"  - [Retrieval] キーワードクエリ: なし")
         
         results = []
 
@@ -376,15 +548,42 @@ def retrieval_node(state: AgentState):
         # AIが能動的に検索したい場合は search_past_conversations ツールを使用可能。
         # ▲▲▲ 過去ログ検索除外ここまで ▲▲▲
 
-        # 3b. 日記 (Memory) - 常に検索
+        # 3b. 日記 (Memory) - RAGクエリで検索
         from tools.memory_tools import search_memory
-        mem_result = search_memory.func(query=search_query, room_name=room_name, api_key=api_key)
-        # 日記検索のヘッダーチェック
-        if mem_result and "【記憶検索の結果：" in mem_result:
-            print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
-            results.append(mem_result)
-        else:
-            print(f"    -> 日記: なし")
+        if rag_query:
+            mem_result = search_memory.func(query=rag_query, room_name=room_name, api_key=api_key)
+            # 日記検索のヘッダーチェック
+            if mem_result and "【記憶検索の結果：" in mem_result:
+                print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
+                results.append(mem_result)
+            else:
+                print(f"    -> 日記: なし")
+        
+        # ▼▼▼ [2026-01-07 ハイブリッド検索] 過去ログキーワード検索を復活 ▼▼▼
+        # 特徴的なキーワード（固有名詞等）がある場合のみ実行
+        if keyword_query:
+            kw_results = _keyword_search_for_retrieval(
+                keywords=keyword_query.split(),
+                room_name=room_name,
+                exclude_recent_count=exclude_count
+            )
+            if kw_results:
+                # 結果を整形
+                kw_text_parts = ["【過去の会話ログからの検索結果】"]
+                for block in kw_results:
+                    date_str = f"({block['date']}頃)" if block.get('date') else ""
+                    content = block['content']
+                    # 500文字を超える場合は切り捨て
+                    if len(content) > 500:
+                        content = content[:500] + "\n...（続きがあります）"
+                    kw_text_parts.append(f"--- [{block.get('source', '不明')}{date_str}] ---\n{content}")
+                
+                kw_result = "\n\n".join(kw_text_parts)
+                print(f"    -> 過去ログ: ヒット ({len(kw_results)}件)")
+                results.append(kw_result)
+            else:
+                print(f"    -> 過去ログ: なし")
+        # ▲▲▲ ハイブリッド検索ここまで ▲▲▲
 
         # 3d. エンティティ記憶 (Entity Memory) [New]
         try:
