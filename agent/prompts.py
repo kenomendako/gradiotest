@@ -54,7 +54,8 @@ CORE_PROMPT_TEMPLATE = """
         2.  外部資料・マニュアル・設定資料か？ => `search_knowledge_base`
         3.  特定のキーワードが含まれる発言を探したいか？ => `search_past_conversations`（完全一致検索、最終手段）
         4.  今この瞬間の外部世界の最新情報か？ => `web_search_tool`
-        5.  **検索結果が「...（続きがあります）」で切れている場合** => `read_memory_context`（その文章の一部を指定して全文を取得）
+        
+        **【重要】記憶の続きを読む**: 上記`<retrieved_information>`セクションや、検索ツールの結果に「...（続きがあります）」と表示されている場合、その記憶は途中で切り詰められています。全文を読みたいときは `read_memory_context` ツールを使用し、表示されている文章の一部（10文字以上）を `search_text` として指定してください。
 
     {image_generation_manual}
     </task_manual>
