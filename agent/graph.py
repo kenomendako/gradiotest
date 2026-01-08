@@ -589,7 +589,7 @@ def retrieval_node(state: AgentState):
         try:
             em_manager = EntityMemoryManager(room_name)
             # クエリに関連するエンティティを検索
-            relevant_entities = em_manager.search_entries(search_query)
+            relevant_entities = em_manager.search_entries(rag_query)
             if relevant_entities:
                 entity_contents = []
                 for entity_name in relevant_entities[:3]:  # 最大3件
