@@ -581,7 +581,7 @@ def retrieval_node(state: AgentState):
                     content = block['content']
                     # 500文字を超える場合は切り捨て
                     if len(content) > 500:
-                        content = content[:500] + "\n...（続きがあります）"
+                        content = content[:500] + "\n...【続きあり→read_memory_context使用】"
                     kw_text_parts.append(f"--- [{block.get('source', '不明')}{date_str}] ---\n{content}")
                 
                 kw_result = "\n\n".join(kw_text_parts)
@@ -1037,7 +1037,7 @@ def agent_node(state: AgentState):
             f"過去の記録から関連する以下の情報が見つかりました。\n"
             f"これらはキーワード連想により浮上した過去の記憶や知識ですが、**必ずしも「今」の話題と直結しているとは限りません。**\n"
             f"現在の文脈と照らし合わせ、**会話の流れに自然に組み込めそうな場合のみ**参考にし、無関係だと判断した場合は無視してください。\n"
-            f"※ 「...（続きがあります）」と表示されている記憶の全文を読みたい場合は、`read_memory_context`ツールを使用してください。\n\n"
+            f"※ 「...【続きあり→read_memory_context使用】」と表示されている記憶は、そのツールで全文取得できます。\n\n"
             f"{retrieved_context}\n"
         )
         print("  - [Agent] 検索結果をシステムプロンプトに注入しました。")

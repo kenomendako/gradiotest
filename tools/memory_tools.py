@@ -227,7 +227,7 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
             
             # [2026-01-07 追加] 長すぎるブロックを切り捨て（500文字上限）
             if len(raw_content) > 500:
-                raw_content = raw_content[:500] + "\n...（続きがあります）"
+                raw_content = raw_content[:500] + "\n...【続きあり→read_memory_context使用】"
             
             result_parts.append(f"- [出典: {source_file}, {date_str}]\n{raw_content}")
         
