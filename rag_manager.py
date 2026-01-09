@@ -211,7 +211,7 @@ class RAGManager:
         status_callback: UIへ進捗メッセージを送信するコールバック関数 (message) -> None
         """
         BATCH_SIZE = 20
-        SAVE_INTERVAL_BATCHES = 100  # 100バッチごとに途中保存
+        SAVE_INTERVAL_BATCHES = 20  # 20バッチごと（約40秒間隔）に途中保存・進捗報告
         db = existing_db
         total_splits = len(splits)
         total_batches = (total_splits + BATCH_SIZE - 1) // BATCH_SIZE
