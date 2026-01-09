@@ -253,7 +253,7 @@ def read_url_tool(urls: list[str], room_name: str) -> str:
             if TAVILY_AVAILABLE and config_manager.TAVILY_API_KEY:
                 try:
                     extractor = TavilyExtract(
-                        api_key=config_manager.TAVILY_API_KEY,
+                        tavily_api_key=config_manager.TAVILY_API_KEY,
                         extract_depth="basic"
                     )
                     results = extractor.invoke({"urls": [url]})

@@ -29,7 +29,7 @@ def _fetch_url_content(url: str) -> tuple[bool, str]:
     if TAVILY_AVAILABLE and config_manager.TAVILY_API_KEY:
         try:
             extractor = TavilyExtract(
-                api_key=config_manager.TAVILY_API_KEY,
+                tavily_api_key=config_manager.TAVILY_API_KEY,
                 extract_depth="basic"
             )
             results = extractor.invoke({"urls": [url]})
