@@ -657,6 +657,7 @@ AIペルソナが自律的に記憶を操作するために、以下のツール
 > 1. 過去の体験・会話・日記を思い出したい → `recall_memories`
 > 2. 外部資料・マニュアルを調べたい → `search_knowledge_base`
 > 3. 特定のキーワードが含まれる発言を探したい → `search_past_conversations`
+> 4. **検索結果が「続きあり」で切れている** → `read_memory_context`（全文取得）
 
 ### 読み取り・編集ツール
 

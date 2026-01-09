@@ -60,6 +60,17 @@ read_memory_context("お話をしていました。それは本当に", "ルシ�
 | ファイル | 変更内容 |
 |---------|----------|
 | `tools/memory_tools.py` | 新規ツール追加 |
-| `agent/graph.py` | インポート・登録・スキル説明追加 |
+| `agent/graph.py` | インポート・登録・スキル説明追加・表記改善 |
+| `agent/prompts.py` | ツール使用ガイドを追記 |
 | `docs/specifications/MEMORY_SYSTEM_SPECIFICATION.md` | 仕様書更新 |
 | `docs/INBOX.md` | タスク整理済みに移動 |
+
+## 動作確認結果
+
+- ✅ ユーザーが「`read_memory_context`を使って」と明示的に指示すれば正常動作
+- ⚠️ コンテキストが長いペルソナでは、自律的にツールを選択することが難しい場合がある
+
+> [!NOTE]
+> **表記の改善**
+> 検索結果が切り詰められた場合の表記を「...（続きがあります）」から「...【続きあり→read_memory_context使用】」に変更し、ペルソナが適切なツールを認識しやすくしました。
+
