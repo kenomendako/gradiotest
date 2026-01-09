@@ -6520,7 +6520,7 @@ def handle_embedding_mode_change(room_name: str, embedding_mode: str):
         print(f"--- [Embedding Mode] 設定保存エラー: {e} ---")
 
 def handle_memory_reindex(room_name: str, api_key_name: str):
-    """記憶の索引（過去ログ、エピソード記憶、夢日記、日記ファイル）を更新する。"""
+    """記憶の索引（過去ログ、エピソード記憶、夢日記、日記ファイル）を更新する（リアルタイム進捗表示付き）。"""
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
         return gr.update(), gr.update()
@@ -6530,16 +6530,19 @@ def handle_memory_reindex(room_name: str, api_key_name: str):
         gr.Error(f"APIキー「{api_key_name}」が無効です。")
         return gr.update(), gr.update()
 
-    # 処理開始を通知
-    yield "処理中: 過去ログ、エピソード記憶、夢日記、日記ファイルをベクトル化しています...", gr.update(interactive=False)
+    yield "開始中...", gr.update(interactive=False)
 
     try:
         manager = rag_manager.RAGManager(room_name, api_key)
-        # 記憶索引のみ更新
-        result_message = manager.update_memory_index()
         
-        gr.Info(f"✅ {result_message}")
-        yield f"ステータス: {result_message}", gr.update(interactive=True)
+        last_message = ""
+        for current_step, total_steps, status_message in manager.update_memory_index_with_progress():
+            last_message = status_message
+            yield f"{status_message}", gr.update(interactive=False)
+        
+        gr.Info(f"✅ {last_message}")
+        last_updated = _get_rag_index_last_updated(room_name, "memory")
+        yield f"{last_message}（最終更新: {last_updated}）", gr.update(interactive=True)
 
     except Exception as e:
         error_msg = f"記憶索引の作成中にエラーが発生しました: {e}"
@@ -6548,9 +6551,6 @@ def handle_memory_reindex(room_name: str, api_key_name: str):
         traceback.print_exc()
         yield error_msg, gr.update(interactive=True)
         return
-
-    last_updated = _get_rag_index_last_updated(room_name, "memory")
-    yield f"✅ 記憶索引の更新が完了しました（最終更新: {last_updated}）", gr.update(interactive=True)
 
 def handle_current_log_reindex(room_name: str, api_key_name: str):
     """現行ログ（log.txt）の索引を更新する（リアルタイム進捗表示付き）。"""

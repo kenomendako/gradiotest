@@ -411,6 +411,160 @@ class RAGManager:
         print(f"--- [RAG Memory] 完了: {result_msg} ---")
         return result_msg
 
+    def update_memory_index_with_progress(self):
+        """
+        記憶用インデックスを更新する（進捗をyieldするジェネレーター版）
+        yields: (current_step, total_steps, status_message)
+        """
+        yield (0, 0, "記憶索引を更新中: 差分を確認...")
+        
+        processed_records = self._load_processed_record()
+        pending_items: List[Tuple[str, Document]] = []
+        
+        # 1. 過去ログ収集
+        archives_dir = self.room_dir / "log_archives"
+        if archives_dir.exists():
+            for f in list(archives_dir.glob("*.txt")):
+                record_id = f"archive:{f.name}"
+                if record_id not in processed_records:
+                    try:
+                        content = f.read_text(encoding="utf-8")
+                        if content.strip():
+                            doc = Document(page_content=content, metadata={"source": f.name, "type": "log_archive", "path": str(f)})
+                            pending_items.append((record_id, doc))
+                    except Exception: pass
+
+        # 2. エピソード記憶収集
+        episodic_memory_path = self.room_dir / "memory" / "episodic_memory.json"
+        if episodic_memory_path.exists():
+            try:
+                with open(episodic_memory_path, 'r', encoding='utf-8') as f:
+                    episodes = json.load(f)
+                if isinstance(episodes, list):
+                    for ep in episodes:
+                        date_str = ep.get('date', 'unknown')
+                        record_id = f"episodic:{date_str}"
+                        if record_id not in processed_records:
+                            summary = ep.get('summary', '')
+                            if summary:
+                                content = f"日付: {date_str}\n内容: {summary}"
+                                doc = Document(page_content=content, metadata={"source": "episodic_memory.json", "type": "episodic_memory", "date": date_str})
+                                pending_items.append((record_id, doc))
+            except Exception: pass
+
+        # 3. 夢日記収集
+        insights_path = self.room_dir / "memory" / "insights.json"
+        if insights_path.exists():
+            try:
+                with open(insights_path, 'r', encoding='utf-8') as f:
+                    insights = json.load(f)
+                if isinstance(insights, list):
+                    for item in insights:
+                        date_str = item.get('created_at', '').split(' ')[0]
+                        record_id = f"dream:{date_str}"
+                        if record_id not in processed_records:
+                            insight_content = item.get('insight', '')
+                            strategy = item.get('strategy', '')
+                            if insight_content:
+                                content = f"【過去の夢・深層心理の記録 ({date_str})】\nトリガー: {item.get('trigger_topic','')}\n気づき: {insight_content}\n指針: {strategy}"
+                                doc = Document(page_content=content, metadata={"source": "insights.json", "type": "dream_insight", "date": date_str})
+                                pending_items.append((record_id, doc))
+            except Exception: pass
+
+        # 4. 日記ファイル収集
+        diary_dir = self.room_dir / "memory"
+        if diary_dir.exists():
+            for f in diary_dir.glob("memory*.txt"):
+                if f.name.startswith("memory") and f.name.endswith(".txt"):
+                    try:
+                        content = f.read_text(encoding="utf-8")
+                        if content.strip():
+                            content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+                            record_id = f"diary:{f.name}:{content_hash}"
+                            if record_id not in processed_records:
+                                doc = Document(
+                                    page_content=content,
+                                    metadata={"source": f.name, "type": "diary", "path": str(f)}
+                                )
+                                pending_items.append((record_id, doc))
+                    except Exception as e:
+                        print(f"  - 日記ファイル読み込みエラー ({f.name}): {e}")
+
+        if not pending_items:
+            yield (0, 0, "記憶索引: 差分なし")
+            return
+
+        total_pending = len(pending_items)
+        yield (0, total_pending, f"新規追加アイテム: {total_pending}件。処理中...")
+        
+        static_db = self._safe_load_index(self.static_index_path)
+        SAVE_INTERVAL = 5
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+        processed_count = 0
+        
+        for i in range(0, total_pending, SAVE_INTERVAL):
+            batch_items = pending_items[i : i + SAVE_INTERVAL]
+            batch_docs = [item[1] for item in batch_items]
+            batch_ids = [item[0] for item in batch_items]
+            
+            group_num = (i // SAVE_INTERVAL) + 1
+            total_groups = (total_pending + SAVE_INTERVAL - 1) // SAVE_INTERVAL
+            
+            yield (group_num, total_groups, f"グループ {group_num}/{total_groups} 処理中...")
+            
+            splits = text_splitter.split_documents(batch_docs)
+            splits = self._filter_meaningful_chunks(splits)
+            
+            # バッチ処理（途中保存付き）
+            BATCH_SIZE = 20
+            total_batches = (len(splits) + BATCH_SIZE - 1) // BATCH_SIZE
+            
+            for j in range(0, len(splits), BATCH_SIZE):
+                batch = splits[j : j + BATCH_SIZE]
+                batch_num = (j // BATCH_SIZE) + 1
+                
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        if static_db is None:
+                            static_db = FAISS.from_documents(batch, self.embeddings)
+                        else:
+                            static_db.add_documents(batch)
+                        
+                        if self.embedding_mode == "api":
+                            time.sleep(2)
+                        break
+                    except Exception as e:
+                        error_str = str(e)
+                        print(f"      ! ベクトル化エラー (試行 {attempt+1}/{max_retries}): {e}")
+                        if "429" in error_str or "ResourceExhausted" in error_str:
+                            wait_time = 10 * (attempt + 1)
+                            yield (group_num, total_groups, f"API制限 - {wait_time}秒待機中...")
+                            time.sleep(wait_time)
+                        else:
+                            if attempt == max_retries - 1:
+                                print(f"      ! このバッチをスキップします。最終エラー: {e}")
+                            if self.embedding_mode == "api":
+                                time.sleep(2)
+                
+                # 20バッチごとに途中保存と進捗報告
+                if batch_num % 20 == 0:
+                    progress_pct = int((batch_num / total_batches) * 100)
+                    yield (group_num, total_groups, f"グループ {group_num}: {batch_num}/{total_batches} バッチ ({progress_pct}%)")
+                    if static_db:
+                        self._safe_save_index(static_db, self.static_index_path)
+            
+            # グループ完了時に保存
+            if static_db:
+                self._safe_save_index(static_db, self.static_index_path)
+                processed_records.update(batch_ids)
+                self._save_processed_record(processed_records)
+                processed_count += len(batch_items)
+        
+        result_msg = f"記憶索引: {processed_count}件を追加保存"
+        print(f"--- [RAG Memory] 完了: {result_msg} ---")
+        yield (total_pending, total_pending, result_msg)
+
     def update_knowledge_index(self, status_callback=None) -> str:
         """
         知識用インデックスを更新する（knowledgeフォルダ内のドキュメントのみ）
