@@ -16,14 +16,22 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
 ---
 ## 未整理タスク
 
+- [ ] [Web巡回ツールでエラーが出て要約がペルソナに渡されない]
+  - 詳細:   🔔 Hugging Face Daily Papers: 更新あり (+68行追加、-102行削除)
+  - Tavily Extractエラー: 1 validation error for TavilyExtractAPIWrapper
+  Value error, Did not find tavily_api_key, please add an environment variable `TAVILY_API_KEY` which contains it, or pass `tavily_api_key` as a named parameter. [type=value_error, input_value={}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.11/v/value_error
+  - 優先度: 🔴高
+
 - [ ] [safe_tool_nodeのAPIキー注入ツールリストをリファクタリング]
   - 詳細: 現在、APIキーが必要なツール（`generate_image`, `search_past_conversations`, `recall_memories`など）がハードコードされたリストで管理されている。ツール定義側にメタデータを持たせるか、定数として一元管理することで、新規ツール追加時の漏れを防止する。
   - 優先度: 🟡中
 
-- [ ] [RAG検索結果のコンテンツが空（「*」のみ）になる問題]
-  - 詳細: recall_memoriesでRAG検索を実行すると、ヒットはするものの返されるコンテンツが「*」だけになっている。インデックス作成時にドキュメント内容が正しく格納されていない可能性。スコアは正常（0.45程度）なので検索ロジック自体は動作している。
-  - 調査対象: `rag_manager.py`のインデックス作成処理、特に`update_memory_index`や`_create_index_in_batches`
-  - 優先度: 🔴高
+- [x] [RAG検索結果のコンテンツが空（「*」のみ）になる問題] ✅ **fix/rag-empty-content ブランチで修正完了**
+  - 詳細: recall_memoriesでRAG検索を実行すると、ヒットはするものの返されるコンテンツが「*」だけになっていた。
+  - 原因: memory_main.txtのマークダウン形式（`*   `）がチャンク分割で「*」単体に分離
+  - 対策: `_filter_meaningful_chunks`メソッドで10文字未満・マークダウン記号のみのチャンクを除外
+  - ⚠️ **インデックス再作成が必要**: `rag_data/faiss_index_static`を削除後、「記憶索引を更新」実行
 
 - [ ] [チャット支援ツールのログ修正で不要な出力が足される]
   - 詳細: 罫線や「以下が修正後のテキストです」といった不要な文言。
