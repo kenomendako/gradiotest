@@ -1068,7 +1068,12 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: st
 【最重要ルール】
 - テキストの内容、漢字、ひらがな、カタカナ、句点（「。」）など、読点以外の文字は一切変更してはいけません。
 - `【` や `】` のような記号も、変更したり削除したりせず、そのまま保持してください。
-- あなた自身の意見や挨拶、思考などは一切含めず、読点を追加した後の完成したテキストのみを返答してください。
+- 出力は必ず `<result>` タグで囲んでください。挨拶や説明は不要です。
+
+【入力例】
+<result>
+ここに修正後のテキストが入ります。
+</result>
 
 【読点除去済みテキスト】
 ---
@@ -1081,7 +1086,16 @@ def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: st
                 model=f"models/{constants.INTERNAL_PROCESSING_MODEL}",
                 contents=[prompt]
             )
-            return response.text.strip()
+            
+            # Post-processing: Extract content within <result> tags
+            response_text = response.text
+            match = re.search(r"<result>(.*?)</result>", response_text, re.DOTALL)
+            if match:
+                return match.group(1).strip()
+            
+            # Fallback (Safety net): Remove common artifacts if tags are missing
+            cleaned = response_text.replace("【修正後のテキスト】", "")
+            return cleaned.strip()
 
         except (google.genai.errors.ClientError, google.genai.errors.ServerError) as e:
             wait_time = 0
