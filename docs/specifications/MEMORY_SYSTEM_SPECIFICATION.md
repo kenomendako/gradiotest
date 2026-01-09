@@ -8,6 +8,9 @@
 
 Nexus Arkの記憶システムは、AIペルソナに**長期記憶**と**自律的な内省能力**を与えるために設計されています。
 
+> [!NOTE]
+> UI実装（進捗表示、途中保存など）については [UI実装パターンガイドライン](../guides/UI_IMPLEMENTATION_PATTERNS.md) を参照してください。
+
 ```mermaid
 graph TB
     subgraph "会話時に参照"
