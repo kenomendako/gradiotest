@@ -520,15 +520,29 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
         for time_name in time_fallbacks:
             search_prefixes.append(f"{location_id}_{time_name}_")
         
-        # 季節のみパターン
-        search_prefixes.append(f"{location_id}_{effective_season}_")
+        # 【修正v2】「季節のみ」パターンを削除
+        # 理由: `書斎_winter_` が `書斎_winter_midnight.png` にマッチし、
+        # 昼間に夜画像が選ばれてしまう問題があったため
         
-        # 場所のみパターン（最低優先度）
-        search_prefixes.append(f"{location_id}_")
+        # 既知の時間帯名（フィルタリング用）
+        ALL_TIME_NAMES = {"early_morning", "morning", "late_morning", "noon", 
+                          "afternoon", "evening", "night", "midnight", "daytime"}
         
         for prefix in search_prefixes:
             for f in files:
                 if f.lower().startswith(prefix.lower()) and f.lower().endswith('.png'):
+                    return os.path.join(image_dir, f)
+        
+        # 場所のみパターン（最低優先度）
+        # 時間帯名を含むファイルは除外（例: 書斎_winter_midnight.pngを拾わない）
+        location_prefix = f"{location_id}_"
+        for f in files:
+            if f.lower().startswith(location_prefix.lower()) and f.lower().endswith('.png'):
+                # ファイル名から時間帯名を含むかチェック
+                basename_lower = f.lower()
+                contains_time = any(f"_{t}_" in basename_lower or f"_{t}." in basename_lower 
+                                    for t in ALL_TIME_NAMES)
+                if not contains_time:
                     return os.path.join(image_dir, f)
     except Exception as e:
         print(f"警告: 情景画像検索中にエラー: {e}")
