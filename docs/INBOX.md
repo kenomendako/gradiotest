@@ -16,9 +16,9 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
 ---
 ## 未整理タスク
 
-- [ ] [RAG検索（recall_memories）でAPIキーエラーが発生]
-  - 詳細: 「API key not valid. Please pass a valid API key.」エラー。静的インデックス検索で発生。
-  - 優先度: 🔴高
+- [ ] [safe_tool_nodeのAPIキー注入ツールリストをリファクタリング]
+  - 詳細: 現在、APIキーが必要なツール（`generate_image`, `search_past_conversations`, `recall_memories`など）がハードコードされたリストで管理されている。ツール定義側にメタデータを持たせるか、定数として一元管理することで、新規ツール追加時の漏れを防止する。
+  - 優先度: 🟡中
 
 - [ ] [チャット支援ツールのログ修正で不要な出力が足される]
   - 詳細: 罫線や「以下が修正後のテキストです」といった不要な文言。
