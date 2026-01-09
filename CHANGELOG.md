@@ -121,6 +121,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - バグ修正
 
+#### 🛠️ recall_memoriesツールのAPIキーエラーを修正 (2026-01-09)
+- `safe_tool_node`内でAPIキーを注入するツールリストに`recall_memories`が含まれていなかった問題を修正
+- これにより、AIが`recall_memories`を使用した際に「API key not valid」エラーが発生していた
+- [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-09_recall_memories_api_key_fix.md)
+
 #### 🛠️ ツール関連バグ3件を修正 (2026-01-06)
 - **`research_notes` バックアップタイプ未登録**: `room_manager.py` の `create_backup` マップに `research_notes` を追加
 - **Tavily Extract バリデーションエラー**: `watchlist_tools.py` で `invoke([url])` → `invoke({"urls": [url]})` に修正
