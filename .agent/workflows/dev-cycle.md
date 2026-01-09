@@ -60,6 +60,11 @@ git checkout -b [prefix]/[task-name]
 ### 3.2 実装作業
 計画書に従ってコードを実装する。
 
+**UI機能を実装する場合:**
+- `docs/guides/UI_IMPLEMENTATION_PATTERNS.md` を参照
+- 長時間処理にはジェネレータパターン（`*_with_progress`）を使用
+- 途中保存パターンの適用を検討
+
 ### 3.3 記録作成（必要に応じて）
 
 **設計判断記録 (`docs/decisions/`)**:
@@ -73,6 +78,8 @@ git checkout -b [prefix]/[task-name]
 **教訓・知見**: `docs/journals/[カテゴリ]_LESSONS.md` に追記
 
 **仕様変更**: `docs/guides/` の関連ファイルを更新
+
+**新しいUIパターンを発見した場合**: `docs/guides/UI_IMPLEMENTATION_PATTERNS.md` に追記
 
 ---
 
@@ -139,6 +146,7 @@ git branch -d [ブランチ名]
 | `docs/templates/` | レポート・設計判断のテンプレート |
 | `docs/decisions/` | 設計判断の記録 |
 | `docs/guides/` | 仕様書・指示書 |
+| `docs/guides/UI_IMPLEMENTATION_PATTERNS.md` | UI実装パターン集 |
 | `docs/journals/` | 教訓・知見の蓄積 |
 | `docs/reports/` | 完了レポート |
 
