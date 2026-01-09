@@ -220,19 +220,27 @@ class RAGManager:
             batch = splits[i : i + BATCH_SIZE]
             batch_num = (i // BATCH_SIZE) + 1
             
+            # [DEBUG] バッチ処理開始ログ
+            print(f"      [DEBUG] バッチ {batch_num}/{total_batches} 開始 ({len(batch)}チャンク)")
+            
             # リトライループ
             max_retries = 3
             for attempt in range(max_retries):
                 try:
                     if db is None:
+                        print(f"      [DEBUG] FAISS.from_documents 呼び出し中...")
                         db = FAISS.from_documents(batch, self.embeddings)
+                        print(f"      [DEBUG] FAISS.from_documents 完了")
                     else:
+                        print(f"      [DEBUG] db.add_documents 呼び出し中...")
                         db.add_documents(batch)
+                        print(f"      [DEBUG] db.add_documents 完了")
                     
                     # 進捗を報告
                     if progress_callback:
                         progress_callback(batch_num, total_batches)
                     
+                    print(f"      [DEBUG] バッチ {batch_num}/{total_batches} 完了")
                     if self.embedding_mode == "api":
                         time.sleep(2) 
                     break 
