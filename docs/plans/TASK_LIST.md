@@ -10,6 +10,11 @@
 
 ### バグ修正
 
+- [x] **Web巡回ツールのTavily Extractエラー修正**
+  - ✅ 完了 (2026-01-09)
+  - 修正内容: `TavilyExtract`初期化時の引数名ミス(`api_key`->`tavily_api_key`)を修正
+  - レポート: [2026-01-09_tavily_extract_fix.md](file:///home/baken/nexus_ark/docs/reports/2026-01-09_tavily_extract_fix.md)
+
 - [x] **スマホ等縦長画面で右カラムがスクロールできず下部のメニューが操作できないときがある**
   - ✅ 完了 (2025-12-29)
   - 修正内容: CSS調整によるメインエリアのスクロール確保とメディアクエリ対応

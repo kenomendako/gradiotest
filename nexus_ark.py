@@ -428,7 +428,13 @@ try:
         last_sent_scenery_image_state = gr.State(None)  # 情景画像のAI送信用：最後に送信した画像パスを記憶
         # --- グローバル・左サイドバー (設定) ---
         with gr.Sidebar(label="設定", width=320, open=True, elem_id="left_sidebar"):
-            room_dropdown = gr.Dropdown(label="ルームを選択", interactive=True)
+            # [Fix] 初期化時にchoicesとvalueを設定してエラーを防ぐ
+            room_dropdown = gr.Dropdown(
+                label="ルームを選択", 
+                choices=room_list_on_startup, 
+                value=effective_initial_room, 
+                interactive=True
+            )
 
             with gr.Accordion("⚙️ 設定", open=False):
                 with gr.Tabs() as settings_tabs:
@@ -482,7 +488,11 @@ try:
                                 with gr.Row():
                                     delete_model_button = gr.Button("選択中のモデルを削除", variant="secondary", size="sm")
                                     reset_models_button = gr.Button("デフォルトに戻す", variant="secondary", size="sm")
-                                api_key_dropdown = gr.Dropdown(label="使用するGemini APIキー", interactive=True)
+                                api_key_dropdown = gr.Dropdown(
+                                    label="使用するGemini APIキー", 
+                                    choices=config_manager.get_api_key_choices_for_ui(),
+                                    interactive=True
+                                )
                                 api_test_button = gr.Button("API接続をテスト", variant="secondary")
 
                             # --- OpenAI互換設定エリア ---
@@ -1333,7 +1343,21 @@ try:
                 )
 
                 # --- 移動メニュー ---
-                location_dropdown = gr.Dropdown(label="現在地 / 移動先を選択", interactive=True) # ← label を変更
+                # [Fix] 初期化時にchoicesを設定
+                # location_dropdown の正しい初期値を計算
+                _loc_choices = ui_handlers._get_location_choices_for_ui(effective_initial_room)
+                _loc_val = None
+                if _loc_choices:
+                     # ヘッダー以外で最初の有効な値を探す
+                     valid_vals = [v for k, v in _loc_choices if not v.startswith("__AREA_HEADER_")]
+                     if valid_vals: _loc_val = valid_vals[0]
+
+                location_dropdown = gr.Dropdown(
+                    label="現在地 / 移動先を選択", 
+                    choices=_loc_choices,
+                    value=_loc_val,
+                    interactive=True
+                )
 
                 # --- 画像生成メニュー ---
                 with gr.Accordion("🌄情景設定・生成", open=False):
@@ -1378,7 +1402,11 @@ try:
 
                     with gr.Accordion("🏞️ カスタム情景画像の登録", open=False):
                         gr.Markdown("AI生成の代わりに、ご自身で用意した画像を情景として登録します。")
-                        custom_scenery_location_dropdown = gr.Dropdown(label="場所を選択", interactive=True)
+                        custom_scenery_location_dropdown = gr.Dropdown(
+                            label="場所を選択", 
+                            choices=_loc_choices, # 上で計算したものを使用
+                            interactive=True
+                        )
                         with gr.Row():
                             custom_scenery_season_dropdown = gr.Dropdown(label="季節", choices=["春", "夏", "秋", "冬"], value="秋", interactive=True)
                             custom_scenery_time_dropdown = gr.Dropdown(label="時間帯", choices=["早朝", "朝", "昼前", "昼下がり", "夕方", "夜", "深夜"], value="夜", interactive=True)

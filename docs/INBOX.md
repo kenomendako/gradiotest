@@ -16,12 +16,7 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
 ---
 ## 未整理タスク
 
-- [ ] [Web巡回ツールでエラーが出て要約がペルソナに渡されない]
-  - 詳細:   🔔 Hugging Face Daily Papers: 更新あり (+68行追加、-102行削除)
-  - Tavily Extractエラー: 1 validation error for TavilyExtractAPIWrapper
-  Value error, Did not find tavily_api_key, please add an environment variable `TAVILY_API_KEY` which contains it, or pass `tavily_api_key` as a named parameter. [type=value_error, input_value={}, input_type=dict]
-    For further information visit https://errors.pydantic.dev/2.11/v/value_error
-  - 優先度: 🔴高
+
 
 - [ ] [safe_tool_nodeのAPIキー注入ツールリストをリファクタリング]
   - 詳細: 現在、APIキーが必要なツール（`generate_image`, `search_past_conversations`, `recall_memories`など）がハードコードされたリストで管理されている。ツール定義側にメタデータを持たせるか、定数として一元管理することで、新規ツール追加時の漏れを防止する。

@@ -666,10 +666,11 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         profile_image,
         memory_str, notepad_content, creative_notes_content, research_notes_content, load_system_prompt_content(room_name),
         core_memory_content,
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
+        # [Fix] 選択肢が空の場合にvalueを設定してエラーになるのを防ぐ
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name if room_manager.get_room_list_for_ui() else None),
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name if room_manager.get_room_list_for_ui() else None),
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name if room_manager.get_room_list_for_ui() else None),
+        gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name if room_manager.get_room_list_for_ui() else None),
         gr.update(choices=locations_for_ui, value=location_dd_val), # choicesとvalueを同期して返す
         scenery_text,
         voice_display_name, voice_style_prompt_val,

@@ -131,6 +131,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - 「季節のみ」パターンを削除し、「場所のみ」パターンに時間帯除外フィルタを追加
 - [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-09_scenery_image_time_priority_v2.md)
 
+#### 🛠️ Web巡回ツールのTavily Extractエラーを修正 (2026-01-09)
+- `TavilyExtract` 初期化時の引数名が誤っていた（`api_key` → `tavily_api_key`）問題を修正
+- これによりWeb巡回時のコンテンツ要約が正しく動作するようになった
+- [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-09_tavily_extract_fix.md)
+
 #### 🛠️ ツール関連バグ3件を修正 (2026-01-06)
 - **`research_notes` バックアップタイプ未登録**: `room_manager.py` の `create_backup` マップに `research_notes` を追加
 - **Tavily Extract バリデーションエラー**: `watchlist_tools.py` で `invoke([url])` → `invoke({"urls": [url]})` に修正
