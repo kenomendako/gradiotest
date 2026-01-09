@@ -202,17 +202,23 @@ class RAGManager:
                 # print(f"  - [RAG] インデックス読み込みエラー: {e}")
                 return None
 
-    def _create_index_in_batches(self, splits: List[Document], existing_db: Optional[FAISS] = None, progress_callback=None) -> FAISS:
+    def _create_index_in_batches(self, splits: List[Document], existing_db: Optional[FAISS] = None, 
+                                   progress_callback=None, save_callback=None, status_callback=None) -> FAISS:
         """
         大量のドキュメントをバッチ分割し、レート制限を回避しながらインデックスを作成/追記する。
         progress_callback: 進捗を報告するコールバック関数 (batch_num, total_batches) -> None
+        save_callback: 途中保存用コールバック関数 (db) -> None（定期的に呼び出される）
+        status_callback: UIへ進捗メッセージを送信するコールバック関数 (message) -> None
         """
         BATCH_SIZE = 20
+        SAVE_INTERVAL_BATCHES = 100  # 100バッチごとに途中保存
         db = existing_db
         total_splits = len(splits)
         total_batches = (total_splits + BATCH_SIZE - 1) // BATCH_SIZE
         
-        print(f"    [BATCH] 開始: {total_splits} チャンク, {total_batches} バッチ")
+        print(f"    [BATCH] 開始: {total_splits} チャンク, {total_batches} バッチ (途中保存: {SAVE_INTERVAL_BATCHES}バッチごと)")
+        if status_callback:
+            status_callback(f"索引処理開始: {total_splits}チャンク, {total_batches}バッチ")
         if progress_callback:
             progress_callback(0, total_batches)
 
@@ -220,27 +226,19 @@ class RAGManager:
             batch = splits[i : i + BATCH_SIZE]
             batch_num = (i // BATCH_SIZE) + 1
             
-            # [DEBUG] バッチ処理開始ログ
-            print(f"      [DEBUG] バッチ {batch_num}/{total_batches} 開始 ({len(batch)}チャンク)")
-            
             # リトライループ
             max_retries = 3
             for attempt in range(max_retries):
                 try:
                     if db is None:
-                        print(f"      [DEBUG] FAISS.from_documents 呼び出し中...")
                         db = FAISS.from_documents(batch, self.embeddings)
-                        print(f"      [DEBUG] FAISS.from_documents 完了")
                     else:
-                        print(f"      [DEBUG] db.add_documents 呼び出し中...")
                         db.add_documents(batch)
-                        print(f"      [DEBUG] db.add_documents 完了")
                     
                     # 進捗を報告
                     if progress_callback:
                         progress_callback(batch_num, total_batches)
                     
-                    print(f"      [DEBUG] バッチ {batch_num}/{total_batches} 完了")
                     if self.embedding_mode == "api":
                         time.sleep(2) 
                     break 
@@ -251,6 +249,8 @@ class RAGManager:
                     if "429" in error_str or "ResourceExhausted" in error_str:
                         wait_time = 10 * (attempt + 1)
                         print(f"      ! API制限検知。{wait_time}秒待機してリトライ...")
+                        if status_callback:
+                            status_callback(f"API制限 - {wait_time}秒待機中...")
                         time.sleep(wait_time)
                     else:
                         if attempt == max_retries - 1:
@@ -258,9 +258,21 @@ class RAGManager:
                             traceback.print_exc()
                         if self.embedding_mode == "api":
                             time.sleep(2)
+            
+            # 定期進捗報告と途中保存（100バッチごと）
+            if batch_num % SAVE_INTERVAL_BATCHES == 0:
+                progress_pct = int((batch_num / total_batches) * 100)
+                print(f"    [PROGRESS] {batch_num}/{total_batches} バッチ完了 ({progress_pct}%)")
+                if status_callback:
+                    status_callback(f"索引処理中: {batch_num}/{total_batches} ({progress_pct}%)")
+                # 途中保存
+                if save_callback and db:
+                    print(f"    [SAVE] 途中保存実行...")
+                    save_callback(db)
         
         print(f"    [BATCH] 全バッチ処理完了")
         return db
+
 
     def update_memory_index(self, status_callback=None) -> str:
         """
@@ -365,6 +377,10 @@ class RAGManager:
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
             processed_count = 0
             
+            # 途中保存用コールバック
+            def interim_save(db):
+                self._safe_save_index(db, self.static_index_path)
+            
             for i in range(0, total_pending, SAVE_INTERVAL):
                 batch_items = pending_items[i : i + SAVE_INTERVAL]
                 batch_docs = [item[1] for item in batch_items]
@@ -373,7 +389,12 @@ class RAGManager:
                 print(f"  - グループ処理中 ({i+1}〜{min(i+SAVE_INTERVAL, total_pending)} / {total_pending})...")
                 splits = text_splitter.split_documents(batch_docs)
                 splits = self._filter_meaningful_chunks(splits)  # [2026-01-09] 無意味なチャンクを除外
-                static_db = self._create_index_in_batches(splits, existing_db=static_db)
+                static_db = self._create_index_in_batches(
+                    splits, 
+                    existing_db=static_db,
+                    save_callback=interim_save,
+                    status_callback=status_callback
+                )
                 
                 if static_db:
                     self._safe_save_index(static_db, self.static_index_path)
@@ -414,7 +435,17 @@ class RAGManager:
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
             dynamic_splits = text_splitter.split_documents(dynamic_docs)
             dynamic_splits = self._filter_meaningful_chunks(dynamic_splits)  # [2026-01-09] 無意味なチャンクを除外
-            dynamic_db = self._create_index_in_batches(dynamic_splits, existing_db=None)
+            
+            # 途中保存用コールバック
+            def interim_save(db):
+                self._safe_save_index(db, self.dynamic_index_path)
+            
+            dynamic_db = self._create_index_in_batches(
+                dynamic_splits, 
+                existing_db=None,
+                save_callback=interim_save,
+                status_callback=status_callback
+            )
             
             if dynamic_db:
                 self._safe_save_index(dynamic_db, self.dynamic_index_path)
