@@ -136,6 +136,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - これによりWeb巡回時のコンテンツ要約が正しく動作するようになった
 - [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-09_tavily_extract_fix.md)
 
+#### 🛠️ Gradioドロップダウンの初期化エラーを修正 (2026-01-09)
+- 起動時に `Value not in choices` エラーが発生していた問題を修正
+- `nexus_ark.py` で `room_dropdown` などの初期化時に適切な `choices` を設定するように変更
+- [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-09_gradio_dropdown_fix.md)
+
 #### 🛠️ ツール関連バグ3件を修正 (2026-01-06)
 - **`research_notes` バックアップタイプ未登録**: `room_manager.py` の `create_backup` マップに `research_notes` を追加
 - **Tavily Extract バリデーションエラー**: `watchlist_tools.py` で `invoke([url])` → `invoke({"urls": [url]})` に修正
