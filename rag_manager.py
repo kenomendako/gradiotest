@@ -97,6 +97,35 @@ class RAGManager:
         with open(self.processed_files_record, 'w', encoding='utf-8') as f:
             json.dump(list(processed_files), f, indent=2, ensure_ascii=False)
 
+    def _filter_meaningful_chunks(self, splits: List[Document]) -> List[Document]:
+        """
+        チャンク分割後に無意味なチャンクを除外する。
+        - 短すぎるチャンク（10文字未満）
+        - マークダウン記号のみのチャンク（*, -, #, **等）
+        """
+        MIN_CONTENT_LENGTH = 10
+        # 除外対象のパターン: マークダウン記号のみ
+        MEANINGLESS_PATTERNS = {'*', '-', '#', '**', '***', '---', '##', '###', '####'}
+        
+        filtered = []
+        filtered_count = 0
+        for doc in splits:
+            content = doc.page_content.strip()
+            # 短すぎるチャンクを除外
+            if len(content) < MIN_CONTENT_LENGTH:
+                filtered_count += 1
+                continue
+            # マークダウン記号のみのチャンクを除外
+            if content in MEANINGLESS_PATTERNS:
+                filtered_count += 1
+                continue
+            filtered.append(doc)
+        
+        if filtered_count > 0:
+            print(f"    [FILTER] 無意味なチャンク {filtered_count}件を除外")
+        
+        return filtered
+
     def _safe_save_index(self, db: FAISS, target_path: Path):
         """インデックスを安全に保存する（リネーム退避方式）"""
         target_path = Path(target_path)
@@ -335,6 +364,7 @@ class RAGManager:
                 
                 print(f"  - グループ処理中 ({i+1}〜{min(i+SAVE_INTERVAL, total_pending)} / {total_pending})...")
                 splits = text_splitter.split_documents(batch_docs)
+                splits = self._filter_meaningful_chunks(splits)  # [2026-01-09] 無意味なチャンクを除外
                 static_db = self._create_index_in_batches(splits, existing_db=static_db)
                 
                 if static_db:
@@ -375,6 +405,7 @@ class RAGManager:
         if dynamic_docs:
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
             dynamic_splits = text_splitter.split_documents(dynamic_docs)
+            dynamic_splits = self._filter_meaningful_chunks(dynamic_splits)  # [2026-01-09] 無意味なチャンクを除外
             dynamic_db = self._create_index_in_batches(dynamic_splits, existing_db=None)
             
             if dynamic_db:
@@ -411,6 +442,7 @@ class RAGManager:
             
             text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=50)
             splits = text_splitter.split_documents([doc])
+            splits = self._filter_meaningful_chunks(splits)  # [2026-01-09] 無意味なチャンクを除外
             
             BATCH_SIZE = 20
             total_batches = (len(splits) + BATCH_SIZE - 1) // BATCH_SIZE
