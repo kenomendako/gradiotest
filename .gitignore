@@ -49,3 +49,6 @@ pipインストール.bat
 
 # Outing folder (Personal)
 /outing/
+
+# WSL-specific startup script
+start.sh
