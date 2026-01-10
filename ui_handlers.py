@@ -1470,16 +1470,15 @@ def _stream_and_handle_response(
                                     header = f"## AGENT:{current_room}"                        
                         
                         elif isinstance(msg, ToolMessage):
-                            # 【記憶検索ツールはアナウンスのみ保存】
+                            # 【アナウンスのみ保存するツール】constants.pyで一元管理
                             # 生の検索結果（大量の会話ログ）はログに保存せず、
                             # 「ツールを使用しました」というアナウンスだけを保存する。
-                            memory_search_tools = ["recall_memories", "search_past_conversations"]
-                            if msg.name in memory_search_tools:
+                            if msg.name in constants.TOOLS_SAVE_ANNOUNCEMENT_ONLY:
                                 formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                                 # 生の結果（[RAW_RESULT]）は含めない。アナウンスのみ。
                                 content_to_log = formatted_tool_result if formatted_tool_result else f"🛠️ ツール「{msg.name}」を実行しました。"
                                 header = f"## SYSTEM:tool_result:{msg.name}:{msg.tool_call_id}"
-                                print(f"--- [記憶検索ツール] '{msg.name}' のアナウンスをログに保存（生の結果は除外） ---")
+                                print(f"--- [ログ最適化] '{msg.name}' のアナウンスのみ保存（生の結果は除外） ---")
                             else:
                                 formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                                 content_to_log = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"

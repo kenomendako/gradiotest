@@ -294,8 +294,9 @@
 - [ ] **Google検索を無料GeminiAPIでも使う方法検討** 🆕
   - 無料APIでも2.5 Flashなら検索使えるので、他の最終応答モデルが投げたクエリを2.5 Flashに投げて結果を拾う方法 (INBOXより)
 
-- [ ] **ツール結果がログに溜まる問題** 🆕
-  - 検索結果やツール使用結果がログに溜まるとコンテキスト圧迫・APIコスト増なので対策を検討。 (INBOXより)
+- [x] **ツール結果がログに溜まる問題** 🆕
+  - ✅ 完了 (2026-01-10): Web巡回やWeb検索結果のログ保存をアナウンスのみに変更
+  - レポート: [2026-01-10_tool_result_log_optimization.md](../reports/2026-01-10_tool_result_log_optimization.md)
 
 - [ ] **ウォッチリスト: Tavily Extractエラー (形式修正)** 🆕
   - `TavilyExtractInput` にURLをリストではなく辞書形式（`{"urls": [url]}`）で渡す必要がある。 (INBOXより)

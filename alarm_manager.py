@@ -540,13 +540,12 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
             # ▼▼▼【追加】ツール実行結果をログに保存する処理 ▼▼▼
             for msg in new_messages:
                 if isinstance(msg, ToolMessage):
-                    # 【記憶検索ツールはアナウンスのみ保存】
-                    memory_search_tools = ["recall_memories", "search_past_conversations"]
-                    if msg.name in memory_search_tools:
+                    # 【アナウンスのみ保存するツール】constants.pyで一元管理
+                    if msg.name in constants.TOOLS_SAVE_ANNOUNCEMENT_ONLY:
                         formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         # 生の結果（[RAW_RESULT]）は含めない。アナウンスのみ。
                         tool_log_content = formatted_tool_result if formatted_tool_result else f"🛠️ ツール「{msg.name}」を実行しました。"
-                        print(f"--- [記憶検索ツール] '{msg.name}' のアナウンスをログに保存（生の結果は除外） ---")
+                        print(f"--- [ログ最適化] '{msg.name}' のアナウンスのみ保存（生の結果は除外） ---")
                     else:
                         formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         tool_log_content = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"
@@ -700,13 +699,12 @@ def trigger_research_analysis(room_name: str, api_key_name: str, reason: str, de
             # ツール結果の記録
             for msg in new_messages:
                 if isinstance(msg, ToolMessage):
-                    # 【記憶検索ツールはアナウンスのみ保存】
-                    memory_search_tools = ["recall_memories", "search_past_conversations"]
-                    if msg.name in memory_search_tools:
+                    # 【アナウンスのみ保存するツール】constants.pyで一元管理
+                    if msg.name in constants.TOOLS_SAVE_ANNOUNCEMENT_ONLY:
                         formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         # 生の結果（[RAW_RESULT]）は含めない。アナウンスのみ。
                         tool_log_content = formatted_tool_result if formatted_tool_result else f"🛠️ ツール「{msg.name}」を実行しました。"
-                        print(f"--- [記憶検索ツール] '{msg.name}' のアナウンスをログに保存（生の結果は除外） ---")
+                        print(f"--- [ログ最適化] '{msg.name}' のアナウンスのみ保存（生の結果は除外） ---")
                     else:
                         formatted_tool_result = utils.format_tool_result_for_ui(msg.name, str(msg.content))
                         tool_log_content = f"{formatted_tool_result}\n\n[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]" if formatted_tool_result else f"[RAW_RESULT]\n{msg.content}\n[/RAW_RESULT]"

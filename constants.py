@@ -108,3 +108,18 @@ DEFAULT_EXPRESSION_KEYWORDS = {
     "embarrassed": ["照れ", "恥ずかしい", "えへへ", "///"],
     "thinking": ["うーん", "考え", "そうですね", "..."],
 }
+
+# --- ツール結果のログ保存設定 ---
+# ログに[RAW_RESULT]を含めて保存するツール（再現に必要なもの）
+TOOLS_SAVE_RAW_RESULT = {"generate_image"}
+
+# ログにアナウンスのみ保存するツール（RAW_RESULT除外）
+# これ以外のツールは通常通り全データを保存
+TOOLS_SAVE_ANNOUNCEMENT_ONLY = {
+    "recall_memories",
+    "search_past_conversations",
+    "check_watchlist",
+    "web_search_tool",
+    "tavily_search",
+    "tavily_extract",
+}
