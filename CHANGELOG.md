@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **エンティティ記憶:** LLMによる「統合・要約（Consolidation）」機能を実装。追記の繰り返しによる肥大化を防ぎ、情報を常に最新かつ簡潔に維持。
 - **開発ツール:** `tools/validate_wiring.py` を追加。UI定義と実装の不整合を静的解析で自動検出可能に。
 
 ### Fixed
