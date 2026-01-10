@@ -35,24 +35,42 @@ AIエージェントは、作業開始前に必ずこのファイルを確認し
     - 例: `feat: ログイン画面のデザインを更新`
     - 例: `fix: メモリ検索の重複バグを修正`
 
-## 2. ディレクトリ構成と重要な参照先
+## 2. 重要なドキュメントと参照先
 
-### 必読ドキュメント (Must-Read Docs)
-- **Gradio開発の知見:** `docs/guides/gradio_notes.md`
-    - **重要度: 最高**。UI開発におけるバイブルです。イベントハンドラの設計、状態管理、エラー処理のパターンが記載されています。
-- **UI実装パターン:** `docs/guides/UI_IMPLEMENTATION_PATTERNS.md`
-    - 標準的なUI構築パターン（ジェネレータ、中間保存など）が定義されています。
+以下のドキュメントはシステムの「正本」として機能します。
+
+### 必読ガイド (Must-Read Guides)
+- **Gradio開発の知見 (最重要):** `docs/guides/gradio_notes.md`
+    - UI開発のバイブル。イベントハンドラ、CSS、状態管理のトラブルシューティング集。
+- **UI実装パターン (UI仕様書):** `docs/guides/UI_IMPLEMENTATION_PATTERNS.md`
+    - ジェネレータパターン、中間保存、エラーハンドリングなどの標準実装パターン。
 - **機能仕様書:** `docs/specifications/`
-    - `SCENERY_SYSTEM_SPECIFICATION.md`: 情景画像の仕様（自動生成禁止、フォールバックロジック）
-    - `MEMORY_SYSTEM_SPECIFICATION.md`: 記憶・RAGシステムの仕様
+    - `SCENERY_SYSTEM_SPECIFICATION.md`: 情景画像仕様
+    - `MEMORY_SYSTEM_SPECIFICATION.md`: 記憶・RAGシステム仕様
 
-### 主要ディレクトリ
-- **INBOX:** `docs/INBOX.md` (アイデア・バグ報告・未着手タスク)
+### ディレクトリ構成
+- **INBOX:** `docs/INBOX.md` (アイデア・バグ報告)
 - **タスクリスト:** `docs/plans/TASK_LIST.md` (優先順位付きバックログ)
 - **レポート:** `docs/reports/YYYY-MM-DD_[TaskName].md` (完了報告書)
-- **ガイド:** `docs/guides/` (仕様書、マニュアル)
+- **設計判断:** `docs/decisions/NNN_[Title].md` (アーキテクチャ決定の記録)
+- **教訓・知見:** `docs/journals/[Category]_LESSONS.md` (開発で得た知見)
 
-## 3. UI開発の鉄則 (UI Development Philosophy)
+## 3. ドキュメンテーション運用ルール
+
+### 完了レポート (`/task-report`)
+タスク完了時には必ずレポートを作成してください。含めるべき内容:
+- 問題の概要と背景
+- 具体的な修正内容（変更したファイルとロジック）
+- 検証結果（テストした項目と結果）
+- 残課題（あれば）
+
+### 設計判断記録 (`docs/decisions/`)
+以下の場合、新しい判断記録（ADR）を作成してください:
+- 複数の技術的選択肢から一つを選んだ場合
+- 重大な技術的制約により機能を断念した場合
+- 将来の開発方針に影響する決定をした場合
+
+## 4. UI開発の鉄則 (UI Development Philosophy)
 
 `docs/guides/gradio_notes.md` に詳述されている原則の要約です。違反すると重大なバグにつながります。
 
@@ -61,26 +79,21 @@ AIエージェントは、作業開始前に必ずこのファイルを確認し
     - `ui_handlers.py`: 「ロジック」（処理と戻り値）のみ。UI定義を書かない。
     - `config_manager.py`: 「設定」（テーマや定数）を一元管理。
 
-2.  **イベントハンドラの契約**:
-    - `inputs` の数と順序は、ハンドラ関数の引数と厳密に一致させる。
-    - `outputs` の数と順序は、ハンドラ関数の戻り値（タプル）と厳密に一致させる。
-    - これがずれると `ValueError` や `TypeError` でアプリがクラッシュします。
+2.  **イベントハンドラの契約 (The Safety Contract)**:
+    - **司令塔パターン**: 広範囲の更新には必ず単一の司令塔関数を使用してください。
+    - **出力数ガード**: `_ensure_output_count` を使用して、戻り値の不整合によるクラッシュを未然に防いでください。
+    - 詳細は `docs/guides/UI_IMPLEMENTATION_PATTERNS.md` の **"安全装置アーキテクチャ"** セクションを参照してください。
 
 3.  **状態管理 (State Management)**:
     - グローバル変数に依存してはいけません。
     - 必ず `gr.State` を使用して、関数間でデータを安全に受け渡してください。
-    - `gr.State` の初期化に `lambda` を使う際は、「関数オブジェクト」ではなく「結果」が渡されるように注意してください。
 
 4.  **HTML/Markdown**:
     - `gr.Chatbot` は `render_markdown=False` で運用されています。
     - 複雑な表示が必要な場合は、Python側で完全なHTMLを生成してください。GradioにMarkdown解析を・させないでください。
 
-## 4. 変更履歴 (CHANGELOG)
+## 5. 変更履歴 (CHANGELOG)
 
 - **ファイル:** `CHANGELOG.md`
 - タスク完了時に必ず更新してください。
-- カテゴリ:
-    - `Added` (追加)
-    - `Fixed` (修正)
-    - `Changed` (変更)
-    - `Removed` (削除)
+- カテゴリ: `Added`, `Fixed`, `Changed`, `Removed`

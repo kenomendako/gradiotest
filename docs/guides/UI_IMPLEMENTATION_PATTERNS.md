@@ -138,7 +138,56 @@ def handle_something(room_name, api_key_name):
 
 ---
 
-## 関連ドキュメント
+## 6. 安全装置アーキテクチャ (Safety Architectures)
+
+Gradioの最も一般的なクラッシュ原因である「イベント配線ミス」を防ぐための重要なパターンです。
+
+### 6.1 司令塔パターン (The Commander Pattern)
+広範囲のUI更新（ルーム変更、削除、初期ロードなど）を行う際、個別のハンドラを乱立させず、**全ての更新を担う単一の「司令塔」関数**を作成します。
+
+**原則:**
+1.  `nexus_ark.py` の `outputs` リストは、この司令塔関数の戻り値と厳密に一致させる。
+2.  更新不要なコンポーネントがあっても、必ず `gr.update()` やダミー値を返して数を合わせる（「統一戻り値シグネチャ」）。
+
+```python
+# ui_handlers.py
+def handle_room_change_master(room_name):
+    # 1. チャットタブの更新
+    chat_updates = _get_chat_updates(room_name)
+    
+    # 2. 設定タブの更新
+    settings_updates = _get_settings_updates(room_name)
+    
+    # 3. 全てを結合して返す (数は常に一定!!)
+    return chat_updates + settings_updates
+```
+
+### 6.2 出力数ガード (Output Count Guard)
+戻り値の数が合わないエラー (`ValueError`) を自動的に防ぐヘルパー関数 `_ensure_output_count` を使用します。
+
+```python
+# ui_handlers.py
+def _ensure_output_count(values_tuple: tuple, expected_count: int) -> tuple:
+    if len(values_tuple) == expected_count:
+        return values_tuple
+    
+    if len(values_tuple) < expected_count:
+        # 不足分を gr.update() で埋める
+        return values_tuple + (gr.update(),) * (expected_count - len(values_tuple))
+    else:
+        # 超過分を切り捨てる
+        return values_tuple[:expected_count]
+```
+
+**使用例:**
+```python
+def handle_complex_update():
+    results = (...)
+    # 定数 EXPECTED_OUTPUT_COUNT と照合して安全化
+    return _ensure_output_count(results, EXPECTED_OUTPUT_COUNT)
+```
+
+
 
 - [gradio_notes.md](file:///home/baken/nexus_ark/docs/guides/gradio_notes.md) - Gradio固有の注意点
 - [UI_LOGIC_INTEGRATION_LESSONS.md](file:///home/baken/nexus_ark/docs/journals/UI_LOGIC_INTEGRATION_LESSONS.md) - 過去の教訓
