@@ -650,7 +650,7 @@ timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} |
 - **2025-12-14**: `alarm_manager.py`の修正をコミット。
 - **2025-12-16**: `timers.py`にも同様の修正を適用。また、全てのバックグラウンド処理（アラーム、自律行動、タイマー）でモデル名が付記されるように修正完了。さらに、`final_state`から実際に使用されたモデル名を取得するように再修正。
 - **2025-12-21**: 新たな二重タイムスタンプ問題を修正。AIがシステムプロンプト内の「現在時刻」を真似して**日本語曜日形式（`2025-12-21(日)`）**でタイムスタンプを生成するケースを発見。正規表現を日本語曜日対応に更新（`[A-Za-z月火水木金土日]{1,3}`）し、全ファイルでAIが既にタイムスタンプを生成している場合はスキップするロジックを追加。
-- **2025-12-22**: **AI模倣タイムスタンプ問題を根本修正。** AIが過去の応答のタイムスタンプを模倣してしまう問題を発見。「二重防止でスキップ」ではなく「AI生成タイムスタンプを除去→正しいモデル名でシステムタイムスタンプを追加」というロジックに変更。レポート: [2025-12-22_ai_timestamp_mimicry_fix.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-22_ai_timestamp_mimicry_fix.md)
+- **2025-12-22**: **AI模倣タイムスタンプ問題を根本修正。** AIが過去の応答のタイムスタンプを模倣してしまう問題を発見。「二重防止でスキップ」ではなく「AI生成タイムスタンプを除去→正しいモデル名でシステムタイムスタンプを追加」というロジックに変更。レポート: [2025-12-22_ai_timestamp_mimicry_fix.md](../reports/2025-12-22_ai_timestamp_mimicry_fix.md)
 
 #### 関連ファイル
 
@@ -849,7 +849,7 @@ if is_flash_reasoning:
 - Gemini 3 Flash は長いメッセージリスト（10往復以上）で不安定
 - 解決策: 履歴を最新2件に制限（`agent/graph.py` の `GEMINI3_KEEP_RECENT = 2`）
 
-**詳細ドキュメント:** [gemini3_flash_setup.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gemini3_flash_setup.md)
+**詳細ドキュメント:** [gemini3_flash_setup.md](gemini3_flash_setup.md)
 
 ---
 
@@ -1365,4 +1365,4 @@ log_f, _, _, _, _ = get_room_files_paths(room_name)
 
 ### 重要
 
-新規に `get_room_files_paths` を呼び出すコードを書く場合は、**必ず6変数でアンパック**すること。詳細は [技術レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_get_room_files_paths_6var.md) を参照。
+新規に `get_room_files_paths` を呼び出すコードを書く場合は、**必ず6変数でアンパック**すること。詳細は [技術レポート](../reports/2026-01-05_get_room_files_paths_6var.md) を参照。

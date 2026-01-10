@@ -111,7 +111,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - 「季節より時間帯優先」のフォールバックロジックを実装
 - 「明るさベース」のフォールバックを追加（昼間の時間帯は`morning`画像を優先）
 - 例: 「冬の昼下がり」がなくても「秋の朝」などの明るい画像を優先表示
-- [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-06_scenery_image_time_priority.md)
+- [レポート](docs/reports/2026-01-06_scenery_image_time_priority.md)
 
 #### 🔄 ウォッチリスト巡回情報のペルソナ伝達改善 (2026-01-06)
 - **問題**: 定期巡回後にペルソナが`check_watchlist`ツールを実行しても「変更なし」と返される問題を修正
@@ -230,7 +230,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **`read_url_tool` 強化**: URLがPDFの場合、自動的に解析を実行してAIに渡すロジックを実装
 - **arXiv/論文対応**: 学術論文などのPDF資料をルシアン（AI）が直接読解可能に
 - 依存関係: `pip install langchain-tavily` が必要（オプション）
-- 参照: [計画書](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md)
+- 参照: [計画書](docs/plans/web_agent_feature_plan.md)
 
 #### 🎭 アバター表情差分システム (2025-12-30)
 - AIの応答（`【表情】…xxx…`）に応じてアバターの表情を自動で切り替える機能を追加
@@ -414,13 +414,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 #### 🌄 情景画像の「変更時のみ」送信が機能しない問題を修正 (2025-12-29)
 - `last_sent_scenery_image` の保存・読み込み経路の不整合を修正
 - 「変更時のみ」モードで正しく毎ターン送信がスキップされるようになった
-- 参照: [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-29_scenery_image_sending_fix.md)
+- 参照: [レポート](docs/reports/2025-12-29_scenery_image_sending_fix.md)
 
 #### 🛠️ 文字置き換え機能の表示崩れを修正 (2025-12-29)
 - 文字置き換え機能（スクリーンショットモード）で思考ログの表示が崩れる問題を修正
 - `<span>` タグ以外のテキストをHTMLエスケープすることでMarkdown再解釈を防止
 - ⚠️ 既知の制限: スクリーンショットモードON時のコピー機能でHTMLタグがコピーされる（Gradio内部動作に起因）
-- 参照: [レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-29_redaction_thought_log_display_fix.md)
+- 参照: [レポート](docs/reports/2025-12-29_redaction_thought_log_display_fix.md)
 
 
 #### 🛠️ ツール結果表示の修正 (2025-12-28)

@@ -10,7 +10,7 @@ Make the "Supervisor" feature optional and toggleable via the UI. It should be *
 ## Proposed Changes
 
 ### Configuration & State
-#### [MODIFY] [agent/graph.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/agent/graph.py)
+#### [MODIFY] [agent/graph.py](../../agent/graph.py)
 - Update `AgentState` to include `enable_supervisor: bool`.
 - Update `supervisor_node` to check this flag. If `False`, it should behave as a pass-through (or return `{"next": "state['room_name']"}` effectively skipping orchestration).
 - **Correction**: Actually, if Supervisor is the entry point, skipping it means we need to decide where to go.
@@ -19,13 +19,13 @@ Make the "Supervisor" feature optional and toggleable via the UI. It should be *
     - If disabled, we rely on the user manually selecting who they speak to (which is the current `room_to_respond` passed from UI). So `next` should be `state["room_name"]`.
 
 ### UI Implementation
-#### [MODIFY] [nexus_ark.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/nexus_ark.py)
+#### [MODIFY] [nexus_ark.py](../../nexus_ark.py)
 - Add a Checkbox `enable_supervisor_cb` in the Group Chat settings area.
 - **Label**: `AI自動進行（司会モード）`
 - Default value: `False`.
 - Pass this value to the chat submission event handler.
 
-#### [MODIFY] [ui_handlers.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ui_handlers.py)
+#### [MODIFY] [ui_handlers.py](../../ui_handlers.py)
 - Update `_stream_and_handle_response` and `invoke_nexus_agent_stream` to accept `enable_supervisor` argument.
 - Pass this flag into the `initial_state` of the graph.
 

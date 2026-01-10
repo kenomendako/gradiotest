@@ -684,8 +684,8 @@ def handle_something_change(room_name: str, new_mode: str):
     4. **ドキュメントを更新**: 今後の開発者のため、`gradio_notes.md` に戻り値仕様を明記
 
 *   **関連ドキュメント:**
-    - [レッスン41: get_room_files_paths は6変数でアンパックせよ](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gradio_notes.md#レッスン41get_room_files_paths-は6変数でアンパックせよ2026-01-05)
-    - [技術レポート: get_room_files_paths 6変数化](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_get_room_files_paths_6var.md)
+    - [レッスン41: get_room_files_paths は6変数でアンパックせよ](../guides/gradio_notes.md#レッスン41get_room_files_paths-は6変数でアンパックせよ2026-01-05)
+    - [技術レポート: get_room_files_paths 6変数化](../reports/2026-01-05_get_room_files_paths_6var.md)
 
 ---
 
@@ -723,4 +723,4 @@ def handle_something_change(room_name: str, new_mode: str):
     Nexus ArkのUI設定系コンポーネントは、**UI・イベント・ハンドラ・永続化・バックエンドの5層にまたがる複雑な連携**で成り立っている。新しいコンポーネントを追加する際は、「1箇所追加すれば動く」と思わず、この9ステップ（または10ステップ）契約を必ず確認すること。
 
 *   **関連ドキュメント:**
-    - [技術レポート: 自己意識機能トグル](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-07_self_awareness_toggle.md)
+    - [技術レポート: 自己意識機能トグル](../reports/2026-01-07_self_awareness_toggle.md)

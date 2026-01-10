@@ -10,7 +10,7 @@
 
 ## 2. 修正内容
 
-### [agent/graph.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/agent/graph.py) の修正
+### [agent/graph.py](../../agent/graph.py) の修正
 `agent_node` 関数（AIに応答を生成させる心臓部）において、関数の返却値（辞書）に `model_name` キーを追加しました。
 
 以下の全ての返却パスで `model_name` を含めるよう修正しました：

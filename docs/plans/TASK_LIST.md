@@ -15,9 +15,11 @@
   - ✅ 完了 (2026-01-10)
   - `handle_delete_room` での引数渡し漏れを修正し、主要ハンドラの保護を確認
 
-- [x] **「配線バリデーションスクリプト」の作成**
-  - ✅ 完了 (2026-01-10)
   - `tools/validate_wiring.py` を作成し、主要ハンドラの不整合（159/157問題など）を検出し修正
+
+- [/] **ドキュメントのパス修正**
+  - `docs/STATUS.md` などに残っているWindows時代の絶対パス (`file:///c:/...`) を、Linux環境でも有効な相対パスに一括変換する
+
 
 
 
@@ -38,36 +40,36 @@
 
 - [x] **Nexus Ark アコーディオンのスクロールバー不具合**
   - ✅ 完了 (2025-12-27)
-  - レポート: [2025-12-27_accordion_scrollbar_fix.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-27_accordion_scrollbar_fix.md)
+  - レポート: [2025-12-27_accordion_scrollbar_fix.md](../reports/2025-12-27_accordion_scrollbar_fix.md)
 
 - [x] **マルチモーダル添付の修正**
   - ✅ 複数画像添付: `file_count="multiple"` 追加
   - ✅ MP3音声認識: `{"type": "file", ...}` 形式で送信
   - ✅ AI応答二重表示: チャンク処理修正
   - ⚠️ MP4動画: API制限のため未対応（将来の課題）
-  - レポート: [2025-12-20_multimodal_fix_report.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/reports/2025-12-20_multimodal_fix_report.md)
+  - レポート: [2025-12-20_multimodal_fix_report.md](../reports/2025-12-20_multimodal_fix_report.md)
 
 - [x] **自律行動の重複発火バグ**
   - ハイブリッド方式（タイムスタンプ＋メモリ内フラグ）で修正
-  - レポート: [2025-12-21_autonomous_action_duplicate_fix.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/reports/2025-12-21_autonomous_action_duplicate_fix.md)
+  - レポート: [2025-12-21_autonomous_action_duplicate_fix.md](../reports/2025-12-21_autonomous_action_duplicate_fix.md)
 
 - [x] **タイムスタンプ二重付記バグ**
   - AIが日本語曜日形式でタイムスタンプを生成する問題を修正
   - 正規表現を日本語/英語両対応に拡張
-  - レポート: [2025-12-21_timestamp_duplicate_fix.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/reports/2025-12-21_timestamp_duplicate_fix.md)
+  - レポート: [2025-12-21_timestamp_duplicate_fix.md](../reports/2025-12-21_timestamp_duplicate_fix.md)
 
 - [x] **モデル名付記バグ**
   - 個別設定でモデル変更後、古いモデル名がタイムスタンプに付記される問題を修正
   - さらにAI模倣タイムスタンプ問題（AIが過去の応答のタイムスタンプを模倣）を根本修正
-  - レポート: [2025-12-22_ai_timestamp_mimicry_fix.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-22_ai_timestamp_mimicry_fix.md)
+  - レポート: [2025-12-22_ai_timestamp_mimicry_fix.md](../reports/2025-12-22_ai_timestamp_mimicry_fix.md)
 
 ### 安定性
 
 - [x] **使用モデルリストの精査** ✅
   - 動作確認済みモデルのみに絞る
-  - Gemini 3 Flash Previewは応答遅延問題あり（[gradio_notes.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/guides/gradio_notes.md) レッスン33）
+  - Gemini 3 Flash Previewは応答遅延問題あり（[gradio_notes.md](../guides/gradio_notes.md) レッスン33）
   - おすすめモデルだけのリストを作成
-  - レポート: [2025-12-26_model_list_management.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-26_model_list_management.md)
+  - レポート: [2025-12-26_model_list_management.md](../reports/2025-12-26_model_list_management.md)
 
 - [x] **モデルリストのUI管理機能強化** ✅
   - UI上からモデルの削除を可能にする
@@ -75,14 +77,14 @@
   - APIからモデルリスト取得機能追加（Groq/Ollama/OpenRouter対応）
   - お気に入りモデル機能（⭐マークでトグル）
   - ドロップダウン未表示バグ修正（visible=Falseグループ内のレンダリング問題）
-  - レポート: [2025-12-27_model_list_management.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-27_model_list_management.md)
+  - レポート: [2025-12-27_model_list_management.md](../reports/2025-12-27_model_list_management.md)
 
 - [/] **Gemini 3シリーズの空応答・思考タグ問題**
   - 空応答が頻発（思考レベル変更で解消せず）
   - ツール使用のみ成功して応答テキストが空になるケースあり
   - `[THOUGHT]`タグを開始するが閉じタグがなく全文が思考ログ化
-  - ℹ️ **2025-12-23 調査結果**: API不安定性が原因。対処法は [gemini3_flash_setup.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gemini3_flash_setup.md) 参照
-  - レポート: [2025-12-21_gemini3_debug_log_addition.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-21_gemini3_debug_log_addition.md)
+  - ℹ️ **2025-12-23 調査結果**: API不安定性が原因。対処法は [gemini3_flash_setup.md](../guides/gemini3_flash_setup.md) 参照
+  - レポート: [2025-12-21_gemini3_debug_log_addition.md](../reports/2025-12-21_gemini3_debug_log_addition.md)
 
 - [x] **新規ルーム作成時、自動情景画像生成をオフにする** ✅
   - `enable_scenery_system` を `False` に変更（情景システム無効化により画像生成も発生しない）
@@ -205,7 +207,7 @@
   - ✅ ツール説明をSkills化（短縮形式に変更）
   - ✅ `search_past_conversations`ツールを除外
   - ✅ **2026-01-07 復活**: `search_past_conversations`をAIペルソナ用キーワード検索ツールとして再追加
-  - レポート: [2026-01-07_memory_search_redesign.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-07_memory_search_redesign.md)
+  - レポート: [2026-01-07_memory_search_redesign.md](../reports/2026-01-07_memory_search_redesign.md)
 
 - [x] **日記検索(search_memory)のRAG化** 🆕
   - ✅ 完了 (2025-12-31): `rag_manager.py`に日記インデックス化追加、`search_memory`をRAGベクトル検索に変更
@@ -243,7 +245,7 @@
 - [ ] **チャット発言のコピー/編集時にタイムスタンプ除外**
   - ヘッダーやフッター（タイムスタンプ）を除外したい
 
-- [x] **チャット送信キーの変更** → [002_shift_enter_submit_abandon.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/decisions/002_shift_enter_submit_abandon.md)
+- [x] **チャット送信キーの変更** → [002_shift_enter_submit_abandon.md](../decisions/002_shift_enter_submit_abandon.md)
   - ~Shift+EnterではなくCtrl+Enterで送信するように変更~
   - Gradioの仕様上、実現不可のため断念
 
@@ -312,7 +314,7 @@
 - [x] **Web検索精度アップ / Webエージェント機能強化** ✅ (2026-01-05 完了)
   - [x] Phase 1 & 2 完了 (2026-01-04)
   - [x] Phase 3 (文脈分析エンジン) 完了 (2026-01-05)
-  - [計画書](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md)
+  - [計画書](web_agent_feature_plan.md)
 
 - [x] **起動時に「アバターモードを動画に変更しました」といちいち出てしまう**
   - ✅ 完了 (2025-12-29)
@@ -329,7 +331,7 @@
 
 - [ ] **グループ会話の司会役AI（Supervisor）の改善**
   - 不安定・処理が遅い
-  - 参照: [supervisor_implementation.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/plans/supervisor_implementation.md)
+  - 参照: [supervisor_implementation.md](supervisor_implementation.md)
 
 - [x] **現在地連動背景表示の強化** 🆕
   - ✅ 完了 (2025-12-28): AIツール場所変更、画像生成、カスタム登録時に背景CSSも更新されるように改善
@@ -454,12 +456,12 @@
 
 ## 📦 配布準備（並行作業）
 
-[distribution_system_plan.md](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/plans/distribution_system_plan.md) に基づく実装
+[distribution_system_plan.md](distribution_system_plan.md) に基づく実装
 
 - [ ] `version.json` 作成
 - [ ] `update_manager.py` 実装
 - [ ] `初回セットアップ.bat` 作成
-- [ ] [nexus_ark.py](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/nexus_ark.py) にアップデート確認UI追加
+- [ ] [nexus_ark.py](../../nexus_ark.py) にアップデート確認UI追加
 - [ ] `ネクサスアーク.bat` 修正
 - [ ] 手動検証とドキュメント作成
 

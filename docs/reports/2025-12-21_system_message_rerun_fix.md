@@ -40,7 +40,7 @@ else:  # ユーザー発言の場合のみ
 
 | ファイル | 変更内容 |
 |----------|----------|
-| [ui_handlers.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ui_handlers.py#L1520-L1529) | `handle_rerun_button_click`の条件分岐修正 |
+| [ui_handlers.py](../../ui_handlers.py#L1520-L1529) | `handle_rerun_button_click`の条件分岐修正 |
 
 ## 検証
 

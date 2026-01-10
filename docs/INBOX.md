@@ -23,6 +23,6 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
 
 ## 関連リンク
 
-- **ステータス**: [docs/STATUS.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/STATUS.md)
-- **タスクリスト**: [docs/plans/TASK_LIST.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/TASK_LIST.md)
+- **ステータス**: [docs/STATUS.md](STATUS.md)
+- **タスクリスト**: [docs/plans/TASK_LIST.md](plans/TASK_LIST.md)
 - **開発サイクル**: `.agent/workflows/dev-cycle.md`

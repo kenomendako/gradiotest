@@ -126,7 +126,7 @@ ValueError: Cannot process this value as an Image, it is of type: <class 'bool'>
 
 ## 関連ファイル
 
-- [nexus_ark.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/nexus_ark.py) - UIコンポーネント定義
-- [ui_handlers.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ui_handlers.py) - イベントハンドラ
-- [agent/graph.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/agent/graph.py) - エージェントグラフ
-- [CHANGELOG.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/CHANGELOG.md) - 変更履歴
+- [nexus_ark.py](../../nexus_ark.py) - UIコンポーネント定義
+- [ui_handlers.py](../../ui_handlers.py) - イベントハンドラ
+- [agent/graph.py](../../agent/graph.py) - エージェントグラフ
+- [CHANGELOG.md](../../CHANGELOG.md) - 変更履歴

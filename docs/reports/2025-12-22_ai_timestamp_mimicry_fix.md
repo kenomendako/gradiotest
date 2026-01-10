@@ -28,7 +28,7 @@ Chunk[33]:  16:32:00 | gemini-2.5-pro
 
 ## 修正内容
 
-### [ui_handlers.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ui_handlers.py) (L1115-1138)
+### [ui_handlers.py](../../ui_handlers.py) (L1115-1138)
 
 **変更前**: タイムスタンプが既に存在すれば追加をスキップ（二重防止）  
 **変更後**: AI生成のタイムスタンプを**除去**し、正しいモデル名でシステムタイムスタンプを**追加**
@@ -62,8 +62,8 @@ content_to_log = content_str + timestamp
 ## 関連ファイル
 
 - `ui_handlers.py`: `_stream_and_handle_response` 関数内のログ保存処理
-- 教訓追記: [gradio_notes.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gradio_notes.md)
+- 教訓追記: [gradio_notes.md](../guides/gradio_notes.md)
 
 ---
 
-*前回の関連修正: [2025-12-21_model_name_stream_fix_report.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-21_model_name_stream_fix_report.md)*
+*前回の関連修正: [2025-12-21_model_name_stream_fix_report.md](2025-12-21_model_name_stream_fix_report.md)*

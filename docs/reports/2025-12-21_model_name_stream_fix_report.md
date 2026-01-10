@@ -30,7 +30,7 @@ supervisor → context_generator → retrieval_node → agent → (safe_tool_nod
 
 ## 修正内容
 
-### [ui_handlers.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ui_handlers.py)
+### [ui_handlers.py](../../ui_handlers.py)
 
 **変更1: ストリーム処理中の`model_name`キャプチャ (L1003-1022)**
 
@@ -53,7 +53,7 @@ actual_model_name = captured_model_name or (final_state.get("model_name") if fin
 
 ## 関連情報
 
-- 前回の修正: [2025-12-21_model_name_timestamp_fix_report.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2025-12-21_model_name_timestamp_fix_report.md)
+- 前回の修正: [2025-12-21_model_name_timestamp_fix_report.md](2025-12-21_model_name_timestamp_fix_report.md)
   - `agent_node`に`model_name`を返り値として追加した修正
 - 今回の修正はその続編で、**ストリーム処理側の取得ロジック**を強化
 

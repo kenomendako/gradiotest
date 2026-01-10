@@ -22,7 +22,7 @@
 
 ### 変更ファイル
 
-#### [MODIFY] [room_manager.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/room_manager.py)
+#### [MODIFY] [room_manager.py](../../room_manager.py)
 
 ```diff
 - root_keys = ["room_name", "user_display_name", "description", "version"]

@@ -40,4 +40,4 @@ Gradioの`MultimodalTextbox`コンポーネントは、Shift+Enterでの送信�
 ## 参照
 
 - Gradio MultimodalTextboxドキュメント
-- [TASK_LIST.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/TASK_LIST.md) のUI改善タスク
+- [TASK_LIST.md](../plans/TASK_LIST.md) のUI改善タスク

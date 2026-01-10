@@ -1,7 +1,7 @@
 # 文脈分析・統合エンジン (Phase 3) 実装計画
 
 > **作成日**: 2026-01-05
-> **ベース**: [web_agent_feature_plan.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/plans/web_agent_feature_plan.md)
+> **ベース**: [web_agent_feature_plan.md](web_agent_feature_plan.md)
 > **ステータス**: Step 1-3 完了、Step 4-5 未着手
 
 ---
@@ -41,11 +41,11 @@
 
 ### 変更内容
 
-#### [MODIFY] [nexus_ark.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/nexus_ark.py)
+#### [MODIFY] [nexus_ark.py](../../nexus_ark.py)
 - 「ノート」タブに「🔬 研究・分析ノート」アコーディオンを追加（創作ノートの下）
 - テキストエリア + 保存/リロード/クリアボタン
 
-#### [MODIFY] [ui_handlers.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ui_handlers.py)
+#### [MODIFY] [ui_handlers.py](../../ui_handlers.py)
 - `load_research_notes_content(room_name)`: 研究ノートの読み込み
 - `handle_save_research_notes(room_name, content)`: 保存処理
 - `handle_clear_research_notes(room_name)`: クリア処理
@@ -57,7 +57,7 @@
 
 ### 新規ファイル
 
-#### [NEW] [tools/research_tools.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/tools/research_tools.py)
+#### [NEW] [tools/research_tools.py](../../tools/research_tools.py)
 ```python
 @tool
 def read_research_notes(room_name: str) -> str:
@@ -70,17 +70,17 @@ def plan_research_notes_edit(room_name: str, instructions: list) -> str:
 
 ### 変更内容
 
-#### [MODIFY] [alarm_manager.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/alarm_manager.py)
+#### [MODIFY] [alarm_manager.py](../../alarm_manager.py)
 - `check_watchlist_scheduled()` で大きな変更検知時に分析モードAIを呼び出す
 - `trigger_research_analysis(room_name, diff_summary)` 関数を新設
 - **自律行動 (`trigger_autonomous_action`) と同様のフローを使用**:
   - 応答はチャットログに記録される（ペルソナの記憶に残る）
   - 通知はAI本人が `send_user_notification` ツールで選択
 
-#### [NEW/MODIFY] [agent/prompts.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/agent/prompts.py) または [agent/prompts_analysis.py]
+#### [NEW/MODIFY] [agent/prompts.py](../../agent/prompts.py) または [agent/prompts_analysis.py]
 - 分析・戦略家モード用のシステムプロンプト断片を定義
 
-#### [MODIFY] [agent/graph.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/agent/graph.py)
+#### [MODIFY] [agent/graph.py](../../agent/graph.py)
 - `research_tools` をツールリストに統合
 - 研究ノートコンテキストをエージェント状態に注入
 
@@ -102,5 +102,5 @@ def plan_research_notes_edit(room_name: str, instructions: list) -> str:
 
 ## 関連ドキュメント
 
-- [6変数化レポート](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/reports/2026-01-05_get_room_files_paths_6var.md)
-- [gradio_notes.md レッスン41](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gradio_notes.md#レッスン41)
+- [6変数化レポート](../reports/2026-01-05_get_room_files_paths_6var.md)
+- [gradio_notes.md レッスン41](../guides/gradio_notes.md#レッスン41)

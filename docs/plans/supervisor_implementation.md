@@ -10,11 +10,11 @@ Implement a "Supervisor" node in the LangGraph workflow to manage multi-agent or
 ## Proposed Changes
 
 ### Configuration
-#### [MODIFY] [constants.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/constants.py)
+#### [MODIFY] [constants.py](../../constants.py)
 - Add `SUPERVISOR_MODEL` constant defaulting to `"gemma-3-12b-it"`.
 
 ### Agent Graph
-#### [MODIFY] [agent/graph.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/agent/graph.py)
+#### [MODIFY] [agent/graph.py](../../agent/graph.py)
 - **Import Changes:** Import `SUPERVISOR_MODEL` from constants.
 - **Supervisor Node:** Implement `supervisor_node` function.
     - Uses `SUPERVISOR_MODEL`.

@@ -84,9 +84,9 @@ def resize_image_for_api(
 
 | ファイル | 変更内容 |
 |----------|----------|
-| [utils.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/utils.py) | `resize_image_for_api`関数の定義 |
-| [ui_handlers.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ui_handlers.py) | ユーザー添付画像・情景画像のリサイズ適用 |
-| [gemini_api.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/gemini_api.py) | トークン計算用のリサイズ適用 |
+| [utils.py](../../utils.py) | `resize_image_for_api`関数の定義 |
+| [ui_handlers.py](../../ui_handlers.py) | ユーザー添付画像・情景画像のリサイズ適用 |
+| [gemini_api.py](../../gemini_api.py) | トークン計算用のリサイズ適用 |
 
 ---
 

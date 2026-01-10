@@ -78,7 +78,7 @@
 
 | ファイル | 変更内容 |
 |---------|---------|
-| [agent/graph.py](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/agent/graph.py) | デバッグログ2箇所追加（+42行） |
+| [agent/graph.py](../../agent/graph.py) | デバッグログ2箇所追加（+42行） |
 
 ## 今後の対応
 
@@ -87,6 +87,6 @@
 
 ## 関連ドキュメント
 
-- [gradio_notes.md レッスン30](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/guides/gradio_notes.md): Gemini 2.5 Proチャンク連結問題
-- [gradio_notes.md レッスン33](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/guides/gradio_notes.md): Gemini 3 Flash Preview応答遅延問題
-- [gradio_notes.md レッスン37](file:///c:/Users/baken/OneDrive/%E3%83%87%E3%82%B9%E3%82%AF%E3%83%88%E3%83%83%E3%83%97/gradio_github/gradiotest/docs/guides/gradio_notes.md): Gemini 3統合の思考プロセス制御
+- [gradio_notes.md レッスン30](../guides/gradio_notes.md): Gemini 2.5 Proチャンク連結問題
+- [gradio_notes.md レッスン33](../guides/gradio_notes.md): Gemini 3 Flash Preview応答遅延問題
+- [gradio_notes.md レッスン37](../guides/gradio_notes.md): Gemini 3統合の思考プロセス制御

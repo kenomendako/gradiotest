@@ -54,9 +54,9 @@ KEYWORD: 田中
 
 | ファイル | 変更内容 |
 |----------|----------|
-| [agent/graph.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/agent/graph.py) | `_keyword_search_for_retrieval`関数追加、クエリ生成プロンプト拡張、retrieval_nodeにキーワード検索呼び出し追加 |
-| [tools/memory_tools.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/tools/memory_tools.py) | `search_past_conversations`に時間帯別枠取り拡張、コンテンツベース重複除去、長文切り捨てを追加 |
-| [docs/specifications/MEMORY_SYSTEM_SPECIFICATION.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/specifications/MEMORY_SYSTEM_SPECIFICATION.md) | ハイブリッド検索仕様を追記 |
+| [agent/graph.py](../../agent/graph.py) | `_keyword_search_for_retrieval`関数追加、クエリ生成プロンプト拡張、retrieval_nodeにキーワード検索呼び出し追加 |
+| [tools/memory_tools.py](../../tools/memory_tools.py) | `search_past_conversations`に時間帯別枠取り拡張、コンテンツベース重複除去、長文切り捨てを追加 |
+| [docs/specifications/MEMORY_SYSTEM_SPECIFICATION.md](../specifications/MEMORY_SYSTEM_SPECIFICATION.md) | ハイブリッド検索仕様を追記 |
 
 ---
 

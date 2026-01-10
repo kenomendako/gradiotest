@@ -23,7 +23,7 @@
 
 ### 変更ファイル
 
-#### [ui_handlers.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ui_handlers.py)
+#### [ui_handlers.py](../../ui_handlers.py)
 
 **コードブロック処理（L2745-2765）**:
 - `<span>` タグを一時的にプレースホルダーに置換
@@ -54,4 +54,4 @@
 
 ## 関連ドキュメント
 
-- [gradio_notes.md](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/docs/guides/gradio_notes.md) - レッスン36として追記
+- [gradio_notes.md](../guides/gradio_notes.md) - レッスン36として追記

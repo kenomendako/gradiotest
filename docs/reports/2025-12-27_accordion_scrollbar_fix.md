@@ -24,7 +24,7 @@
 
 ## 変更したファイル
 
-- [nexus_ark.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/nexus_ark.py) - `custom_css` 内にスクロール不具合修正用のCSSを追加。
+- [nexus_ark.py](../../nexus_ark.py) - `custom_css` 内にスクロール不具合修正用のCSSを追加。
 
 ---
 

@@ -92,7 +92,7 @@ flowchart TB
 
 ### Core Infrastructure
 
-#### [NEW] [version.json](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/version.json)
+#### [NEW] [version.json](../../version.json)
 
 バージョン管理用ファイル。GitHubリリースとの照合に使用。
 
@@ -108,7 +108,7 @@ flowchart TB
 
 ---
 
-#### [NEW] [初回セットアップ.bat](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/初回セットアップ.bat)
+#### [NEW] [初回セットアップ.bat](../../初回セットアップ.bat)
 
 ユーザーがダブルクリックするだけでセットアップ完了するスクリプト。
 
@@ -120,7 +120,7 @@ flowchart TB
 
 ---
 
-#### [NEW] [update_manager.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/update_manager.py)
+#### [NEW] [update_manager.py](../../update_manager.py)
 
 アップデート確認・実行を管理するモジュール。
 
@@ -133,7 +133,7 @@ flowchart TB
 
 ---
 
-#### [MODIFY] [nexus_ark.py](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/nexus_ark.py)
+#### [MODIFY] [nexus_ark.py](../../nexus_ark.py)
 
 起動時のアップデート確認UI追加。
 
@@ -144,7 +144,7 @@ flowchart TB
 
 ---
 
-#### [MODIFY] [ネクサスアーク.bat](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/ネクサスアーク.bat)
+#### [MODIFY] [ネクサスアーク.bat](../../ネクサスアーク.bat)
 
 Portable Python対応に修正。
 
@@ -163,7 +163,7 @@ Portable Python対応に修正。
 
 ### GitHub Integration
 
-#### [NEW] [.github/workflows/release.yml](file:///c:/Users/baken/OneDrive/デスクトップ/gradio_github/gradiotest/.github/workflows/release.yml)
+#### [NEW] [.github/workflows/release.yml](../../.github/workflows/release.yml)
 
 （**将来オプション**）タグプッシュ時に自動でリリースZIPを作成するワークフロー。
 
