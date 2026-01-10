@@ -456,16 +456,18 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
     # これにより「昼下がりの画像がなくても夜の画像より朝の画像を優先」を実現
     TIME_FALLBACK_MAP = {
         # 昼間時間帯グループ（明るい画像を優先）
-        "early_morning": ["morning"],                      # 早朝 → 朝
-        "late_morning": ["morning"],                       # 昼前 → 朝
-        "afternoon": ["noon", "late_morning", "morning"],  # 昼下がり → 昼 → 昼前 → 朝
-        "noon": ["late_morning", "morning"],               # 昼 → 昼前 → 朝
+        # [v27] daytime (昼間) をフォールバックに追加
+        "early_morning": ["morning", "daytime"],           # 早朝 → 朝 → 昼間
+        "late_morning": ["morning", "daytime"],            # 昼前 → 朝 → 昼間
+        "afternoon": ["noon", "late_morning", "morning", "daytime"],  # 昼下がり → 昼 → 昼前 → 朝 → 昼間
+        "noon": ["late_morning", "morning", "daytime"],    # 昼 → 昼前 → 朝 → 昼間
         # 夜間時間帯グループ（暗い画像を優先）
         "evening": ["night"],                              # 夕方 → 夜
         "midnight": ["night"],                             # 深夜 → 夜
         # 基本時間帯（変換不要）
-        "morning": [],
+        "morning": ["daytime"],                            # 朝 → 昼間
         "night": [],
+        "daytime": [],                                     # 昼間（基本）
     }
     
     def get_time_fallbacks(time_name: str) -> list:
@@ -544,6 +546,16 @@ def find_scenery_image(room_name: str, location_id: str, season_en: str = None, 
                                     for t in ALL_TIME_NAMES)
                 if not contains_time:
                     return os.path.join(image_dir, f)
+
+        # 【修正v3: 最終手段 (Desperation Fallback)】
+        # 上記すべてで見つからず、それでも画像がある場合は、とにかく何かを表示する。
+        # 例: 昼間に `_daytime.png` しかなく、daytimeフォールバックも漏れた場合など。
+        # 特定の場所に来ているのに、画像があるのに何も出ないよりはマシ。
+        for f in files:
+            if f.lower().startswith(location_prefix.lower()) and f.lower().endswith('.png'):
+                print(f"[Scenery Fallback] 最終手段として画像を選択: {f}")
+                return os.path.join(image_dir, f)
+
     except Exception as e:
         print(f"警告: 情景画像検索中にエラー: {e}")
 
