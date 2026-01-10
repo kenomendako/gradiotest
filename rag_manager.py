@@ -364,6 +364,27 @@ class RAGManager:
                     except Exception as e:
                         print(f"  - 日記ファイル読み込みエラー ({f.name}): {e}")
 
+        # [2026-01-10] 研究・分析ノート収集
+        research_notes_path = self.room_dir / constants.RESEARCH_NOTES_FILENAME
+        if research_notes_path.exists():
+            try:
+                content = research_notes_path.read_text(encoding="utf-8")
+                if content.strip():
+                    content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+                    record_id = f"research_notes:{content_hash}"
+                    if record_id not in processed_records:
+                        doc = Document(
+                            page_content=content,
+                            metadata={
+                                "source": constants.RESEARCH_NOTES_FILENAME,
+                                "type": "research_notes",
+                                "path": str(research_notes_path)
+                            }
+                        )
+                        pending_items.append((record_id, doc))
+            except Exception as e:
+                print(f"  - 研究ノート読み込みエラー: {e}")
+
         # 5. 現行ログ (log.txt) - 動的インデックスで処理するため、ここでは除外
         # 現行ログは頻繁に変更されるため、毎回再構築する動的インデックス側で処理する方が効率的
 
@@ -489,6 +510,27 @@ class RAGManager:
                                 pending_items.append((record_id, doc))
                     except Exception as e:
                         print(f"  - 日記ファイル読み込みエラー ({f.name}): {e}")
+
+        # [2026-01-10] 研究・分析ノート収集
+        research_notes_path = self.room_dir / constants.RESEARCH_NOTES_FILENAME
+        if research_notes_path.exists():
+            try:
+                content = research_notes_path.read_text(encoding="utf-8")
+                if content.strip():
+                    content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+                    record_id = f"research_notes:{content_hash}"
+                    if record_id not in processed_records:
+                        doc = Document(
+                            page_content=content,
+                            metadata={
+                                "source": constants.RESEARCH_NOTES_FILENAME,
+                                "type": "research_notes",
+                                "path": str(research_notes_path)
+                            }
+                        )
+                        pending_items.append((record_id, doc))
+            except Exception as e:
+                print(f"  - 研究ノート読み込みエラー: {e}")
 
         if not pending_items:
             yield (0, 0, "記憶索引: 差分なし")

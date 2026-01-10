@@ -65,6 +65,8 @@ def recall_memories(query: str, room_name: str, api_key: str) -> str:
                 label = f"エピソード記憶（{date}）"
             elif doc_type == "dream_insight":
                 label = "夢の記録"
+            elif doc_type == "research_notes":
+                label = "研究・分析ノート"
             else:
                 label = source
             

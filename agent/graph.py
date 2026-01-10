@@ -745,13 +745,28 @@ def context_generator_node(state: AgentState):
 
     research_notes_section = ""
     try:
+        from room_manager import get_room_files_paths
         _, _, _, _, _, research_notes_path = get_room_files_paths(room_name)
         if research_notes_path and os.path.exists(research_notes_path):
             with open(research_notes_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                research_notes_content = content if content else "（研究ノートは空です）"
+                lines = f.readlines()
+            
+            # 見出し（## で始まる行）を抽出（H2レベルを優先）
+            headlines = [line.strip() for line in lines if line.strip().startswith("## ")]
+            
+            if headlines:
+                # 最新の10件を表示（必要ならさらに絞る）
+                latest_headlines = headlines[-10:]
+                headlines_str = "\n".join(latest_headlines)
+                research_notes_content = (
+                    "以下は最近の研究・分析トピックの目次です。詳細な内容は `read_research_notes` ツールで確認するか、\n"
+                    "`recall_memories` ツールで過去の記憶としてキーワード検索してください。\n\n"
+                    f"{headlines_str}"
+                )
+            else:
+                research_notes_content = "（研究ノートにトピックが定義されていません）"
         else: research_notes_content = "（研究ノートファイルが見つかりません）"
-        research_notes_section = f"\n### 研究・分析ノート\n{research_notes_content}\n"
+        research_notes_section = f"\n### 研究・分析ノート（目次）\n{research_notes_content}\n"
     except Exception as e:
         print(f"--- 警告: 研究ノートの読み込み中にエラー: {e}")
         research_notes_section = "\n### 研究・分析ノート\n（研究ノートの読み込み中にエラーが発生しました）\n"
