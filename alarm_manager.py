@@ -74,6 +74,7 @@ def delete_alarm(alarm_id: str):
 def _summarize_watchlist_content(name: str, url: str, new_content: str, diff_summary: str) -> str:
     """
     軽量モデル（gemini-2.5-flash-lite）を使用して、ウォッチリスト更新内容を要約する。
+    503/429エラー時はリトライし、それでも失敗したらコンテンツの冒頭を返す。
     
     Args:
         name: サイト名
@@ -84,17 +85,35 @@ def _summarize_watchlist_content(name: str, url: str, new_content: str, diff_sum
     Returns:
         要約テキスト
     """
+    import time as time_module  # 既存のtimeモジュールと名前衝突回避
+    
+    MAX_RETRIES = 3
+    FALLBACK_CHAR_LIMIT = 500
+    
+    def _create_fallback_content(content: str, error_msg: str = None) -> str:
+        """フォールバックコンテンツを生成"""
+        fallback = content[:FALLBACK_CHAR_LIMIT].strip()
+        if len(content) > FALLBACK_CHAR_LIMIT:
+            fallback += (
+                "\n\n---\n"
+                "⚠️ **注意**: 要約APIが一時的に利用できないため、コンテンツ冒頭のみを抜粋しています。\n"
+                "詳細が必要な場合は、URLを直接確認するかWeb検索ツールで追加調査してください。"
+            )
+        return fallback
+    
     try:
         from google import genai
         
         # APIキーを取得
         api_key_name = config_manager.get_latest_api_key_name_from_config()
         if not api_key_name:
-            return f"（要約生成失敗: APIキーが設定されていません）"
+            print(f"  ⚠️ {name}: APIキー未設定（フォールバック使用）")
+            return _create_fallback_content(new_content)
         
         api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
         if not api_key:
-            return f"（要約生成失敗: APIキーが見つかりません）"
+            print(f"  ⚠️ {name}: APIキーが見つからない（フォールバック使用）")
+            return _create_fallback_content(new_content)
         
         # 軽量モデルを使用
         client = genai.Client(api_key=api_key)
@@ -118,20 +137,46 @@ def _summarize_watchlist_content(name: str, url: str, new_content: str, diff_sum
 - 新しい情報や重要な更新を優先
 - 出力は2〜3パラグラフ以内"""
 
-        response = client.models.generate_content(
-            model=constants.INTERNAL_PROCESSING_MODEL,
-            contents=prompt
-        )
+        # リトライループ
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = client.models.generate_content(
+                    model=constants.INTERNAL_PROCESSING_MODEL,
+                    contents=prompt
+                )
+                if response and response.text:
+                    print(f"  ✅ {name}: コンテンツ要約を生成しました")
+                    return response.text.strip()
+                else:
+                    # 応答なしはリトライしても意味がないので即フォールバック
+                    print(f"  ⚠️ {name}: 応答なし（フォールバック使用）")
+                    return _create_fallback_content(new_content)
+                    
+            except Exception as api_error:
+                error_str = str(api_error)
+                # 503 or 429 (レート制限/過負荷) はリトライ対象
+                is_retryable = ("503" in error_str or "429" in error_str or 
+                               "overloaded" in error_str.lower() or "unavailable" in error_str.lower())
+                
+                if is_retryable and attempt < MAX_RETRIES - 1:
+                    wait_time = 2 ** attempt  # 指数バックオフ: 1, 2, 4秒
+                    print(f"  ⏳ {name}: 一時エラー、{wait_time}秒後にリトライ... ({attempt + 1}/{MAX_RETRIES})")
+                    time_module.sleep(wait_time)
+                    last_error = api_error
+                else:
+                    # リトライ不可 or 最後のリトライも失敗
+                    last_error = api_error
+                    break
         
-        if response and response.text:
-            print(f"  ✅ {name}: コンテンツ要約を生成しました")
-            return response.text.strip()
-        else:
-            return f"（要約生成失敗: 応答なし）"
-            
+        # 全リトライ失敗 → フォールバック
+        print(f"  ⚠️ {name}: 要約生成に失敗、コンテンツ冒頭を使用します ({last_error})")
+        return _create_fallback_content(new_content, str(last_error))
+        
     except Exception as e:
-        print(f"  ⚠️ コンテンツ要約エラー ({name}): {e}")
-        return f"（要約生成失敗: {e}）"
+        # APIキー関連などリトライ対象外のエラー
+        print(f"  ⚠️ {name}: 予期せぬエラー（フォールバック使用）: {e}")
+        return _create_fallback_content(new_content)
 
 def _send_discord_notification(webhook_url, message_text):
     if not webhook_url:
