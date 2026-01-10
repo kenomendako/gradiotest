@@ -116,10 +116,19 @@ TOOLS_SAVE_RAW_RESULT = {"generate_image"}
 # ログにアナウンスのみ保存するツール（RAW_RESULT除外）
 # これ以外のツールは通常通り全データを保存
 TOOLS_SAVE_ANNOUNCEMENT_ONLY = {
+    # 記憶・検索系
     "recall_memories",
     "search_past_conversations",
+    # Web巡回・検索系
     "check_watchlist",
     "web_search_tool",
     "tavily_search",
     "tavily_extract",
+    # ファイル編集系（ペルソナ向け指示はログ不要）
+    "plan_research_notes_edit",
+    "plan_main_memory_edit",
+    "plan_secret_diary_edit",
+    "plan_notepad_edit",
+    "plan_world_edit",
+    "plan_creative_notes_edit",
 }
