@@ -789,7 +789,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 157):
+def handle_initial_load(room_name: str = None, expected_count: int = 159):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -2260,7 +2260,7 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         traceback.print_exc()
         return gr.update(), gr.update()
 
-def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name: str, current_room_name: str = None, expected_count: int = 131):
+def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name: str, current_room_name: str = None, expected_count: int = 148):
     """
     【v7: 引数順序修正版】
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
@@ -4840,7 +4840,7 @@ def handle_world_builder_load(room_name: str):
         gr.update(choices=place_choices_for_selected_area, value=current_location)
     )
 
-def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 147):
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 148):
     """
     【v11: 最終契約遵守版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。

@@ -6,8 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **開発ツール:** `tools/validate_wiring.py` を追加。UI定義と実装の不整合を静的解析で自動検出可能に。
+
 ### Fixed
 - **UI安定性の向上:** `handle_delete_room` における戻り値の不整合修正。ルーム削除時のクラッシュを防止するため、`_ensure_output_count` システムの適用を強化。
+- **配線修正:** `handle_initial_load` 等のデフォルト戻り値数が古い定義のままだった問題を修正 (157->159, 147->148)。
+
 
 ### Improved
 - **安全装置の徹底:** 主要なイベントハンドラ（初期ロード、ルーム変更など）が、UI定義と一致した数の戻り値を常に返すことを保証する仕組みを再確認・修正。
