@@ -121,6 +121,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - バグ修正
 
+#### 🛠️ エンティティ記憶検索が常にヒットしない問題を修正 (2026-01-10)
+- `EntityMemoryManager.search_entries` がクエリ文字列全体を部分一致検索していたため、`retrieval_node`から渡される複数単語のキーワード群（例: `"田中さん 友人 知り合い"`）でヒットしなかった
+- クエリを単語分割して各単語でマッチングするよう修正
+- マッチした単語数でスコアリングし、関連度順にソート
+- [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-10_entity_search_query_split.md)
+
 #### 🛠️ RAG検索結果の重複を除去するロジックを追加 (2026-01-10)
 - 同一コンテンツ・同一スコアのエントリが複数返され、ペルソナに重複情報が渡されていた問題を修正
 - `RAGManager.search`メソッドにコンテンツベースの重複判定（先頭100文字で判定）を追加
