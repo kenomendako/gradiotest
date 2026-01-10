@@ -87,8 +87,13 @@ AIエージェントは、作業開始前に必ずこのファイルを確認し
 3.  **状態管理 (State Management)**:
     - グローバル変数に依存してはいけません。
     - 必ず `gr.State` を使用して、関数間でデータを安全に受け渡してください。
+    - グローバル変数は「読み取り専用」の定数以外原則禁止です。
 
-4.  **HTML/Markdown**:
+4.  **配線チェック (Wiring Validation)**:
+    - UI変更後は必ず `python tools/validate_wiring.py` を実行してください。
+    - 戻り値の数や `expected_count` の不整合をコミット前に検出できます。
+
+5.  **HTML/Markdown**:
     - `gr.Chatbot` は `render_markdown=False` で運用されています。
     - 複雑な表示が必要な場合は、Python側で完全なHTMLを生成してください。GradioにMarkdown解析を・させないでください。
 

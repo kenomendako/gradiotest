@@ -10,6 +10,8 @@ description: 完了レポートを作成し、変更をコミットしてマー�
    - 新しいファイル `docs/reports/YYYY-MM-DD_[TaskName].md` を作成します。
    - `docs/templates/report_template.md` のテンプレートを使用します（見つからない場合は標準的なフォーマットを使用）。
    - 内容: 概要、変更点、検証結果。
+   - **UI変更がある場合:** `python tools/validate_wiring.py` を実行し、結果を報告に含めてください。
+
 
 2. **変更のコミット**
    - Gitコマンドを実行して変更をコミットします。
