@@ -2287,7 +2287,10 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
         if new_room_list:
             new_main_room_folder = new_room_list[0][1]
             # handle_room_change_for_all_tabs を呼び出し、その結果をそのまま返す
-            return handle_room_change_for_all_tabs(new_main_room_folder, api_key_name, "")
+            # 【Fix】expected_count を明示的に渡すことで、もしデフォルト値が古くても不整合を防ぐ
+            return handle_room_change_for_all_tabs(
+                new_main_room_folder, api_key_name, "", expected_count=expected_count
+            )
         else:
             # ケース2: これが最後のルームだった場合
             gr.Warning("全てのルームが削除されました。新しいルームを作成してください。")

@@ -4,7 +4,14 @@ All notable changes to Nexus Ark will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased] - 次回リリース予定
+## [Unreleased]
+
+### Fixed
+- **UI安定性の向上:** `handle_delete_room` における戻り値の不整合修正。ルーム削除時のクラッシュを防止するため、`_ensure_output_count` システムの適用を強化。
+
+### Improved
+- **安全装置の徹底:** 主要なイベントハンドラ（初期ロード、ルーム変更など）が、UI定義と一致した数の戻り値を常に返すことを保証する仕組みを再確認・修正。
+ - 次回リリース予定
 
 ### Added - 新機能
 
