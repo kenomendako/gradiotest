@@ -716,10 +716,27 @@ class RAGManager:
                 results_with_scores.extend(static_results)
             except Exception as e: print(f"  - [RAG Warning] Static index search failed: {e}")
 
-        filtered_docs = []
+        # スコアでソート
         results_with_scores.sort(key=lambda x: x[1])
-
+        
+        # [2026-01-10 追加] コンテンツベースの重複除去
+        seen_contents = set()
+        unique_results = []
+        duplicate_count = 0
         for doc, score in results_with_scores:
+            # 先頭100文字で重複判定（完全一致ではなくプレフィックス比較）
+            content_key = doc.page_content[:100].strip()
+            if content_key not in seen_contents:
+                seen_contents.add(content_key)
+                unique_results.append((doc, score))
+            else:
+                duplicate_count += 1
+        
+        if duplicate_count > 0:
+            print(f"  - [RAG] 重複除去: {len(results_with_scores)}件 → {len(unique_results)}件 ({duplicate_count}件除去)")
+
+        filtered_docs = []
+        for doc, score in unique_results:
             is_relevant = score <= score_threshold
             clean_content = doc.page_content.replace('\n', ' ')[:50]
             status_icon = "✅" if is_relevant else "❌"
