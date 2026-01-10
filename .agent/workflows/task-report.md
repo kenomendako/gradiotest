@@ -18,8 +18,12 @@ description: 完了レポートを作成し、変更をコミットしてマー�
    - `git add .`
    - `git commit -m "[prefix]: [message]"`
 
-3. **変更履歴 (CHANGELOG) の更新**
+3. **ドキュメントの更新 (CHANGELOG / STATUS)**
    - `CHANGELOG.md` にエントリを追加します。
+   - `docs/STATUS.md` を更新します。
+     - 「最終更新」の日付と内容を更新。
+     - 「最近完了したタスク」に今回のタスクを追記。
+     - 「リリースまでの進捗」を必要に応じて更新。
 
 4. **タスクリストの更新**
    - `docs/plans/TASK_LIST.md` 内のタスクを `[x]` にマークします。
