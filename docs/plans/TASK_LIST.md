@@ -114,6 +114,8 @@
 
 - [x] **情景画像生成が勝手に行われる問題** 🆕
   - 以前は無料画像生成APIが使えたので自動生成にしていたが、今は有料なので勝手に生成しないようにしたはずがまた自動生成画復活している。 (INBOXより)
+  - ✅ 完了 (2026-01-10): [自動生成廃止レポート](docs/reports/2026-01-10_auto_scenery_generation_fix.md) | [フォールバック改善レポート](docs/reports/2026-01-10_scenery_fallback_improvement.md)
+  - 📄 仕様書: [SCENERY_SYSTEM_SPECIFICATION.md](docs/specifications/SCENERY_SYSTEM_SPECIFICATION.md)
 
 ---
 
