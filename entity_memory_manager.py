@@ -59,22 +59,37 @@ class EntityMemoryManager:
     def search_entries(self, query: str) -> list:
         """
         Simple keyword search across entity names and contents.
-        Returns a list of matching entity names.
+        Returns a list of matching entity names, sorted by relevance (match count).
+        
+        [2026-01-10 fix] クエリを単語分割して検索するよう修正。
+        retrieval_nodeから渡されるrag_queryは複数単語のキーワード群のため、
+        クエリ全体ではなく各単語でマッチングする必要がある。
         """
-        matches = []
+        # クエリを単語に分割（空白で区切る）
+        query_words = [w.lower() for w in query.split() if w.strip()]
+        if not query_words:
+            return []
+        
+        scored_matches = []
         all_entities = self.list_entries()
-        query_lower = query.lower()
         
         for name in all_entities:
-            if query_lower in name.lower():
-                matches.append(name)
-                continue
+            name_lower = name.lower()
+            content_lower = self.read_entry(name).lower()
             
-            content = self.read_entry(name).lower()
-            if query_lower in content:
-                matches.append(name)
+            # マッチした単語数をカウント
+            match_count = 0
+            for word in query_words:
+                if word in name_lower or word in content_lower:
+                    match_count += 1
+            
+            if match_count > 0:
+                scored_matches.append((name, match_count))
         
-        return matches
+        # マッチ数の多い順にソート
+        scored_matches.sort(key=lambda x: x[1], reverse=True)
+        return [name for name, _ in scored_matches]
+
 
     def delete_entry(self, entity_name: str) -> bool:
         """
