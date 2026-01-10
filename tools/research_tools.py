@@ -50,6 +50,9 @@ def _apply_research_notes_edits(instructions: List[Dict[str, Any]], room_name: s
         insertions = {}
         timestamp = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}]"
         
+        # セッション単位で一度だけタイムスタンプを付与するためのフラグ
+        timestamp_added = False
+        
         for inst in instructions:
             op = inst.get("operation", "").lower()
             line_num = inst.get("line")
@@ -60,9 +63,11 @@ def _apply_research_notes_edits(instructions: List[Dict[str, Any]], room_name: s
             final_content = inst.get("content", "")
             # opが'replace'または'insert_after'で、かつcontentに実質的な内容がある場合のみ処理
             if op in ["replace", "insert_after"] and str(final_content).strip():
-                # タイムスタンプセクションを冒頭に挿入（二重付与防止の簡易チェック付き）
-                if not str(final_content).strip().startswith("--- ["):
+                # 【修正】セッション単位で一度だけタイムスタンプを付与
+                # 最初のコンテンツ追加時のみタイムスタンプヘッダーを付与
+                if not timestamp_added and not str(final_content).strip().startswith("--- ["):
                     final_content = f"\n---\n{timestamp} 研究記録\n{final_content}\n"
+                    timestamp_added = True
 
             if op == "delete":
                 line_plan[target_index] = {"operation": "delete"}

@@ -63,6 +63,9 @@ def _apply_creative_notes_edits(instructions: List[Dict[str, Any]], room_name: s
         line_plan = {}
         insertions = {}
         
+        # セッション単位で一度だけタイムスタンプを付与するためのフラグ
+        timestamp_added = False
+        
         for inst in instructions:
             op = inst.get("operation", "").lower()
             line_num = inst.get("line")
@@ -86,12 +89,13 @@ def _apply_creative_notes_edits(instructions: List[Dict[str, Any]], room_name: s
             final_content = inst.get("content", "")
             # opが'replace'または'insert_after'で、かつcontentに実質的な内容がある場合のみ処理
             if op in ["replace", "insert_after"] and str(final_content).strip():
-                # セクションヘッダー方式：コンテンツ全体の先頭に仕切り線とタイムスタンプを1つ追加
-                # ルシアンの既存形式 📝 YYYY-MM-DD HH:MM を尊重
-                timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-                section_header = f"\n---\n📝 {timestamp}\n"
-                # 改行を分割して扱うことで、全体を一貫して処理
-                final_content = section_header + "\n" + str(final_content).strip()
+                # 【修正】セッション単位で一度だけタイムスタンプを付与
+                # 最初のコンテンツ追加時のみタイムスタンプヘッダーを付与
+                if not timestamp_added:
+                    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+                    section_header = f"\n---\n📝 {timestamp}\n"
+                    final_content = section_header + "\n" + str(final_content).strip()
+                    timestamp_added = True
 
             if op == "delete":
                 line_plan[target_index] = {"operation": "delete"}
