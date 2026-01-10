@@ -272,11 +272,19 @@ class DreamingManager:
                 for update in entity_updates:
                     e_name = update.get("entity_name")
                     e_content = update.get("content")
-                    e_append = update.get("append", True)
+                    # デフォルトを追記から統合(consolidate)に変更
+                    e_consolidate = update.get("consolidate", True)
                     
                     if e_name and e_content:
-                        res = em_manager.create_or_update_entry(e_name, e_content, append=e_append)
-                        print(f"  - [Dreaming] エンティティ記憶 '{e_name}' を自動更新しました: {res}")
+                        res = em_manager.create_or_update_entry(e_name, e_content, consolidate=e_consolidate, api_key=self.api_key)
+                        print(f"  - [Dreaming] エンティティ記憶 '{e_name}' を自動更新（統合）しました: {res}")
+            
+            # --- [Maintenance] 定期的な記憶のクリーンアップ ---
+            # 週次(Level 2)以上の省察時に、全エンティティ記憶を再整理する
+            if reflection_level >= 2 and should_update_entity:
+                print(f"  - [Dreaming] レベル{reflection_level}の省察に伴い、全エンティティの定期メンテナンスを実行します...")
+                em_manager = EntityMemoryManager(self.room_name)
+                em_manager.consolidate_all_entities(self.api_key)
             
             # --- [Goal Memory] 目標の自動更新 ---
             goal_updates = dream_data.get("goal_updates", {})

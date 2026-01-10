@@ -17,15 +17,16 @@ def read_entity_memory(entity_name: str, room_name: str) -> str:
         return f"Error reading entity memory: {str(e)}"
 
 @tool
-def write_entity_memory(entity_name: str, content: str, room_name: str, append: bool = True) -> str:
+def write_entity_memory(entity_name: str, content: str, room_name: str, append: bool = True, consolidate: bool = False, api_key: str = None) -> str:
     """
     Writes or updates information about a specific entity. 
     Use this to 'save' important facts, observations, or summaries about a person or topic for future reference.
-    Setting append=True (default) adds new information at the end.
+    - Setting append=True (default) adds new information at the end.
+    - Setting consolidate=True will merge and summarize existing memory with new info (requires api_key).
     """
     try:
         manager = EntityMemoryManager(room_name)
-        return manager.create_or_update_entry(entity_name, content, append=append)
+        return manager.create_or_update_entry(entity_name, content, append=append, consolidate=consolidate, api_key=api_key)
     except Exception as e:
         return f"Error writing entity memory: {str(e)}"
 
