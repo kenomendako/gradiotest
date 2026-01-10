@@ -115,7 +115,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed - 仕様変更
 
-#### 🛡️ OutingフォルダをGit管理除外 (2026-01-08)
+#### � ドキュメント整理: INBOXタスクの移行 (2026-01-10)
+- `docs/INBOX.md` に蓄積されていたタスクをすべて `docs/plans/TASK_LIST.md` に移行し、優先度別に整理
+- `INBOX.md` をクリーンアップし、今後の新規タスク追加用にリセット
+
+#### �🛡️ OutingフォルダをGit管理除外 (2026-01-08)
 - プライベートな `/outing` フォルダを `.gitignore` に追加。
 - 既存のGit追跡から除外し、誤って公開されないように修正。
 

@@ -6,7 +6,7 @@
 
 ## 🎯 現在の目標
 
-**年内リリース** — Portable Python同梱形式での配布
+**今月中リリース** — Portable Python同梱形式での配布
 
 ---
 
