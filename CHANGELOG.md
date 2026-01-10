@@ -163,10 +163,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `nexus_ark.py` で `room_dropdown` などの初期化時に適切な `choices` を設定するように変更
 - [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-09_gradio_dropdown_fix.md)
 
-#### 🛠️ 情景画像の自動生成を制御するオプションを追加 (2026-01-10)
+#### 🛠️ 情景画像の自動生成を廃止 (2026-01-10)
 - **問題**: 情景システム有効時に、適合する画像がないと自動で生成処理が走り、意図しないAPIコストが発生していた
-- **修正**: 「情景画像の自動生成を許可する」チェックボックスを追加（デフォルトON）
-- OFFにすると、画像がない場合はテキストのみ更新され、画像生成APIはコールされないようになる
+- **修正**: 画像がない場合の自動生成ロジックを廃止。テキストのみ更新され、画像生成は「情景画像を生成 / 更新」ボタンを押した場合のみ実行されるように変更。
 
 #### 🛠️ ツール関連バグ3件を修正 (2026-01-06)
 - **`research_notes` バックアップタイプ未登録**: `room_manager.py` の `create_backup` マップに `research_notes` を追加

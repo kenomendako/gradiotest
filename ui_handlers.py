@@ -428,7 +428,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             "変更時のみ", # scenery_send_mode
             False, # auto_memory_enabled
             f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*", None,
-            True, True, gr.update(open=True),
+            True, gr.update(open=True),
             gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(constants.DEFAULT_API_HISTORY_LIMIT_OPTION, "20往復")),  # room_api_history_limit_dropdown
             gr.update(value="既定 (AIに任せる / 通常モデル)"),  # room_thinking_level_dropdown
             constants.DEFAULT_API_HISTORY_LIMIT_OPTION,  # api_history_limit_state
@@ -691,7 +691,6 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         f"ℹ️ *現在選択中のルーム「{room_name}」にのみ適用される設定です。*",
         scenery_image_path,
         effective_settings.get("enable_scenery_system", True),
-        effective_settings.get("auto_generate_scenery", True),
         gr.update(open=effective_settings.get("enable_scenery_system", True)),
         gr.update(value=limit_display), # room_api_history_limit_dropdown
         gr.update(value=constants.THINKING_LEVEL_OPTIONS.get(effective_settings.get("thinking_level", "auto"), "既定 (AIに任せる / 通常モデル)")),
@@ -939,7 +938,6 @@ def handle_save_room_settings(
     send_scenery: bool,
     scenery_send_mode: str,  # 情景画像送信タイミング: 「変更時のみ」 or 「毎ターン」
     enable_scenery_system: bool,
-    auto_generate_scenery: bool,
     auto_memory_enabled: bool,
     enable_self_awareness: bool,
     api_history_limit: str,
@@ -1018,7 +1016,6 @@ def handle_save_room_settings(
         "send_scenery": bool(send_scenery),
         "scenery_send_mode": scenery_send_mode if scenery_send_mode in ["変更時のみ", "毎ターン"] else "変更時のみ",
         "enable_scenery_system": bool(enable_scenery_system),
-        "auto_generate_scenery": bool(auto_generate_scenery),
         "auto_memory_enabled": bool(auto_memory_enabled),
         "enable_self_awareness": bool(enable_self_awareness),
         "api_history_limit": history_limit_key,
@@ -2052,16 +2049,9 @@ def _get_updated_scenery_and_image(room_name: str, api_key_name: str, force_text
         )
 
         if scenery_image_path is None:
-            # [v26] 自動生成設定の確認
-            if effective_settings.get("auto_generate_scenery", True):
-                gr.Info("現在の情景に一致する画像がないため、自動で生成します...")
-            pil_image = handle_generate_or_regenerate_scenery_image(
-                room_name=room_name, api_key_name=api_key_name, style_choice="写真風 (デフォルト)"
-            )
-            if pil_image:
-                scenery_image_path = utils.find_scenery_image(
-                    room_name, current_location, season_en, time_of_day_en
-                )
+            # [修正] 画像がない場合でも自動生成を行わずにテキストのみ更新する（APIコスト削減）
+            # 以前はここで handle_generate_or_regenerate_scenery_image を呼んでいた
+            pass
 
         return scenery_text, scenery_image_path
 
@@ -2325,7 +2315,7 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
                 False, # auto_memory_enabled
                 True,  # enable_self_awareness
                 "ℹ️ *ルームを選択してください*", None,  # room_settings_info, scenery_image
-                True, True, gr.update(open=False),  # enable_scenery_system, auto_gen_scenery, profile_scenery_accordion
+                True, gr.update(open=False),  # enable_scenery_system, profile_scenery_accordion
                 gr.update(value=constants.API_HISTORY_LIMIT_OPTIONS.get(constants.DEFAULT_API_HISTORY_LIMIT_OPTION, "20往復")),  # room_api_history_limit_dropdown
                 constants.DEFAULT_API_HISTORY_LIMIT_OPTION,  # api_history_limit_state
                 gr.update(value=constants.EPISODIC_MEMORY_OPTIONS.get(constants.DEFAULT_EPISODIC_MEMORY_DAYS, "なし（無効）")),  # room_episode_memory_days_dropdown
