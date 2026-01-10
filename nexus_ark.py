@@ -756,6 +756,12 @@ try:
                                 info="有効にすると、チャット画面右側に情景が表示され、AIもそれを認識します。",
                                 interactive=True
                             )
+                            room_auto_generate_scenery_checkbox = gr.Checkbox(
+                                label="🎨 情景画像の自動生成を許可する",
+                                value=True,
+                                info="OFFにすると、画像がない場合でも自動生成を行いません（APIコスト削減）。",
+                                interactive=True
+                            )
                         with gr.Accordion("📜 チャット表示設定", open=False):
                             with gr.Group():
                                 gr.Markdown("##### 逐次表示設定")
@@ -2107,6 +2113,7 @@ try:
             room_settings_info,
             scenery_image_display,
             enable_scenery_system_checkbox,
+            room_auto_generate_scenery_checkbox,
             profile_scenery_accordion,
             room_api_history_limit_dropdown,
             room_thinking_level_dropdown,
@@ -2579,6 +2586,7 @@ try:
             room_send_scenery_checkbox,
             room_scenery_send_mode_dropdown,
             enable_scenery_system_checkbox,
+            room_auto_generate_scenery_checkbox,
             auto_memory_enabled_checkbox,
             room_enable_self_awareness_checkbox,
             room_api_history_limit_dropdown,
