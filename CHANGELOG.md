@@ -121,6 +121,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed - バグ修正
 
+#### 🛠️ Web巡回ツールの要約エラーにリトライ/フォールバック機構を追加 (2026-01-10)
+- 503 UNAVAILABLE（モデルオーバーロード）発生時に指数バックオフ（1→2→4秒）で最大3回リトライ
+- リトライ失敗時はコンテンツ冒頭500文字をペルソナに渡すフォールバック
+- フォールバック時に「追加調査してください」のメッセージを付与し、ペルソナが自力で補完可能に
+- [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-10_watchlist_summary_retry.md)
+
 #### 🛠️ recall_memoriesツールのAPIキーエラーを修正 (2026-01-09)
 - `safe_tool_node`内でAPIキーを注入するツールリストに`recall_memories`が含まれていなかった問題を修正
 - これにより、AIが`recall_memories`を使用した際に「API key not valid」エラーが発生していた
