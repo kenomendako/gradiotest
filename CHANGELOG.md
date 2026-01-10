@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **開発ツール:** `tools/validate_wiring.py` を追加。UI定義と実装の不整合を静的解析で自動検出可能に。
 
 ### Fixed
+- **ドキュメント:** Windows環境の絶対パス (`file:///c:/...`) を相対パスに一括変換。GitHub上でのリンク切れを解消。
 - **UI安定性の向上:** `handle_delete_room` における戻り値の不整合修正。ルーム削除時のクラッシュを防止するため、`_ensure_output_count` システムの適用を強化。
 - **配線修正:** `handle_initial_load` 等のデフォルト戻り値数が古い定義のままだった問題を修正 (157->159, 147->148)。
 
