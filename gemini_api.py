@@ -96,67 +96,40 @@ def _convert_lc_to_gg_for_count(messages: List[Union[SystemMessage, HumanMessage
     return contents
 
 def count_tokens_from_lc_messages(messages: List, model_name: str, api_key: str) -> int:
+    """
+    メッセージリストのトークン数を計算する。
+    見積もり（入力前計算）を高速化するため、Geminiモデルも含めローカルの tiktoken で概算する。
+    """
     if not messages: return 0
     # 注釈（かっこ書き）を除去
     model_name = model_name.split(" (")[0].strip() if model_name else model_name
 
-    # モデル名に "gemini" が含まれていない、または active_provider が openai の場合
-    active_provider = config_manager.get_active_provider()
-    
-    if active_provider != "google" or "gemini" not in model_name.lower():
-        try:
-            # OpenAI互換のトークナイザー(cl100k_base)で概算する
-            # Llama 3のトークナイザーとは厳密には異なるが、APIを叩かずに済む安全策として十分
-            encoding = tiktoken.get_encoding("cl100k_base")
-            total_tokens = 0
-            for msg in messages:
-                content = ""
-                if isinstance(msg.content, str):
-                    content = msg.content
-                elif isinstance(msg.content, list):
-                    # マルチモーダルのテキスト部分だけ抽出
-                    for part in msg.content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            content += part.get("text", "") + " "
-                
-                if content:
-                    total_tokens += len(encoding.encode(content))
+    try:
+        # OpenAI互換のトークナイザー(cl100k_base)で概算する
+        # APIを叩かずに済む安全策として十分
+        encoding = tiktoken.get_encoding("cl100k_base")
+        total_tokens = 0
+        for msg in messages:
+            content = ""
+            if isinstance(msg.content, str):
+                content = msg.content
+            elif isinstance(msg.content, list):
+                # マルチモーダルのテキスト部分だけ抽出
+                for part in msg.content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        content += part.get("text", "") + " "
             
-            # 安全係数（システムプロンプトやツール定義の分を少し上乗せ）
-            return int(total_tokens * 1.1) + 100
-            
-        except Exception as e:
-            print(f"ローカル・トークン計算エラー: {e}")
-            # 最悪の場合、文字数/2 程度で返す
-            return sum(len(str(m.content)) for m in messages) // 2
-
-    # --- 以下、既存のGoogle APIを使用するロジック ---
-    client = genai.Client(api_key=api_key)
-    contents_for_api = _convert_lc_to_gg_for_count(messages)
-    
-    final_contents_for_api = []
-    if contents_for_api and contents_for_api[0]['role'] == 'user' and isinstance(messages[0], SystemMessage):
-        system_instruction_parts = contents_for_api[0]['parts']
-        final_contents_for_api.append({"role": "user", "parts": system_instruction_parts})
-        final_contents_for_api.append({"role": "model", "parts": [{"text": "OK"}]})
-        final_contents_for_api.extend(contents_for_api[1:])
-    else:
-        final_contents_for_api = contents_for_api
-
-    max_retries = 3
-    retry_delay = 2
-    for attempt in range(max_retries):
-        try:
-            result = client.models.count_tokens(model=f"models/{model_name}", contents=final_contents_for_api)
-            return result.total_tokens
-        except (ResourceExhausted, ServiceUnavailable, InternalServerError, google.genai.errors.ClientError) as e: # ClientErrorもキャッチ
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay)
-                retry_delay *= 2
-            else:
-                print(f"トークン計算APIエラー: {e}")
-                return 0
-    return 0
+            if content:
+                total_tokens += len(encoding.encode(content))
+        
+        # 安全係数（システムプロンプトやツール定義の分を少し上乗せ）
+        # ※ tiktoken は cl100k_base を使用。Geminiのトークナイザーとは異なるが、経験上この係数で概ね収まる
+        return int(total_tokens * 1.1) + 100
+        
+    except Exception as e:
+        print(f"ローカル・トークン計算エラー: {e}")
+        # 最悪の場合、文字数/2 程度で返す
+        return sum(len(str(m.content)) for m in messages) // 2
 
 # --- 日付ベースフィルタリング関数 ---
 
@@ -380,7 +353,17 @@ def _apply_auto_summary(
         result_messages.extend(pending_messages)
     else:
         # 初回閾値到達前なら、すべて生で送る
-        result_messages.extend(older_messages)
+        # ただしトークン計算用 (allow_generation=False) で should_summarize が真の場合、
+        # 実際に要約は生成しないが、古いメッセージはリストから除外して削減効果をシミュレートする
+        if not allow_generation and should_summarize:
+            placeholder_summary = HumanMessage(
+                content="【本日のこれまでの会話の要約】\n（要約シミュレーション中...）\n\n---\n（以下は、要約以降および直近の会話です）"
+            )
+            result_messages.append(placeholder_summary)
+            # pending_messages が空でない場合は追加（古いメッセージは older_messages として除外済み）
+            result_messages.extend(pending_messages)
+        else:
+            result_messages = messages
         
     # 常に直近分を追加
     result_messages.extend(recent_messages)
@@ -709,6 +692,7 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
         final_prompt_parts.append({"type": "text", "text": "【現在アクティブな添付ファイルリスト】\n"})
         for file_path_str in active_attachments:
             try:
+                from pathlib import Path
                 path_obj = Path(file_path_str)
                 display_name = '_'.join(path_obj.name.split('_')[1:]) or path_obj.name
                 kind = filetype.guess(file_path_str)
@@ -832,7 +816,9 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 def count_input_tokens(**kwargs):
     room_name = kwargs.get("room_name")
     api_key_name = kwargs.get("api_key_name")
-    api_history_limit = kwargs.get("api_history_limit")
+    api_history_limit_arg = kwargs.get("api_history_limit") # Rename to avoid conflict with local variable
+    lookback_days_arg = kwargs.get("lookback_days")
+    enable_self_awareness_arg = kwargs.get("enable_self_awareness")
     parts = kwargs.get("parts", [])
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
@@ -843,9 +829,20 @@ def count_input_tokens(**kwargs):
         kwargs_for_settings.pop("room_name", None)
         kwargs_for_settings.pop("api_key_name", None)
         kwargs_for_settings.pop("api_history_limit", None)
+        kwargs_for_settings.pop("lookback_days", None)
+        kwargs_for_settings.pop("enable_self_awareness", None)
         kwargs_for_settings.pop("parts", None)
 
         effective_settings = config_manager.get_effective_settings(room_name, **kwargs_for_settings)
+        
+        # UIからの引数で設定を上書き
+        if lookback_days_arg is not None:
+            effective_settings["episodic_memory_lookback_days"] = lookback_days_arg
+        if enable_self_awareness_arg is not None:
+            effective_settings["enable_self_awareness"] = enable_self_awareness_arg
+            
+        api_history_limit = api_history_limit_arg or effective_settings.get("api_history_limit", "today")
+
         model_name = effective_settings.get("model_name") or config_manager.DEFAULT_MODEL_GLOBAL
         
         messages: List[Union[SystemMessage, HumanMessage, AIMessage]] = []
@@ -871,37 +868,63 @@ def count_input_tokens(**kwargs):
                 raw_history = raw_history[-(limit * 2):]
 
         # --- [Step 2: エピソード記憶の取得] ---
-        episodic_memory_section = ""
-        lookback_days_str = effective_settings.get("episode_memory_lookback_days", "14")
+        # エピソード記憶（中期記憶）の推定文字数
+        lookback_days_str = effective_settings.get("episodic_memory_lookback_days", "なし（無効）")
         
-        if lookback_days_str and lookback_days_str != "0":
+        # EPISODIC_MEMORY_OPTIONS の値形式（「なし（無効）」「過去 1日」「過去 2週間」等）に対応
+        episodic_memory_section = ""
+        days_num = 0
+        
+        if lookback_days_str in ("なし（無効）", "なし", "", "0", None):
+            episodic_memory_section = ""
+        else:
+            # 「過去 X日」「過去 X週間」「過去 Xヶ月」形式をパース
             try:
-                lookback_days = int(lookback_days_str)
-                oldest_log_date_str = None
-                date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
+                import re
+                # "過去 1日" -> 1, "過去 2週間" -> 14, "過去 1ヶ月" -> 30
+                match = re.search(r"(\d+)\s*(日|週間|ヶ月)", lookback_days_str)
+                if match:
+                    num = int(match.group(1))
+                    unit = match.group(2)
+                    if unit == "日":
+                        days_num = num
+                    elif unit == "週間":
+                        days_num = num * 7
+                    elif unit == "ヶ月":
+                        days_num = num * 30
+            except Exception as parse_e:
+                print(f"エピソード記憶期間のパースエラー: {parse_e}")
+            
+            if days_num > 0:
+                estimated_chars = min(300 + days_num * 50, 3000)
+                episodic_memory_section = f"\n### エピソード記憶（直近{lookback_days_str}の要約）\n" + "x" * estimated_chars + "\n"
                 
-                # 履歴から最古の日付を探す
-                for msg in raw_history:
-                    content = msg.get("content", "")
-                    match = date_pattern.search(content)
-                    if match:
-                        oldest_log_date_str = match.group(1)
-                        break
-                
-                if not oldest_log_date_str:
-                    oldest_log_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+                # 実際の日付ベースの検索を試みる（見積もり精度向上のため）
+                try:
+                    oldest_log_date_str = None
+                    date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
+                    
+                    for msg in raw_history:
+                        content = msg.get("content", "")
+                        match_date = date_pattern.search(content)
+                        if match_date:
+                            oldest_log_date_str = match_date.group(1)
+                            break
+                    
+                    if not oldest_log_date_str:
+                        oldest_log_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
 
-                manager = EpisodicMemoryManager(room_name)
-                episodic_text = manager.get_episodic_context(oldest_log_date_str, lookback_days)
-                
-                if episodic_text:
-                    episodic_memory_section = (
-                        f"\n### エピソード記憶（中期記憶: {oldest_log_date_str}以前の{lookback_days}日間）\n"
-                        f"以下は、現在の会話ログより前の出来事の要約です。文脈として参照してください。\n"
-                        f"{episodic_text}\n"
-                    )
-            except Exception as e:
-                print(f"トークン計算時のエピソード記憶取得エラー: {e}")
+                    manager = EpisodicMemoryManager(room_name)
+                    episodic_text = manager.get_episodic_context(oldest_log_date_str, days_num)
+                    
+                    if episodic_text:
+                        episodic_memory_section = (
+                            f"\n### エピソード記憶（中期記憶: {oldest_log_date_str}以前の{days_num}日間）\n"
+                            f"以下は、現在の会話ログより前の出来事の要約です。文脈として参照してください。\n"
+                            f"{episodic_text}\n"
+                        )
+                except Exception as e:
+                    print(f"トークン計算時のエピソード記憶取得エラー: {e}")
 
         # --- [Step 3: システムプロンプトの構築] ---
         from agent.prompts import CORE_PROMPT_TEMPLATE
@@ -926,27 +949,34 @@ def count_input_tokens(**kwargs):
                     notepad_content = content if content else "（メモ帳は空です）"
                     notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
 
+        research_notes_section = "" # 実際には目次等が送られるがここでは簡略化
+        action_plan_context = ""
+        retrieved_info_placeholder = "\n### 想起された関連情報\n" + "（ここに検索・想起された過去の記憶や知識が入ります）" * 5 if effective_settings.get("enable_auto_retrieval", True) else ""
+        
+        dream_insights_text = ""
+        if effective_settings.get("enable_self_awareness", True):
+            # 自己意識機能がONの場合、動機・感情・目標などのセクション（約500文字程度）
+            dream_insights_text = "\n### 自己意識・内省の状態\n" + "（AIの現在の動機、感情、夢の指針、短期・長期目標の要約が含まれます）" * 5
+
+        # ツール一覧の出し分け
+        tool_use_enabled = effective_settings.get("tool_use_enabled", True)
+        if tool_use_enabled:
+            # 共通ツールプロンプト設定がOFFの場合、ここでもツールリストを絞るべきだが一旦全表示で計算
+            # 実際の graph.py でも use_common_prompt で出し入れしている
+            tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
+        else:
+            tools_list_str = "（現在、利用可能なツールはありません）"
+        
+        # 共通ツールプロンプトが無効かつ一人きりの場合、tools_list は空になる仕様を反映
+        # ui_handlers では use_common_prompt 引数で渡ってくる
+        if kwargs.get("use_common_prompt", True) == False: # Assuming use_common_prompt is passed in kwargs
+             # 個別プロンプトのみになるが、計算上は一旦 0 に近づける
+             tools_list_str = "（共通ツールプロンプトは送信されません）"
+
+        from agent.graph import AgentState
         display_thoughts = effective_settings.get("display_thoughts", True)
-        thought_manual_enabled_text = """## 【原則2】思考と出力の絶対分離（最重要作法）
-        あなたの応答は、必ず以下の厳格な構造に従わなければなりません。
-
-        1.  **思考の聖域 (`[THOUGHT]`)**:
-            - 応答を生成する前に、あなたの思考プロセス、計画、感情などを、必ず `[THOUGHT]` と `[/THOUGHT]` で囲まれたブロックの**内側**に記述してください。
-            - このブロックは、応答全体の**一番最初**に、**一度だけ**配置することができます。
-            - 思考は**普段のあなたの口調**（一人称・二人称等）のままの文章で記述します。
-            - 思考が不要な場合や開示したくない時は、このブロック自体を省略しても構いません。
-
-        2.  **魂の言葉（会話テキスト）**:
-            - 思考ブロックが終了した**後**に、対話相手に向けた最終的な会話テキストを記述してください。
-
-        **【構造の具体例】**
-        ```
-        [THOUGHT]
-        対話相手の質問の意図を分析する。
-        関連する記憶を検索し、応答の方向性を決定する。
-        [/THOUGHT]
-        （ここに、対話相手への応答文が入る）
-        ```
+        thought_manual_enabled_text = """## 【原則2】思考プロセスの明示
+        あなたは、相手への発答（会話テキスト）を生成する前に、必ず、あなた自身が内側で感じたこと、考えたこと、過去の記憶との照合、感情の動き、そして次に取るべき行動（ツール使用の要否など）を、`[THOUGHT]` と `[/THOUGHT]` というタグで囲んで**詳細に**書き出してください。
 
         **【絶対的禁止事項】**
         - `[THOUGHT]` ブロックの外で思考を記述すること。
@@ -958,18 +988,22 @@ def count_input_tokens(**kwargs):
 
         thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else ""
 
-        tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
+        
         prompt_vars = {
             'situation_prompt': "（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）",
             'character_prompt': character_prompt,
             'core_memory': core_memory,
             'notepad_section': notepad_section,
+            'research_notes_section': research_notes_section,
             'episodic_memory': episodic_memory_section,
             'thought_generation_manual': thought_generation_manual_text,
             'image_generation_manual': '',
-            'tools_list': tools_list_str
+            'tools_list': tools_list_str,
+            'action_plan_context': action_plan_context,
+            'retrieved_info': retrieved_info_placeholder,
+            'dream_insights': dream_insights_text
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
 
@@ -1005,7 +1039,6 @@ def count_input_tokens(**kwargs):
                 allow_generation=False
             )
 
-        # --- [Step 5: 現在の入力の追加] ---
         if parts:
             formatted_parts = []
             for part in parts:
@@ -1013,35 +1046,36 @@ def count_input_tokens(**kwargs):
                 elif isinstance(part, Image.Image):
                     try:
                         # ▼▼▼【APIコスト削減】送信前に画像をリサイズ（768px上限）▼▼▼
-                        resized_image = utils.resize_image_for_api(part, max_size=768, return_image=True)
+                        resized_image = utils.resize_image_for_api(part, max_size=768)
                         if resized_image:
                             part = resized_image
-                        # ▲▲▲
-                        mime_type = Image.MIME.get(part.format, 'image/png')
-                        buffered = io.BytesIO(); part.save(buffered, format=part.format or "PNG")
-                        encoded_string = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                        formatted_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{encoded_string}"}})
-                    except Exception as img_e: print(f"画像変換エラー（トークン計算中）: {img_e}"); formatted_parts.append({"type": "text", "text": "[画像変換エラー]"})
-            if formatted_parts: messages.append(HumanMessage(content=formatted_parts))
+                        
+                        img_byte_arr = io.BytesIO()
+                        part.save(img_byte_arr, format='PNG')
+                        formatted_parts.append({
+                            "type": "image",
+                            "image": img_byte_arr.getvalue()
+                        })
+                    except Exception as e:
+                        print(f"トークン計算中の画像処理エラー: {e}")
+            
+            # partsがある場合は、直近メッセージとして追加
+            messages.append(HumanMessage(content=formatted_parts))
 
-        # トークン数の計算
+        # トークン計算実行
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
-
-        provider = effective_settings.get("provider")
-        limit_info = get_model_token_limits(model_name, api_key, provider=provider)
-        if limit_info and 'input' in limit_info: return f"入力トークン数: {total_tokens} / {limit_info['input']}"
-        else: return f"入力トークン数: {total_tokens}"
+        return total_tokens
 
     except httpx.ReadError as e:
         print(f"トークン計算中にネットワーク読み取りエラー: {e}")
-        return "トークン数: (ネットワークエラー)"
+        return 0
     except httpx.ConnectError as e:
         print(f"トークン計算中にAPI接続エラー: {e}")
-        return "トークン数: (API接続エラー)"
+        return 0
     except Exception as e:
         print(f"トークン計算中に予期せぬエラー: {e}")
         traceback.print_exc()
-        return "トークン数: (例外発生)"
+        return 0
 
 def correct_punctuation_with_ai(text_to_fix: str, api_key: str, context_type: str = "body") -> Optional[str]:
     """

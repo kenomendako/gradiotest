@@ -2063,7 +2063,8 @@ try:
         ]
         
         context_token_calc_inputs = [
-            current_room_name, current_api_key_name_state, api_history_limit_state
+            current_room_name, current_api_key_name_state, api_history_limit_state,
+            room_episode_memory_days_dropdown
         ] + context_checkboxes + [
             room_auto_summary_threshold_slider
         ]
@@ -2072,9 +2073,11 @@ try:
             current_room_name,
             current_api_key_name_state,
             api_history_limit_state,
+            room_episode_memory_days_dropdown,
             chat_input_multimodal,
-            active_attachments_state,
-        ] + context_checkboxes
+        ] + context_checkboxes + [
+            room_auto_summary_threshold_slider
+        ]
 
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
@@ -2756,6 +2759,18 @@ try:
             fn=lambda *args: ui_handlers.handle_save_room_settings(*args, silent=False, force_notify=False),
             inputs=room_individual_settings_inputs,
             outputs=None
+        )
+
+        # 履歴制限・エピソード記憶期間の変更イベント
+        room_api_history_limit_dropdown.change(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
+        )
+        room_episode_memory_days_dropdown.change(
+            fn=ui_handlers.handle_context_settings_change,
+            inputs=context_token_calc_inputs,
+            outputs=token_count_display
         )
 
         # model_dropdownのイベント

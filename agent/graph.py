@@ -125,6 +125,7 @@ class AgentState(TypedDict):
     next: str
     enable_supervisor: bool # Supervisor機能の有効/無効
     custom_system_prompt: Optional[str] # システムプロンプトの上書き用
+    actual_token_usage: Optional[dict] = None # 【2026-01-10 NEW】実送信トークン数記録用
 
 def get_location_list(room_name: str) -> List[str]:
     if not room_name: return []
@@ -1405,6 +1406,28 @@ def agent_node(state: AgentState):
         if captured_signature:
             signature_manager.save_turn_context(state['room_name'], captured_signature, all_tool_calls_chunks)
 
+        # 実送信トークン量の抽出（プロンプト＋回答）
+        # LangChain (Gemini/OpenAI) で形式が異なる場合があるため柔軟に取得
+        actual_usage = response_metadata.get("token_usage") or response_metadata.get("usage")
+        if not actual_usage and hasattr(response, "usage_metadata"):
+            actual_usage = response.usage_metadata
+        
+        # 辞書形式ならそのまま、そうでなければ属性から
+        token_data = {}
+        if actual_usage:
+            if isinstance(actual_usage, dict):
+                token_data = {
+                    "prompt_tokens": actual_usage.get("prompt_tokens", actual_usage.get("prompt_token_count", 0)),
+                    "completion_tokens": actual_usage.get("completion_tokens", actual_usage.get("candidates_token_count", 0)),
+                    "total_tokens": actual_usage.get("total_tokens", actual_usage.get("total_token_count", 0))
+                }
+            else:
+                token_data = {
+                    "prompt_tokens": getattr(actual_usage, "prompt_tokens", getattr(actual_usage, "prompt_token_count", 0)),
+                    "completion_tokens": getattr(actual_usage, "completion_tokens", getattr(actual_usage, "candidates_token_count", 0)),
+                    "total_tokens": getattr(actual_usage, "total_tokens", getattr(actual_usage, "total_token_count", 0))
+                }
+
         loop_count += 1
         if not getattr(response, "tool_calls", None):
             # --- [未解決の問い自動解決] 対話終了時に問いの解決判定を実行 ---
@@ -1433,9 +1456,20 @@ def agent_node(state: AgentState):
                 print(f"  - [Agent] 問い自動解決処理でエラー（無視）: {mm_e}")
             # --- 自動解決ここまで ---
             
-            return {"messages": [response], "loop_count": loop_count, "last_successful_response": response, "model_name": state['model_name']}
+            return {
+                "messages": [response], 
+                "loop_count": loop_count, 
+                "last_successful_response": response, 
+                "model_name": state['model_name'],
+                "actual_token_usage": token_data
+            }
         else:
-            return {"messages": [response], "loop_count": loop_count, "model_name": state['model_name']}
+            return {
+                "messages": [response], 
+                "loop_count": loop_count, 
+                "model_name": state['model_name'],
+                "actual_token_usage": token_data
+            }
 
     # ▼▼▼ Gemini 3 思考署名エラーのソフトランディング処理 (結果表示版) ▼▼▼
     except (google_exceptions.InvalidArgument, ChatGoogleGenerativeAIError) as e:

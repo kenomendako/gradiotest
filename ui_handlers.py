@@ -64,6 +64,24 @@ _initialization_completed = False
 _initialization_completed_time = 0  # 初期化完了時刻
 POST_INIT_GRACE_PERIOD_SECONDS = 5  # 初期化完了後も5秒間は通知抑制
 
+# --- トークン数記録用 ---
+_LAST_ACTUAL_TOKENS = {} # room_name -> {"prompt": int, "completion": int, "total": int}
+
+def _format_token_display(room_name: str, estimated_count: int) -> str:
+    """トークン数表示をフォーマットする。"""
+    last_actual = _LAST_ACTUAL_TOKENS.get(room_name, {})
+    actual_total = last_actual.get("total_tokens", 0)  # agent/graph.pyが返すキー名
+    
+    # 見積もり値のフォーマット
+    est_str = f"{estimated_count / 1000:.1f}k" if estimated_count >= 1000 else str(estimated_count)
+    
+    # 実績値のフォーマット
+    if actual_total > 0:
+        act_str = f"{actual_total / 1000:.1f}k" if actual_total >= 1000 else str(actual_total)
+        return f"入力トークン数(推定): {est_str} / 実送信(前回): {act_str}"
+    else:
+        return f"入力トークン数(推定): {est_str}"
+
 def handle_save_last_room(room_name: str) -> None:
     """
     選択されたルーム名をconfig.jsonに保存するだけの、何も返さない専用ハンドラ。
@@ -854,10 +872,11 @@ def handle_initial_load(room_name: str = None, expected_count: int = 159):
         token_calc_kwargs = config_manager.get_effective_settings(safe_initial_room)
         # api_key_nameが重複しないように削除（明示的に渡すため）
         token_calc_kwargs.pop("api_key_name", None)
-        token_count_text = gemini_api.count_input_tokens(
+        estimated_count = gemini_api.count_input_tokens(
             room_name=safe_initial_room, api_key_name=safe_initial_api_key,
             parts=[], **token_calc_kwargs
         )
+        token_count_text = _format_token_display(safe_initial_room, estimated_count)
         onboarding_guide_update = gr.update(visible=False)
         chat_input_update = gr.update(interactive=True)
 
@@ -1068,7 +1087,8 @@ def handle_save_room_settings(
         gr.Error("個別設定の保存中にエラーが発生しました。詳細はログを確認してください。")
 
 def handle_context_settings_change(
-    room_name: str, api_key_name: str, api_history_limit: str, 
+    room_name: str, api_key_name: str, api_history_limit: str,
+    lookback_days: str,
     display_thoughts: bool,
     send_thoughts: bool, 
     enable_auto_retrieval: bool,
@@ -1077,6 +1097,7 @@ def handle_context_settings_change(
     enable_scenery_system: bool,
     auto_memory_enabled: bool,
     auto_summary_enabled: bool,
+    enable_self_awareness: bool,
     auto_summary_threshold: int,
     *args, **kwargs
 ):
@@ -1087,25 +1108,27 @@ def handle_context_settings_change(
     if not room_name or not api_key_name: 
         return "入力トークン数: -"
     
-    return gemini_api.count_input_tokens(
+    estimated_count = gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name, parts=[],
         api_history_limit=api_history_limit,
-        display_thoughts=display_thoughts,
-        add_timestamp=add_timestamp, 
-        send_current_time=send_current_time, 
-        send_thoughts=send_thoughts, 
-        send_notepad=send_notepad,
-        use_common_prompt=use_common_prompt, 
-        send_core_memory=send_core_memory,
-        send_scenery=enable_scenery_system,
+        lookback_days=lookback_days,
+        display_thoughts=display_thoughts, add_timestamp=add_timestamp, 
+        send_current_time=send_current_time, send_thoughts=send_thoughts,
+        send_notepad=send_notepad, use_common_prompt=use_common_prompt,
+        send_core_memory=send_core_memory, send_scenery=enable_scenery_system,
+        enable_auto_retrieval=enable_auto_retrieval,
+        auto_memory_enabled=auto_memory_enabled,
         auto_summary_enabled=auto_summary_enabled,
+        enable_self_awareness=enable_self_awareness,
         auto_summary_threshold=auto_summary_threshold
     )
+    return _format_token_display(room_name, estimated_count)
 
 def update_token_count_on_input(
     room_name: str,
     api_key_name: str,
     api_history_limit: str,
+    lookback_days: str,
     multimodal_input: dict,
     display_thoughts: bool, 
     send_thoughts: bool, 
@@ -1114,6 +1137,10 @@ def update_token_count_on_input(
     send_current_time: bool, 
     send_notepad: bool,
     use_common_prompt: bool, send_core_memory: bool, send_scenery: bool,
+    auto_memory_enabled: bool,
+    auto_summary_enabled: bool,
+    enable_self_awareness: bool,
+    auto_summary_threshold: int,
     *args, **kwargs
 ):
     """
@@ -1144,22 +1171,21 @@ def update_token_count_on_input(
                 print(f"トークン計算中のファイル処理エラー: {e}")
                 error_source = "ペーストされたテキスト" if isinstance(file_obj, str) else f"ファイル「{os.path.basename(file_obj.name)}」"
                 parts_for_api.append(f"[ファイル処理エラー: {error_source}]")
-    effective_settings = config_manager.get_effective_settings(
-        room_name,
-        display_thoughts=display_thoughts,
-        add_timestamp=add_timestamp, 
-        send_current_time=send_current_time, 
-        send_thoughts=send_thoughts,
+    estimated_count = gemini_api.count_input_tokens(
+        room_name=room_name, api_key_name=api_key_name, parts=parts_for_api,
+        api_history_limit=api_history_limit,
+        lookback_days=lookback_days,
+        display_thoughts=display_thoughts, add_timestamp=add_timestamp,
+        send_current_time=send_current_time, send_thoughts=send_thoughts,
         send_notepad=send_notepad, use_common_prompt=use_common_prompt,
-        send_core_memory=send_core_memory, send_scenery=send_scenery
+        send_core_memory=send_core_memory, send_scenery=send_scenery,
+        enable_auto_retrieval=enable_auto_retrieval,
+        auto_memory_enabled=auto_memory_enabled,
+        auto_summary_enabled=auto_summary_enabled,
+        enable_self_awareness=enable_self_awareness,
+        auto_summary_threshold=auto_summary_threshold
     )
-    effective_settings.pop("api_history_limit", None)
-    effective_settings.pop("api_key_name", None)  # 重複防止
-
-    return gemini_api.count_input_tokens(
-        room_name=room_name, api_key_name=api_key_name,
-        api_history_limit=api_history_limit, parts=parts_for_api, **effective_settings
-    )
+    return _format_token_display(room_name, estimated_count)
 
 def _stream_and_handle_response(
     room_to_respond: str,
@@ -1422,6 +1448,11 @@ def _stream_and_handle_response(
                 if best_ai_message:
                     new_messages.append(best_ai_message)
                 
+                # [2026-01-10] 実送信トークン量の記録
+                if final_state and "actual_token_usage" in final_state:
+                    _LAST_ACTUAL_TOKENS[current_room] = final_state["actual_token_usage"]
+                    print(f"  - [Token] 実績値を記録しました: {final_state['actual_token_usage']}")
+                
                 # -----------------------------------
 
                 # 変数をここで初期化（UnboundLocalError対策）
@@ -1634,8 +1665,17 @@ def _stream_and_handle_response(
             token_api_key_name = token_calc_kwargs.get("api_key_name", api_key_name)
             
             token_calc_kwargs.pop("api_history_limit", None)
-            token_calc_kwargs.pop("api_key_name", None)  # 重複防止
-            token_count_text = gemini_api.count_input_tokens(room_name=soul_vessel_room, api_key_name=token_api_key_name, api_history_limit=api_history_limit, parts=[], **token_calc_kwargs)
+            token_calc_kwargs.pop("api_history_limit", None)
+            token_calc_kwargs.pop("api_key_name", None)
+            
+            estimated_count = gemini_api.count_input_tokens(
+            room_name=soul_vessel_room, 
+            api_key_name=api_key_name, 
+            api_history_limit=api_history_limit, 
+            parts=[], 
+            **token_calc_kwargs
+        )
+            token_count_text = _format_token_display(soul_vessel_room, estimated_count)
         except Exception as e:
             print(f"--- 警告: 応答後のトークン数更新に失敗しました: {e} ---")
 
@@ -4892,10 +4932,11 @@ def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_r
         "display_thoughts", "add_timestamp", "send_current_time", "send_thoughts", 
         "send_notepad", "use_common_prompt", "send_core_memory", "send_scenery"
     ]}
-    token_count_text = gemini_api.count_input_tokens(
+    estimated_count = gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=token_api_key_name, parts=[],
         api_history_limit=api_history_limit_key, **token_calc_kwargs
     )
+    token_count_text = _format_token_display(room_name, estimated_count)
 
     # 索引の最終更新日時を取得
     memory_index_last_updated = _get_rag_index_last_updated(room_name, "memory")
@@ -6814,10 +6855,11 @@ def update_token_count_after_attachment_change(
     effective_settings.pop("api_history_limit", None)
     effective_settings.pop("api_key_name", None)  # 重複防止
 
-    return gemini_api.count_input_tokens(
+    estimated_count = gemini_api.count_input_tokens(
         room_name=room_name, api_key_name=api_key_name,
         api_history_limit=api_history_limit, parts=parts_for_api, **effective_settings
     )
+    return _format_token_display(room_name, estimated_count)
 
 def _reset_play_audio_on_failure():
     """「選択した発言を再生」ボタンが失敗したときに、UIを元の状態に戻す。"""
