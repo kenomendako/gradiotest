@@ -1045,6 +1045,39 @@ try:
                                         )
                                         group_update_interval_button = gr.Button("⏰ 時刻一括変更", variant="secondary", scale=1)
                                         group_delete_button = gr.Button("🗑️ グループ削除", variant="stop", scale=1)
+                                    
+                                    # --- AI自動リスト作成 ---
+                                    gr.Markdown("---")
+                                    gr.Markdown("### 🤖 AI自動リスト作成")
+                                    gr.Markdown("ジャンルを指定すると、AIがWeb検索で関連サイトを収集し、候補リストを作成します。")
+                                    
+                                    with gr.Row():
+                                        ai_genre_input = gr.Textbox(
+                                            label="ジャンル",
+                                            placeholder="例: AI技術ニュース、機械学習ブログ",
+                                            scale=3
+                                        )
+                                        ai_generate_button = gr.Button("🔍 候補を検索", variant="secondary", scale=1)
+                                    
+                                    ai_generate_status = gr.Textbox(label="検索ステータス", interactive=False, max_lines=2)
+                                    
+                                    # 候補リスト（CheckboxGroup）
+                                    ai_candidates_checkboxgroup = gr.CheckboxGroup(
+                                        choices=[],
+                                        label="📋 候補サイト（追加するものを選択）",
+                                        visible=False
+                                    )
+                                    
+                                    # 候補データ保持用（非表示）
+                                    ai_candidates_data = gr.State([])
+                                    
+                                    with gr.Row(visible=False) as ai_add_row:
+                                        ai_add_to_group_dropdown = gr.Dropdown(
+                                            choices=[("グループなし", "")],
+                                            label="追加先グループ",
+                                            scale=2
+                                        )
+                                        ai_add_button = gr.Button("✅ 選択したサイトを追加", variant="primary", scale=1)
 
 
                     with gr.TabItem("デザイン") as theme_tab:
@@ -3285,6 +3318,22 @@ try:
             fn=ui_handlers.handle_move_entry_to_group,
             inputs=[current_room_name, watchlist_selected_id, watchlist_move_group_dropdown],
             outputs=[watchlist_dataframe, watchlist_status]
+        )
+        
+        # --- AI自動リスト作成イベント ---
+        
+        # 候補を検索
+        ai_generate_button.click(
+            fn=ui_handlers.handle_ai_generate_candidates,
+            inputs=[current_room_name, ai_genre_input, api_key_dropdown],
+            outputs=[ai_generate_status, ai_candidates_checkboxgroup, ai_candidates_data, ai_add_row, ai_add_to_group_dropdown]
+        )
+        
+        # 選択したサイトを追加
+        ai_add_button.click(
+            fn=ui_handlers.handle_ai_add_selected,
+            inputs=[current_room_name, ai_candidates_checkboxgroup, ai_candidates_data, ai_add_to_group_dropdown],
+            outputs=[watchlist_dataframe, group_dataframe, ai_generate_status]
         )
 
         # --- Dream Journal Events ---

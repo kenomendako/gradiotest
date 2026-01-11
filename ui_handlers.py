@@ -10302,6 +10302,213 @@ def handle_get_group_choices(room_name: str):
         return gr.update(choices=[("グループなし", "")], value="")
 
 
+# --- AI自動リスト作成ハンドラ ---
+
+def handle_ai_generate_candidates(room_name: str, genre: str, api_key_name: str):
+    """
+    ジャンルを指定してAIがWeb検索で候補サイトを収集する
+    
+    Returns:
+        (status, checkboxgroup_update, candidates_data, add_row_update, dropdown_update)
+    """
+    import gradio as gr
+    
+    if not room_name:
+        return "ルームが選択されていません", gr.update(), [], gr.update(visible=False), gr.update()
+    
+    if not genre or not genre.strip():
+        gr.Warning("ジャンルを入力してください")
+        return "ジャンルを入力してください", gr.update(), [], gr.update(visible=False), gr.update()
+    
+    genre = genre.strip()
+    
+    # APIキーの取得
+    current_api_key = api_key_name or config_manager.get_latest_api_key_name_from_config()
+    if not current_api_key:
+        gr.Warning("APIキーが設定されていません")
+        return "APIキーが設定されていません", gr.update(), [], gr.update(visible=False), gr.update()
+    
+    gr.Info(f"🔍 「{genre}」の候補サイトを検索中...")
+    
+    try:
+        from tools.web_tools import _search_with_tavily, _search_with_ddg, _search_with_google
+        import config_manager as cm
+        
+        # 検索クエリを構築
+        search_query = f"{genre} おすすめサイト ブログ ニュース"
+        
+        # Web検索を実行（プロバイダを順番に試す）
+        search_results = []
+        
+        # まずTavilyを試す
+        if cm.TAVILY_API_KEY:
+            try:
+                results = _search_with_tavily(search_query)
+                if results and not results.startswith("["):  # エラーでなければ
+                    search_results = _parse_search_results(results)
+            except Exception as e:
+                print(f"Tavily検索エラー: {e}")
+        
+        # Tavilyで見つからなければDuckDuckGo
+        if not search_results:
+            try:
+                results = _search_with_ddg(search_query)
+                if results:
+                    search_results = _parse_search_results(results)
+            except Exception as e:
+                print(f"DuckDuckGo検索エラー: {e}")
+        
+        # それでもなければGoogle
+        if not search_results and current_api_key:
+            try:
+                from gemini_api import get_model_and_api_key
+                model_name, api_key = get_model_and_api_key(room_name, current_api_key)
+                results = _search_with_google(search_query)
+                if results:
+                    search_results = _parse_search_results(results)
+            except Exception as e:
+                print(f"Google検索エラー: {e}")
+        
+        if not search_results:
+            return "候補サイトが見つかりませんでした", gr.update(), [], gr.update(visible=False), gr.update()
+        
+        # 重複除去とフィルタリング
+        seen_urls = set()
+        unique_results = []
+        for result in search_results:
+            url = result.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_results.append(result)
+        
+        # 最大10件に制限
+        unique_results = unique_results[:10]
+        
+        # CheckboxGroup用の選択肢を作成
+        choices = []
+        for i, result in enumerate(unique_results):
+            label = f"{result.get('title', 'タイトルなし')} - {result.get('url', '')[:50]}..."
+            choices.append(label)
+        
+        # グループ選択肢を更新
+        group_choices_update = handle_get_group_choices(room_name)
+        
+        gr.Info(f"✅ {len(unique_results)}件の候補を見つけました")
+        
+        return (
+            f"✅ {len(unique_results)}件の候補を見つけました",
+            gr.update(choices=choices, value=[], visible=True),
+            unique_results,  # 候補データをStateに保存
+            gr.update(visible=True),
+            group_choices_update
+        )
+        
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"検索に失敗しました: {e}")
+        return f"❌ エラー: {e}", gr.update(), [], gr.update(visible=False), gr.update()
+
+
+def _parse_search_results(results_text: str) -> list:
+    """検索結果テキストをパースしてリストに変換"""
+    import re
+    
+    parsed = []
+    
+    # URLとタイトルを抽出（よくある形式をパース）
+    # 形式1: "タイトル: URL" or "タイトル (URL)"
+    # 形式2: マークダウンリンク [タイトル](URL)
+    
+    # マークダウンリンク形式
+    md_pattern = r'\[([^\]]+)\]\((https?://[^\)]+)\)'
+    for match in re.finditer(md_pattern, results_text):
+        title, url = match.groups()
+        parsed.append({"title": title.strip(), "url": url.strip()})
+    
+    # URLのみ抽出（上記でマッチしなかった場合）
+    if not parsed:
+        url_pattern = r'(https?://[^\s\)\]<>\"]+)'
+        urls = re.findall(url_pattern, results_text)
+        for url in urls:
+            # タイトルはURLから推測
+            domain = url.split('/')[2] if len(url.split('/')) > 2 else url
+            parsed.append({"title": domain, "url": url})
+    
+    return parsed
+
+
+def handle_ai_add_selected(room_name: str, selected_labels: list, candidates_data: list, group_id: str, interval: str = "manual"):
+    """
+    選択された候補サイトをウォッチリストに追加する
+    """
+    import gradio as gr
+    
+    if not room_name:
+        return gr.update(), gr.update(), "ルームが選択されていません"
+    
+    if not selected_labels:
+        gr.Warning("追加するサイトを選択してください")
+        return gr.update(), gr.update(), "サイトを選択してください"
+    
+    if not candidates_data:
+        return gr.update(), gr.update(), "候補データがありません"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        
+        # グループのintervalを取得
+        target_interval = interval
+        if group_id:
+            group = manager.get_group_by_id(group_id)
+            if group:
+                target_interval = group.get("check_interval", "manual")
+        
+        added_count = 0
+        skipped_count = 0
+        
+        for label in selected_labels:
+            # ラベルからインデックスを特定
+            for candidate in candidates_data:
+                candidate_label = f"{candidate.get('title', 'タイトルなし')} - {candidate.get('url', '')[:50]}..."
+                if label == candidate_label:
+                    url = candidate.get("url", "")
+                    title = candidate.get("title", "")
+                    
+                    # 既存チェック
+                    existing = manager.get_entry_by_url(url)
+                    if existing:
+                        skipped_count += 1
+                        continue
+                    
+                    # エントリー追加
+                    entry = manager.add_entry(url=url, name=title, check_interval=target_interval)
+                    
+                    # グループに移動
+                    if group_id and entry:
+                        manager.move_entry_to_group(entry["id"], group_id)
+                    
+                    added_count += 1
+                    break
+        
+        # UIを更新
+        df_data = handle_watchlist_refresh(room_name)[0]
+        group_df = handle_group_refresh(room_name)[0]
+        
+        status = f"✅ {added_count}件追加しました"
+        if skipped_count > 0:
+            status += f"（{skipped_count}件は既に登録済み）"
+        
+        gr.Info(status)
+        
+        return df_data, group_df, status
+        
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"追加に失敗しました: {e}")
+        return gr.update(), gr.update(), f"❌ エラー: {e}"
+
+
 def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, float, str, pd.DataFrame, str, pd.DataFrame, str]:
     """
     内的状態を再読み込みし、UIコンポーネントを更新する。
