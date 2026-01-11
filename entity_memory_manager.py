@@ -48,12 +48,32 @@ class EntityMemoryManager:
     def consolidate_entry(self, entity_name: str, new_content: str, api_key: str) -> str:
         """
         既存の記憶と新しい情報をLLMで統合・整理します。
+        文体は同ディレクトリ内の他ファイルを参照して保持します。
         """
         path = self._get_entity_path(entity_name)
         if not path.exists():
             return self.create_or_update_entry(entity_name, new_content)
 
         existing_content = self.read_entry(entity_name)
+        
+        # 文体参照用に、同ディレクトリ内の他ファイルを最大2件取得
+        style_samples = []
+        for other_file in self.entities_dir.glob("*.md"):
+            if other_file.stem != entity_name and len(style_samples) < 2:
+                try:
+                    sample_text = other_file.read_text(encoding="utf-8")
+                    # 短すぎるものはスキップ（参考にならない）
+                    if len(sample_text) > 100:
+                        # 最初の500文字のみ取得
+                        style_samples.append(sample_text[:500])
+                except Exception:
+                    continue
+        
+        style_reference = ""
+        if style_samples:
+            style_reference = "\n\n---\n\n".join(style_samples)
+        else:
+            style_reference = "（参考ファイルなし - 既存の記憶の文体を維持してください）"
         
         # LLMによる統合処理
         llm = LLMFactory.create_chat_model(
@@ -63,8 +83,7 @@ class EntityMemoryManager:
             force_google=True
         )
         
-        prompt = f"""
-あなたは記憶整理の専門家です。
+        prompt = f"""あなたは記憶整理の専門家です。
 エンティティ「{entity_name}」に関する既存の記憶と、新しく得られた情報を統合し、一つの洗練されたMarkdownドキュメントとして再構成してください。
 
 【既存の記憶】
@@ -73,15 +92,25 @@ class EntityMemoryManager:
 【新しい情報】
 {new_content}
 
+【文体ルール（最重要）】
+1. 一人称「私」の視点で記述すること（これはあなた自身の記憶です）
+2. 常体（だ・である調、〜した、〜である）で記述すること
+3. 敬体（です・ます調）は絶対に使わないこと
+4. 以下の「文体の参考例」と同じトーンと文体で書くこと
+
+【文体の参考例】
+{style_reference}
+
 【統合ルール】
-1. 冗長な表現や重複する情報を排除し、簡潔かつ網羅的にまとめてください。
-2. 時系列的な変化（以前はこうだったが、今はこうなった）が重要な場合は、その流れを維持してください。
-3. 以前の「--- Update: ... ---」といったセクション区切りは削除し、一つのまとまった文章または適切な見出し構造に整理してください。
-4. Markdown形式で出力してください。
-5. 前置きや解説は一切不要です。純粋な統合後のコンテンツのみを出力してください。
+1. 冗長な表現や重複する情報を排除し、簡潔かつ網羅的にまとめる
+2. 時系列的な変化が重要な場合は、その流れを維持する
+3. 「--- Update: ... ---」などのセクション区切りは削除し、一つのまとまった文章に整理する
+4. Markdown形式で出力
+5. 前置きや解説は一切不要。純粋な統合後のコンテンツのみを出力
 
 【出力フォーマット】
 # Entity Memory: {entity_name}
+
 (ここに統合された内容を記述)
 """
         try:

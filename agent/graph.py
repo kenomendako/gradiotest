@@ -592,7 +592,8 @@ def retrieval_node(state: AgentState):
                 print(f"    -> 過去ログ: なし")
         # ▲▲▲ ハイブリッド検索ここまで ▲▲▲
 
-        # 3d. エンティティ記憶 (Entity Memory) [New]
+        # 3d. エンティティ記憶 (Entity Memory)
+        # [2026-01-11] 500文字制限を追加（コンテキスト圧迫防止）
         try:
             em_manager = EntityMemoryManager(room_name)
             # クエリに関連するエンティティを検索
@@ -602,6 +603,9 @@ def retrieval_node(state: AgentState):
                 for entity_name in relevant_entities[:3]:  # 最大3件
                     content = em_manager.read_entry(entity_name)
                     if content:
+                        # 500文字を超える場合は切り詰め
+                        if len(content) > 500:
+                            content = content[:500] + f"\n...【続きは `read_entity_memory(\"{entity_name}\")` で確認可能】"
                         entity_contents.append(f"【{entity_name}に関する詳細記憶】\n{content}")
                 
                 if entity_contents:
