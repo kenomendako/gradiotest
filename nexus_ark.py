@@ -2187,20 +2187,13 @@ try:
         
         context_token_calc_inputs = [
             current_room_name, current_api_key_name_state, api_history_limit_state,
-            room_episode_memory_days_dropdown
+            room_episode_memory_days_dropdown,
+            chat_input_multimodal
         ] + context_checkboxes + [
             room_auto_summary_threshold_slider
         ]
 
-        attachment_change_token_calc_inputs = [
-            current_room_name,
-            current_api_key_name_state,
-            api_history_limit_state,
-            room_episode_memory_days_dropdown,
-            chat_input_multimodal,
-        ] + context_checkboxes + [
-            room_auto_summary_threshold_slider
-        ]
+        attachment_change_token_calc_inputs = context_token_calc_inputs
 
         initial_load_chat_outputs = [
             current_room_name, chatbot_display, current_log_map_state,
@@ -2924,10 +2917,7 @@ try:
         )
 
         # トークン計算イベント（入力内容が変更されるたびに実行）
-        token_calc_on_input_inputs = [
-            current_room_name, current_api_key_name_state, api_history_limit_state,
-            chat_input_multimodal # 変更
-        ] + context_checkboxes
+        token_calc_on_input_inputs = context_token_calc_inputs
         chat_input_multimodal.change(
             fn=ui_handlers.update_token_count_on_input,
             inputs=token_calc_on_input_inputs,
