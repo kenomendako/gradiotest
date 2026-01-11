@@ -8634,6 +8634,10 @@ def handle_save_chat_log_raw(
         # バックアップ作成（安全装置）
         room_manager.create_backup(room_name, 'log')
         
+        # 末尾に改行がない場合は追加（最低1つの改行を保証）
+        if raw_content and not raw_content.endswith('\n'):
+            raw_content += '\n'
+
         # ファイル保存
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(raw_content)
