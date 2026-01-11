@@ -1149,8 +1149,8 @@ def update_token_count_on_input(
     """
     if not room_name or not api_key_name: return "トークン数: -"
     # ... (この関数内の以降のロジックは変更なし) ...
-    textbox_content = multimodal_input.get("text", "") if multimodal_input else ""
-    file_list = multimodal_input.get("files", []) if multimodal_input else []
+    textbox_content = multimodal_input.get("text", "") if isinstance(multimodal_input, dict) else ""
+    file_list = multimodal_input.get("files", []) if isinstance(multimodal_input, dict) else []
     parts_for_api = []
     if textbox_content: parts_for_api.append(textbox_content)
     if file_list:
