@@ -9923,7 +9923,8 @@ def handle_watchlist_refresh(room_name: str):
                 entry.get("url", ""),
                 entry.get("interval_display", "手動"),
                 entry.get("last_checked_display", "未チェック"),
-                entry.get("enabled", True)
+                entry.get("enabled", True),
+                entry.get("group_name", "")  # v2: グループ名
             ])
         
         return data, f"✅ {len(data)}件のエントリを読み込みました"
@@ -10097,6 +10098,209 @@ def handle_watchlist_check_all(room_name: str, api_key_name: str):
         traceback.print_exc()
         gr.Error(f"チェックに失敗しました: {e}")
         return gr.update(), f"❌ エラー: {e}"
+
+
+# --- ウォッチリスト グループ管理ハンドラ (v2) ---
+
+def handle_group_refresh(room_name: str):
+    """グループ一覧のDataFrameを更新する"""
+    if not room_name:
+        return [], "ルームが選択されていません"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        groups = manager.get_groups_for_ui()
+        
+        if not groups:
+            return [], "グループはまだ作成されていません"
+        
+        # DataFrameデータを生成
+        data = []
+        for group in groups:
+            data.append([
+                group.get("id", "")[:8],  # IDは短く表示
+                group.get("name", ""),
+                group.get("description", "")[:30],  # 説明は短く
+                group.get("interval_display", "手動"),
+                group.get("entry_count", 0),
+                group.get("enabled", True)
+            ])
+        
+        return data, f"✅ {len(data)}件のグループを読み込みました"
+    
+    except Exception as e:
+        traceback.print_exc()
+        return [], f"❌ エラー: {e}"
+
+
+def handle_group_add(room_name: str, name: str, description: str, interval: str, daily_time: str = "09:00"):
+    """グループを作成する"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません")
+        return gr.update(), "ルームが選択されていません"
+    
+    if not name or not name.strip():
+        gr.Warning("グループ名を入力してください")
+        return gr.update(), "グループ名を入力してください"
+    
+    name = name.strip()
+    description = description.strip() if description else ""
+    
+    # 「毎日指定時刻」の場合は時刻情報を含める
+    if interval == "daily" and daily_time:
+        interval = f"daily_{daily_time}"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        
+        group = manager.add_group(name=name, description=description, check_interval=interval)
+        gr.Info(f"グループを作成しました: {group['name']}")
+        
+        return handle_group_refresh(room_name)[0], f"✅ 作成しました: {group['name']}"
+    
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"作成に失敗しました: {e}")
+        return gr.update(), f"❌ エラー: {e}"
+
+
+def handle_group_delete(room_name: str, selected_id: str):
+    """グループを削除する（配下エントリーはグループなしに戻る）"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません")
+        return gr.update(), gr.update(), "ルームが選択されていません"
+    
+    if not selected_id:
+        gr.Warning("削除するグループを選択してください")
+        return gr.update(), gr.update(), "グループを選択してください"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        
+        # グループ名を取得（表示用）
+        group = manager.get_group_by_id(selected_id)
+        if not group:
+            gr.Warning("グループが見つかりません")
+            return gr.update(), gr.update(), "グループが見つかりません"
+        
+        group_name = group["name"]
+        success = manager.remove_group(selected_id)
+        
+        if success:
+            gr.Info(f"グループを削除しました: {group_name}")
+            # グループ一覧とエントリー一覧を両方更新
+            return (
+                handle_group_refresh(room_name)[0],
+                handle_watchlist_refresh(room_name)[0],
+                f"✅ 削除しました: {group_name}"
+            )
+        else:
+            return gr.update(), gr.update(), "削除に失敗しました"
+    
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"削除に失敗しました: {e}")
+        return gr.update(), gr.update(), f"❌ エラー: {e}"
+
+
+def handle_group_update_interval(room_name: str, selected_id: str, interval: str, daily_time: str = "09:00"):
+    """グループの巡回時刻を一括変更する"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません")
+        return gr.update(), gr.update(), "ルームが選択されていません"
+    
+    if not selected_id:
+        gr.Warning("変更するグループを選択してください")
+        return gr.update(), gr.update(), "グループを選択してください"
+    
+    # 「毎日指定時刻」の場合は時刻情報を含める
+    if interval == "daily" and daily_time:
+        interval = f"daily_{daily_time}"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        
+        success, updated_count = manager.update_group_interval(selected_id, interval)
+        
+        if success:
+            gr.Info(f"グループの時刻を変更しました（{updated_count}件のエントリーを更新）")
+            return (
+                handle_group_refresh(room_name)[0],
+                handle_watchlist_refresh(room_name)[0],
+                f"✅ 時刻を変更: {updated_count}件のエントリーを更新"
+            )
+        else:
+            return gr.update(), gr.update(), "更新に失敗しました"
+    
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"更新に失敗しました: {e}")
+        return gr.update(), gr.update(), f"❌ エラー: {e}"
+
+
+def handle_move_entry_to_group(room_name: str, entry_id: str, group_id: str):
+    """エントリーをグループに移動する"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません")
+        return gr.update(), "ルームが選択されていません"
+    
+    if not entry_id:
+        gr.Warning("移動するエントリーを選択してください")
+        return gr.update(), "エントリーを選択してください"
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        
+        # group_idが空文字の場合はNone（グループなし）に変換
+        target_group_id = group_id if group_id else None
+        
+        result = manager.move_entry_to_group(entry_id, target_group_id)
+        
+        if result:
+            if target_group_id:
+                group = manager.get_group_by_id(target_group_id)
+                group_name = group["name"] if group else "不明"
+                gr.Info(f"エントリーをグループ「{group_name}」に移動しました")
+                status = f"✅ グループ「{group_name}」に移動しました"
+            else:
+                gr.Info("エントリーをグループから解除しました")
+                status = "✅ グループから解除しました"
+            
+            return handle_watchlist_refresh(room_name)[0], status
+        else:
+            return gr.update(), "移動に失敗しました"
+    
+    except Exception as e:
+        traceback.print_exc()
+        gr.Error(f"移動に失敗しました: {e}")
+        return gr.update(), f"❌ エラー: {e}"
+
+
+def handle_get_group_choices(room_name: str):
+    """グループ選択用のドロップダウン選択肢を取得する"""
+    if not room_name:
+        return [("グループなし", "")]
+    
+    try:
+        from watchlist_manager import WatchlistManager
+        manager = WatchlistManager(room_name)
+        groups = manager.get_groups()
+        
+        choices = [("グループなし", "")]
+        for group in groups:
+            choices.append((group["name"], group["id"]))
+        
+        return choices
+    
+    except Exception as e:
+        traceback.print_exc()
+        return [("グループなし", "")]
+
 
 def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, float, str, pd.DataFrame, str, pd.DataFrame, str]:
     """

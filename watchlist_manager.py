@@ -42,23 +42,44 @@ class WatchlistManager:
         os.makedirs(self.cache_dir, exist_ok=True)
     
     def _load_watchlist(self) -> dict:
-        """ウォッチリストを読み込む"""
+        """ウォッチリストを読み込む（version 2への自動マイグレーション対応）"""
+        data = None
         if os.path.exists(self.watchlist_path):
             try:
                 with open(self.watchlist_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
             except (json.JSONDecodeError, IOError):
                 pass
         
-        # デフォルト構造
-        return {
-            "version": 1,
-            "entries": [],
-            "settings": {
-                "default_interval": "manual",
-                "scheduled_time": None
+        if data is None:
+            # デフォルト構造 (version 2)
+            data = {
+                "version": 2,
+                "entries": [],
+                "groups": [],
+                "settings": {
+                    "default_interval": "manual",
+                    "scheduled_time": None
+                }
             }
-        }
+        
+        # version 1からversion 2へのマイグレーション
+        if data.get("version", 1) < 2:
+            data = self._migrate_to_v2(data)
+            self._save_watchlist(data)
+        
+        return data
+    
+    def _migrate_to_v2(self, data: dict) -> dict:
+        """version 1からversion 2にマイグレーションする"""
+        data["version"] = 2
+        if "groups" not in data:
+            data["groups"] = []
+        # 既存エントリーにgroup_idがなければNoneを追加
+        for entry in data.get("entries", []):
+            if "group_id" not in entry:
+                entry["group_id"] = None
+        return data
     
     def _save_watchlist(self, data: dict) -> None:
         """ウォッチリストを保存する"""
@@ -121,7 +142,8 @@ class WatchlistManager:
             "added_at": datetime.datetime.now().isoformat(),
             "last_checked": None,
             "check_interval": check_interval,
-            "enabled": True
+            "enabled": True,
+            "group_id": None  # v2: グループID（未所属はNone）
         }
         
         data = self._load_watchlist()
@@ -161,7 +183,8 @@ class WatchlistManager:
             full_id = entry.get("id", "")
             if full_id == entry_id or full_id.startswith(entry_id):
                 for key, value in kwargs.items():
-                    if key in entry:
+                    # group_idは新規キーとして追加可能
+                    if key in entry or key == "group_id":
                         entry[key] = value
                 self._save_watchlist(data)
                 return entry
@@ -182,6 +205,188 @@ class WatchlistManager:
         data = self._load_watchlist()
         return data.get("settings", {})
     
+    # --- グループ管理 (v2) ---
+    
+    def get_groups(self) -> List[dict]:
+        """全グループを取得"""
+        data = self._load_watchlist()
+        return data.get("groups", [])
+    
+    def get_group_by_id(self, group_id: str) -> Optional[dict]:
+        """IDでグループを取得（短縮IDにも対応）"""
+        for group in self.get_groups():
+            full_id = group.get("id", "")
+            if full_id == group_id or full_id.startswith(group_id):
+                return group
+        return None
+    
+    def get_group_by_name(self, name: str) -> Optional[dict]:
+        """名前でグループを取得"""
+        for group in self.get_groups():
+            if group.get("name") == name:
+                return group
+        return None
+    
+    def add_group(self, name: str, description: str = "", check_interval: str = "manual") -> dict:
+        """
+        新しいグループを作成
+        
+        Args:
+            name: グループ名
+            description: グループの説明
+            check_interval: デフォルトの監視頻度
+        
+        Returns:
+            作成されたグループ
+        """
+        # 同名グループが存在する場合はそれを返す
+        existing = self.get_group_by_name(name)
+        if existing:
+            return existing
+        
+        group = {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "description": description,
+            "check_interval": check_interval,
+            "enabled": True,
+            "created_at": datetime.datetime.now().isoformat()
+        }
+        
+        data = self._load_watchlist()
+        data["groups"].append(group)
+        self._save_watchlist(data)
+        
+        return group
+    
+    def remove_group(self, group_id: str) -> bool:
+        """
+        グループを削除（配下エントリーは「グループなし」に戻す）
+        """
+        data = self._load_watchlist()
+        
+        # グループを検索
+        group = self.get_group_by_id(group_id)
+        if not group:
+            return False
+        
+        full_id = group["id"]
+        
+        # 配下エントリーのgroup_idをNoneに設定
+        for entry in data["entries"]:
+            if entry.get("group_id") == full_id:
+                entry["group_id"] = None
+        
+        # グループを削除
+        data["groups"] = [g for g in data["groups"] if g.get("id") != full_id]
+        self._save_watchlist(data)
+        
+        return True
+    
+    def update_group(self, group_id: str, **kwargs) -> Optional[dict]:
+        """グループ情報を更新"""
+        data = self._load_watchlist()
+        
+        for group in data["groups"]:
+            full_id = group.get("id", "")
+            if full_id == group_id or full_id.startswith(group_id):
+                for key, value in kwargs.items():
+                    if key in group:
+                        group[key] = value
+                self._save_watchlist(data)
+                return group
+        
+        return None
+    
+    def get_entries_by_group(self, group_id: Optional[str]) -> List[dict]:
+        """
+        特定グループに属するエントリーを取得
+        
+        Args:
+            group_id: グループID（Noneの場合は未所属エントリー）
+        """
+        entries = self.get_entries()
+        if group_id is None:
+            return [e for e in entries if e.get("group_id") is None]
+        
+        # 短縮ID対応
+        group = self.get_group_by_id(group_id)
+        if not group:
+            return []
+        
+        full_id = group["id"]
+        return [e for e in entries if e.get("group_id") == full_id]
+    
+    def move_entry_to_group(self, entry_id: str, group_id: Optional[str]) -> Optional[dict]:
+        """
+        エントリーをグループに移動
+        
+        Args:
+            entry_id: エントリーID
+            group_id: 移動先グループID（Noneで「グループなし」に戻す）
+        """
+        # グループの存在確認（Noneでない場合）
+        full_group_id = None
+        if group_id is not None:
+            group = self.get_group_by_id(group_id)
+            if not group:
+                return None
+            full_group_id = group["id"]
+        
+        return self.update_entry(entry_id, group_id=full_group_id)
+    
+    def update_group_interval(self, group_id: str, check_interval: str) -> Tuple[bool, int]:
+        """
+        グループの巡回時刻を一括変更（配下エントリーも更新）
+        
+        Args:
+            group_id: グループID
+            check_interval: 新しい監視頻度
+        
+        Returns:
+            (成功したか, 更新したエントリー数)
+        """
+        group = self.get_group_by_id(group_id)
+        if not group:
+            return False, 0
+        
+        full_id = group["id"]
+        data = self._load_watchlist()
+        
+        # グループの設定を更新
+        for g in data["groups"]:
+            if g.get("id") == full_id:
+                g["check_interval"] = check_interval
+                break
+        
+        # 配下エントリーの時刻も更新
+        updated_count = 0
+        for entry in data["entries"]:
+            if entry.get("group_id") == full_id:
+                entry["check_interval"] = check_interval
+                updated_count += 1
+        
+        self._save_watchlist(data)
+        return True, updated_count
+    
+    def get_groups_for_ui(self) -> List[dict]:
+        """UI表示用のグループリストを取得"""
+        groups = self.get_groups()
+        for group in groups:
+            # グループ内エントリー数をカウント
+            entries = self.get_entries_by_group(group["id"])
+            group["entry_count"] = len(entries)
+            
+            # 監視頻度を人間可読形式に変換
+            interval = group.get("check_interval", "manual")
+            if interval.startswith("daily_"):
+                time_part = interval.split("_")[1]
+                group["interval_display"] = f"毎日 {time_part}"
+            else:
+                group["interval_display"] = CHECK_INTERVAL_OPTIONS.get(interval, interval)
+        
+        return groups
+
     # --- キャッシュ操作 ---
     
     def _save_cache(self, url: str, content: str) -> None:
@@ -298,6 +503,8 @@ class WatchlistManager:
     def get_entries_for_ui(self) -> List[dict]:
         """UI表示用のエントリリストを取得"""
         entries = self.get_entries()
+        groups = {g["id"]: g["name"] for g in self.get_groups()}
+        
         for entry in entries:
             # 最終チェック時刻を人間可読形式に変換
             if entry.get("last_checked"):
@@ -320,6 +527,10 @@ class WatchlistManager:
                     interval, 
                     interval
                 )
+            
+            # グループ名を取得 (v2)
+            group_id = entry.get("group_id")
+            entry["group_name"] = groups.get(group_id, "") if group_id else ""
         
         return entries
     

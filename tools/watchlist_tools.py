@@ -281,6 +281,136 @@ def update_watchlist_interval(url_or_name: str, check_interval: str, room_name: 
         return f"[エラー] 更新に失敗しました: {e}"
 
 
+@tool
+def create_watchlist_group(
+    name: str,
+    room_name: str,
+    description: str = "",
+    check_interval: str = "manual"
+) -> str:
+    """
+    ウォッチリストのグループを作成します。
+    グループを使うと、同じ巡回時刻を持つサイトをまとめて管理できます。
+    
+    Args:
+        name: グループ名（例: "AI技術ニュース"）
+        room_name: ルーム名
+        description: グループの説明（任意）
+        check_interval: 巡回頻度 ("manual", "hourly_1", "hourly_3", "hourly_6", "hourly_12", "daily")
+    
+    Returns:
+        結果メッセージ
+    """
+    try:
+        manager = WatchlistManager(room_name)
+        
+        # 有効なintervalかチェック
+        if check_interval not in CHECK_INTERVAL_OPTIONS:
+            check_interval = "manual"
+        
+        group = manager.add_group(name=name, description=description, check_interval=check_interval)
+        
+        interval_display = CHECK_INTERVAL_OPTIONS.get(check_interval, "手動")
+        return f"✅ グループを作成しました:\n- 名前: {group['name']}\n- 説明: {description or '（なし）'}\n- 巡回頻度: {interval_display}"
+        
+    except Exception as e:
+        traceback.print_exc()
+        return f"[エラー] グループの作成に失敗しました: {e}"
+
+
+@tool
+def add_entry_to_group(url_or_name: str, group_name: str, room_name: str) -> str:
+    """
+    既存のウォッチリストエントリをグループに追加します。
+    
+    Args:
+        url_or_name: 移動するエントリのURLまたは名前
+        group_name: 移動先のグループ名
+        room_name: ルーム名
+    
+    Returns:
+        結果メッセージ
+    """
+    try:
+        manager = WatchlistManager(room_name)
+        
+        # エントリを検索
+        entries = manager.get_entries()
+        target_entry = None
+        for entry in entries:
+            if entry["url"] == url_or_name or entry["name"] == url_or_name:
+                target_entry = entry
+                break
+        
+        if not target_entry:
+            return f"指定されたURL/名前が見つかりません: {url_or_name}"
+        
+        # グループを検索
+        group = manager.get_group_by_name(group_name)
+        if not group:
+            return f"グループが見つかりません: {group_name}"
+        
+        # 移動
+        result = manager.move_entry_to_group(target_entry["id"], group["id"])
+        if result:
+            return f"✅ 「{target_entry['name']}」をグループ「{group_name}」に移動しました"
+        else:
+            return "移動に失敗しました"
+        
+    except Exception as e:
+        traceback.print_exc()
+        return f"[エラー] エントリの移動に失敗しました: {e}"
+
+
+@tool
+def update_group_schedule(group_name: str, check_interval: str, room_name: str) -> str:
+    """
+    グループの巡回スケジュールを一括変更します。
+    グループ内の全エントリーに新しいスケジュールが適用されます。
+    
+    Args:
+        group_name: グループ名
+        check_interval: 新しい巡回頻度 ("manual", "hourly_1", "hourly_3", "hourly_6", "hourly_12", "daily_HH:MM")
+        room_name: ルーム名
+    
+    Returns:
+        結果メッセージ
+    """
+    try:
+        # daily_HH:MM形式をサポート
+        base_interval = check_interval.split("_")[0] if "_" in check_interval else check_interval
+        if base_interval not in ["manual", "hourly", "daily"]:
+            if check_interval not in CHECK_INTERVAL_OPTIONS:
+                valid_options = ", ".join(CHECK_INTERVAL_OPTIONS.keys())
+                return f"[エラー] 無効な巡回頻度です。有効なオプション: {valid_options}"
+        
+        manager = WatchlistManager(room_name)
+        
+        # グループを検索
+        group = manager.get_group_by_name(group_name)
+        if not group:
+            return f"グループが見つかりません: {group_name}"
+        
+        # 時刻一括変更
+        success, updated_count = manager.update_group_interval(group["id"], check_interval)
+        
+        if success:
+            interval_display = check_interval
+            if check_interval in CHECK_INTERVAL_OPTIONS:
+                interval_display = CHECK_INTERVAL_OPTIONS[check_interval]
+            elif check_interval.startswith("daily_"):
+                time_part = check_interval.split("_")[1]
+                interval_display = f"毎日 {time_part}"
+            
+            return f"✅ グループ「{group_name}」の巡回時刻を変更しました:\n- 新しい頻度: {interval_display}\n- 更新されたエントリー: {updated_count}件"
+        else:
+            return "更新に失敗しました"
+        
+    except Exception as e:
+        traceback.print_exc()
+        return f"[エラー] スケジュールの更新に失敗しました: {e}"
+
+
 # ツールリスト（graph.pyでインポート用）
 WATCHLIST_TOOLS = [
     add_to_watchlist,
@@ -288,4 +418,7 @@ WATCHLIST_TOOLS = [
     get_watchlist,
     check_watchlist,
     update_watchlist_interval,
+    create_watchlist_group,
+    add_entry_to_group,
+    update_group_schedule,
 ]

@@ -910,60 +910,142 @@ try:
                         with gr.Accordion("📋 ウォッチリスト管理", open=False) as watchlist_accordion:
                             gr.Markdown("監視対象URLを管理します。AIに「〇〇を監視リストに追加して」と言うこともできます。")
                             
-                            with gr.Row():
-                                watchlist_url_input = gr.Textbox(
-                                    label="URL",
-                                    placeholder="https://example.com/page",
-                                    scale=3
-                                )
-                                watchlist_name_input = gr.Textbox(
-                                    label="表示名",
-                                    placeholder="例: 公式ブログ",
-                                    scale=2
-                                )
-                                watchlist_interval_dropdown = gr.Dropdown(
-                                    choices=[
-                                        ("手動のみ", "manual"),
-                                        ("1時間ごと", "hourly_1"),
-                                        ("3時間ごと", "hourly_3"),
-                                        ("6時間ごと", "hourly_6"),
-                                        ("12時間ごと", "hourly_12"),
-                                        ("毎日指定時刻", "daily"),
-                                    ],
-                                    value="manual",
-                                    label="監視頻度",
-                                    scale=1
-                                )
-                            
-                            with gr.Row(visible=False) as watchlist_daily_time_row:
-                                watchlist_daily_time = gr.Dropdown(
-                                    choices=[f"{i:02d}:00" for i in range(24)],
-                                    value="09:00",
-                                    label="📅 毎日のチェック時刻",
-                                    info="「毎日指定時刻」を選択した場合の実行時刻",
-                                    scale=1
-                                )
-                            
-                            with gr.Row():
-                                watchlist_add_button = gr.Button("➕ 追加", variant="primary", scale=1)
-                                watchlist_check_button = gr.Button("🔄 全件チェック", variant="secondary", scale=1)
-                                watchlist_refresh_button = gr.Button("🔃 一覧を更新", variant="secondary", scale=1)
-                            
-                            watchlist_status = gr.Textbox(label="ステータス", interactive=False, max_lines=2)
-                            
-                            gr.Markdown("### 登録済みURL一覧")
-                            watchlist_dataframe = gr.Dataframe(
-                                headers=["ID", "名前", "URL", "頻度", "最終確認", "有効"],
-                                datatype=["str", "str", "str", "str", "str", "bool"],
-                                interactive=False,
-                                wrap=True,
-                                row_count=(5, "dynamic"),
-                                col_count=(6, "fixed")
-                            )
-                            
-                            with gr.Row():
-                                watchlist_selected_id = gr.Textbox(label="選択中のID", visible=False)
-                                watchlist_delete_button = gr.Button("🗑️ 選択したURLを削除", variant="stop", scale=1)
+                            with gr.Tabs():
+                                with gr.TabItem("URL一覧"):
+                                    with gr.Row():
+                                        watchlist_url_input = gr.Textbox(
+                                            label="URL",
+                                            placeholder="https://example.com/page",
+                                            scale=3
+                                        )
+                                        watchlist_name_input = gr.Textbox(
+                                            label="表示名",
+                                            placeholder="例: 公式ブログ",
+                                            scale=2
+                                        )
+                                        watchlist_interval_dropdown = gr.Dropdown(
+                                            choices=[
+                                                ("手動のみ", "manual"),
+                                                ("1時間ごと", "hourly_1"),
+                                                ("3時間ごと", "hourly_3"),
+                                                ("6時間ごと", "hourly_6"),
+                                                ("12時間ごと", "hourly_12"),
+                                                ("毎日指定時刻", "daily"),
+                                            ],
+                                            value="manual",
+                                            label="監視頻度",
+                                            scale=1
+                                        )
+                                    
+                                    with gr.Row(visible=False) as watchlist_daily_time_row:
+                                        watchlist_daily_time = gr.Dropdown(
+                                            choices=[f"{i:02d}:00" for i in range(24)],
+                                            value="09:00",
+                                            label="📅 毎日のチェック時刻",
+                                            info="「毎日指定時刻」を選択した場合の実行時刻",
+                                            scale=1
+                                        )
+                                    
+                                    with gr.Row():
+                                        watchlist_add_button = gr.Button("➕ 追加/更新", variant="primary", scale=1)
+                                        watchlist_check_button = gr.Button("🔄 全件チェック", variant="secondary", scale=1)
+                                        watchlist_refresh_button = gr.Button("🔃 一覧を更新", variant="secondary", scale=1)
+                                    
+                                    watchlist_status = gr.Textbox(label="ステータス", interactive=False, max_lines=2)
+                                    
+                                    gr.Markdown("### 登録済みURL一覧")
+                                    watchlist_dataframe = gr.Dataframe(
+                                        headers=["ID", "名前", "URL", "頻度", "最終確認", "有効", "グループ"],
+                                        datatype=["str", "str", "str", "str", "str", "bool", "str"],
+                                        interactive=False,
+                                        wrap=True,
+                                        row_count=(5, "dynamic"),
+                                        col_count=(7, "fixed")
+                                    )
+                                    
+                                    with gr.Row():
+                                        watchlist_selected_id = gr.Textbox(label="選択中のID", visible=False)
+                                        watchlist_move_group_dropdown = gr.Dropdown(
+                                            choices=[("グループなし", "")],
+                                            label="グループに移動",
+                                            scale=2
+                                        )
+                                        watchlist_move_button = gr.Button("📁 移動", variant="secondary", scale=1)
+                                        watchlist_delete_button = gr.Button("🗑️ 削除", variant="stop", scale=1)
+                                
+                                with gr.TabItem("グループ管理"):
+                                    gr.Markdown("グループを作成すると、複数のURLの巡回時刻を一括で変更できます。")
+                                    
+                                    with gr.Row():
+                                        group_name_input = gr.Textbox(
+                                            label="グループ名",
+                                            placeholder="例: AI技術ニュース",
+                                            scale=2
+                                        )
+                                        group_description_input = gr.Textbox(
+                                            label="説明（任意）",
+                                            placeholder="例: 機械学習・AI関連のブログ",
+                                            scale=3
+                                        )
+                                    
+                                    with gr.Row():
+                                        group_interval_dropdown = gr.Dropdown(
+                                            choices=[
+                                                ("手動のみ", "manual"),
+                                                ("1時間ごと", "hourly_1"),
+                                                ("3時間ごと", "hourly_3"),
+                                                ("6時間ごと", "hourly_6"),
+                                                ("12時間ごと", "hourly_12"),
+                                                ("毎日指定時刻", "daily"),
+                                            ],
+                                            value="manual",
+                                            label="巡回頻度",
+                                            scale=1
+                                        )
+                                        group_daily_time = gr.Dropdown(
+                                            choices=[f"{i:02d}:00" for i in range(24)],
+                                            value="09:00",
+                                            label="時刻（毎日指定時刻用）",
+                                            scale=1,
+                                            visible=True
+                                        )
+                                        group_create_button = gr.Button("➕ グループ作成", variant="primary", scale=1)
+                                    
+                                    group_status = gr.Textbox(label="ステータス", interactive=False, max_lines=2)
+                                    
+                                    gr.Markdown("### グループ一覧")
+                                    group_dataframe = gr.Dataframe(
+                                        headers=["ID", "名前", "説明", "頻度", "件数", "有効"],
+                                        datatype=["str", "str", "str", "str", "number", "bool"],
+                                        interactive=False,
+                                        wrap=True,
+                                        row_count=(3, "dynamic"),
+                                        col_count=(6, "fixed")
+                                    )
+                                    
+                                    with gr.Row():
+                                        group_selected_id = gr.Textbox(label="選択中のグループID", visible=False)
+                                        group_new_interval_dropdown = gr.Dropdown(
+                                            choices=[
+                                                ("手動のみ", "manual"),
+                                                ("1時間ごと", "hourly_1"),
+                                                ("3時間ごと", "hourly_3"),
+                                                ("6時間ごと", "hourly_6"),
+                                                ("12時間ごと", "hourly_12"),
+                                                ("毎日指定時刻", "daily"),
+                                            ],
+                                            label="新しい巡回頻度",
+                                            scale=1
+                                        )
+                                        group_new_daily_time = gr.Dropdown(
+                                            choices=[f"{i:02d}:00" for i in range(24)],
+                                            value="09:00",
+                                            label="時刻",
+                                            scale=1
+                                        )
+                                        group_update_interval_button = gr.Button("⏰ 時刻一括変更", variant="secondary", scale=1)
+                                        group_delete_button = gr.Button("🗑️ グループ削除", variant="stop", scale=1)
+
 
                     with gr.TabItem("デザイン") as theme_tab:
                         # チェックボックスをタブの最上部に配置
@@ -3130,9 +3212,78 @@ try:
         )
         
         # ウォッチリストアコーディオンが開いたときにリフレッシュ
+        def refresh_watchlist_and_groups(room_name):
+            df, status = ui_handlers.handle_watchlist_refresh(room_name)
+            group_df, _ = ui_handlers.handle_group_refresh(room_name)
+            choices = ui_handlers.handle_get_group_choices(room_name)
+            return df, status, group_df, gr.update(choices=choices)
+        
         watchlist_accordion.expand(
-            fn=ui_handlers.handle_watchlist_refresh,
+            fn=refresh_watchlist_and_groups,
             inputs=[current_room_name],
+            outputs=[watchlist_dataframe, watchlist_status, group_dataframe, watchlist_move_group_dropdown]
+        )
+        
+        # --- Group Management Events ---
+        
+        # グループ作成
+        group_create_button.click(
+            fn=ui_handlers.handle_group_add,
+            inputs=[current_room_name, group_name_input, group_description_input, group_interval_dropdown, group_daily_time],
+            outputs=[group_dataframe, group_status]
+        ).then(
+            fn=ui_handlers.handle_get_group_choices,
+            inputs=[current_room_name],
+            outputs=[watchlist_move_group_dropdown]
+        )
+        
+        # グループ選択
+        def on_group_select(df_data, evt: gr.SelectData):
+            if evt is None or evt.index is None or df_data is None:
+                return ""
+            
+            idx = evt.index
+            row_idx = idx[0] if isinstance(idx, (tuple, list)) else idx
+            
+            if row_idx is not None:
+                try:
+                    if hasattr(df_data, "iloc"):
+                        selected_id = str(df_data.iloc[row_idx].iloc[0])
+                    else:
+                        selected_id = str(df_data[row_idx][0])
+                    return selected_id
+                except:
+                    pass
+            return ""
+        
+        group_dataframe.select(
+            fn=on_group_select,
+            inputs=[group_dataframe],
+            outputs=[group_selected_id]
+        )
+        
+        # グループ削除
+        group_delete_button.click(
+            fn=ui_handlers.handle_group_delete,
+            inputs=[current_room_name, group_selected_id],
+            outputs=[group_dataframe, watchlist_dataframe, group_status]
+        ).then(
+            fn=ui_handlers.handle_get_group_choices,
+            inputs=[current_room_name],
+            outputs=[watchlist_move_group_dropdown]
+        )
+        
+        # グループ時刻一括変更
+        group_update_interval_button.click(
+            fn=ui_handlers.handle_group_update_interval,
+            inputs=[current_room_name, group_selected_id, group_new_interval_dropdown, group_new_daily_time],
+            outputs=[group_dataframe, watchlist_dataframe, group_status]
+        )
+        
+        # エントリーをグループに移動
+        watchlist_move_button.click(
+            fn=ui_handlers.handle_move_entry_to_group,
+            inputs=[current_room_name, watchlist_selected_id, watchlist_move_group_dropdown],
             outputs=[watchlist_dataframe, watchlist_status]
         )
 
