@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **ウォッチリスト グループ化機能 (2026-01-11):** 複数の巡回先をグループ化し、巡回時刻を一括変更可能に。グループ移動時に時刻を自動継承。AIツール3種（`create_watchlist_group`, `add_entry_to_group`, `update_group_schedule`）を追加。[レポート](docs/reports/2026-01-11_watchlist_grouping.md)
+- **AI自動リスト作成機能 (2026-01-11):** ジャンル入力で関連サイトをWeb検索し、候補リストからウォッチリストに一括追加可能。
 - **エンティティ記憶:** LLMによる「統合・要約（Consolidation）」機能を実装。追記の繰り返しによる肥大化を防ぎ、情報を常に最新かつ簡潔に維持。
 - **開発ツール:** `tools/validate_wiring.py` を追加。UI定義と実装の不整合を静的解析で自動検出可能に。
 
