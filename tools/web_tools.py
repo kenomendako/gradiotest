@@ -36,7 +36,7 @@ def _search_with_tavily(query: str) -> str:
     
     try:
         tavily = TavilySearch(
-            api_key=api_key,
+            tavily_api_key=api_key,
             max_results=5,
             include_answer=True,  # AIが生成した回答も含める
             include_raw_content=False,  # 生コンテンツは不要（トークン節約）
