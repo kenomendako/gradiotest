@@ -312,6 +312,28 @@ class DreamingManager:
                 except Exception as me:
                     print(f"  - [Dreaming] 未解決の問い保存エラー: {me}")
             
+            # --- [Phase 2] 影の僕：エンティティ候補の抽出と提案 ---
+            try:
+                em_manager = EntityMemoryManager(self.room_name)
+                existing = em_manager.list_entries()
+                candidates = self._extract_entity_candidates(recent_context, existing)
+                
+                if candidates:
+                    print(f"  - [Shadow] {len(candidates)}件のエンティティ候補を抽出しました")
+                    # 各候補に関連する記憶を検索して付与
+                    rag = rag_manager.RAGManager(self.room_name, self.api_key)
+                    for candidate in candidates:
+                        related_memories = rag.search(candidate.get("name", ""), k=3)
+                        candidate["related_context"] = [doc.page_content for doc in related_memories]
+                    
+                    # ペルソナへの提案メッセージを生成・キュー
+                    proposal = self._format_entity_proposal(candidates)
+                    self._queue_system_message(proposal)
+                else:
+                    print(f"  - [Shadow] 新しいエンティティ候補はありませんでした")
+            except Exception as se:
+                print(f"  - [Shadow] エンティティ抽出エラー: {se}")
+            
             # 省察レベルの記録
             goal_manager.mark_reflection_done(reflection_level)
             
@@ -338,3 +360,141 @@ class DreamingManager:
             return self.dream(reflection_level=2)
         else:
             return self.dream(reflection_level=1)
+    
+    # ========== [Phase 2] Shadow Servant: エンティティ候補抽出 ==========
+    
+    def _extract_entity_candidates(self, log_text: str, existing_entities: list) -> list:
+        """
+        影の僕: 会話から新しいエンティティ候補を客観的に抽出
+        ペルソナなしのAI処理として実行
+        """
+        effective_settings = config_manager.get_effective_settings(self.room_name)
+        llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, self.api_key, effective_settings)
+        
+        existing_str = ", ".join(existing_entities) if existing_entities else "（なし）"
+        
+        prompt = f"""あなたは情報抽出の専門家です。
+以下の会話ログから、記録すべき「人物」「トピック」「事物」を客観的に抽出してください。
+
+【会話ログ】
+{log_text[:5000]}
+
+【既存のエンティティ】
+{existing_str}
+
+【抽出ルール】
+1. 新しく登場した人名（家族、友人、同僚など）で、まだ既存のエンティティにないもの
+2. 既存エンティティに新しい重要情報が追加された場合（名前で指定）
+3. 繰り返し言及された重要トピック
+
+【除外対象】
+- 一般的な話題や一時的な言及（天気、食事内容など）
+- 既に十分に記録されている既存エンティティ（新情報がない場合）
+
+【出力形式】JSON配列
+```json
+[
+  {{"name": "エンティティ名", "is_new": true, "facts": ["事実1", "事実2"]}}
+]
+```
+候補がない場合は空配列 `[]` を出力してください。
+"""
+        try:
+            response = llm.invoke(prompt).content.strip()
+            # JSON部分を抽出
+            json_match = re.search(r'\[.*\]', response, re.DOTALL)
+            if json_match:
+                return json.loads(json_match.group(0))
+            return []
+        except Exception as e:
+            print(f"  - [Shadow] 候補抽出エラー: {e}")
+            return []
+    
+    def _format_entity_proposal(self, candidates: list) -> str:
+        """
+        エンティティ候補をペルソナへの提案メッセージとしてフォーマット
+        """
+        if not candidates:
+            return ""
+        
+        proposal_parts = ["【影の僕より：記録すべきエンティティの提案】\n"]
+        proposal_parts.append("以下の人物・事物について、あなたの視点で記憶を記録することをお勧めします。\n")
+        
+        for candidate in candidates:
+            name = candidate.get("name", "不明")
+            is_new = candidate.get("is_new", True)
+            facts = candidate.get("facts", [])
+            related = candidate.get("related_context", [])
+            
+            action = "新規作成" if is_new else "更新"
+            proposal_parts.append(f"\n### {name} ({action})")
+            
+            if facts:
+                proposal_parts.append("**今回の会話で判明した事実:**")
+                for fact in facts:
+                    proposal_parts.append(f"- {fact}")
+            
+            if related:
+                proposal_parts.append("\n**関連する過去の記憶:**")
+                for mem in related[:2]:  # 最大2件
+                    truncated = mem[:200] + "..." if len(mem) > 200 else mem
+                    proposal_parts.append(f"- {truncated}")
+        
+        proposal_parts.append("\n\n`write_entity_memory` ツールを使用して、あなた自身の言葉で記録してください。")
+        
+        return "\n".join(proposal_parts)
+    
+    def _queue_system_message(self, message: str):
+        """
+        次回会話開始時にペルソナへ伝達するシステムメッセージをキューに保存
+        """
+        if not message:
+            return
+        
+        queue_file = self.memory_dir / "pending_system_messages.json"
+        
+        try:
+            existing = []
+            if queue_file.exists():
+                with open(queue_file, 'r', encoding='utf-8') as f:
+                    existing = json.load(f)
+            
+            existing.append({
+                "created_at": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "message": message
+            })
+            
+            # 最大5件に制限
+            existing = existing[-5:]
+            
+            with open(queue_file, 'w', encoding='utf-8') as f:
+                json.dump(existing, f, indent=2, ensure_ascii=False)
+            
+            print(f"  - [Shadow] システムメッセージをキューに追加しました")
+        except Exception as e:
+            print(f"  - [Shadow] メッセージキュー保存エラー: {e}")
+    
+    def get_pending_system_messages(self) -> str:
+        """
+        キューに保存されたシステムメッセージを取得し、クリアする
+        """
+        queue_file = self.memory_dir / "pending_system_messages.json"
+        
+        if not queue_file.exists():
+            return ""
+        
+        try:
+            with open(queue_file, 'r', encoding='utf-8') as f:
+                messages = json.load(f)
+            
+            if not messages:
+                return ""
+            
+            # クリア
+            queue_file.unlink()
+            
+            # 最新のメッセージのみ返す（古いものは破棄）
+            return messages[-1].get("message", "")
+        except Exception as e:
+            print(f"  - [Shadow] メッセージ取得エラー: {e}")
+            return ""

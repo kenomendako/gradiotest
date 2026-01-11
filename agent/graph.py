@@ -592,30 +592,9 @@ def retrieval_node(state: AgentState):
                 print(f"    -> 過去ログ: なし")
         # ▲▲▲ ハイブリッド検索ここまで ▲▲▲
 
-        # 3d. エンティティ記憶 (Entity Memory)
-        # [2026-01-11] 500文字制限を追加（コンテキスト圧迫防止）
-        try:
-            em_manager = EntityMemoryManager(room_name)
-            # クエリに関連するエンティティを検索
-            relevant_entities = em_manager.search_entries(rag_query)
-            if relevant_entities:
-                entity_contents = []
-                for entity_name in relevant_entities[:3]:  # 最大3件
-                    content = em_manager.read_entry(entity_name)
-                    if content:
-                        # 500文字を超える場合は切り詰め
-                        if len(content) > 500:
-                            content = content[:500] + f"\n...【続きは `read_entity_memory(\"{entity_name}\")` で確認可能】"
-                        entity_contents.append(f"【{entity_name}に関する詳細記憶】\n{content}")
-                
-                if entity_contents:
-                    entity_result = "\n\n".join(entity_contents)
-                    print(f"    -> エンティティ記憶: ヒット ({len(relevant_entities)}件)")
-                    results.append(entity_result)
-            else:
-                print(f"    -> エンティティ記憶: なし")
-        except Exception as em_e:
-            print(f"    -> エンティティ記憶: エラー ({em_e})")
+        # 3d. エンティティ記憶 → v2で目次方式に移行したため自動想起は廃止
+        # 詳細は context_generator_node で一覧として注入し、
+        # ペルソナが read_entity_memory ツールで能動的に取得する
 
         # ▼▼▼ [2024-12-28 最適化] 話題クラスタ検索を一時無効化 ▼▼▼
         # 現状のクラスタリング精度が低く、ノイズが多いため一時無効化。
@@ -775,6 +754,29 @@ def context_generator_node(state: AgentState):
     except Exception as e:
         print(f"--- 警告: 研究ノートの読み込み中にエラー: {e}")
         research_notes_section = "\n### 研究・分析ノート\n（研究ノートの読み込み中にエラーが発生しました）\n"
+
+    # --- [Entity Memory v2] エンティティ一覧（目次）の注入 ---
+    entity_list_section = ""
+    try:
+        em_manager = EntityMemoryManager(room_name)
+        entities = em_manager.list_entries()
+        if entities:
+            entity_list_str = "\n".join([f"- {name}" for name in sorted(entities)])
+            entity_list_section = (
+                f"\n### 記憶しているエンティティ一覧\n"
+                f"以下は記憶している人物・事物の名前です。詳細は `read_entity_memory(\"名前\")` で確認できます。\n\n"
+                f"{entity_list_str}\n"
+            )
+        
+        # --- [Phase 2] ペンディングシステムメッセージ（影の僕からの提案）の注入 ---
+        from dreaming_manager import DreamingManager
+        dm = DreamingManager(room_name, state.get("api_key", ""))
+        pending_msg = dm.get_pending_system_messages()
+        if pending_msg:
+            entity_list_section += f"\n\n{pending_msg}\n"
+            print(f"  - [Context] ペンディングシステムメッセージを注入しました")
+    except Exception as e:
+        print(f"  - [Context] エンティティ一覧取得エラー: {e}")
 
     episodic_memory_section = ""
     
@@ -1017,6 +1019,7 @@ def context_generator_node(state: AgentState):
         'core_memory': core_memory,
         'notepad_section': notepad_section,
         'research_notes_section': research_notes_section,
+        'entity_list_section': entity_list_section,
         'episodic_memory': episodic_memory_section,
         'dream_insights': dream_insights_text,
         'thought_generation_manual': thought_generation_manual_text,

@@ -23,6 +23,7 @@ CORE_PROMPT_TEMPLATE = """
         {core_memory}
         {notepad_section}
         {research_notes_section}
+        {entity_list_section}
 
         {episodic_memory}
 
