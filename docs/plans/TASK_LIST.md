@@ -26,6 +26,11 @@
   - 保存後、末尾に改行がないために次回の発言が前回の吹き出しに融合する問題を修正
   - [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-11_raw_log_editor_newline_fix.md)
 
+- [x] **サイドバーのスクロール修正とUI復旧** 🆕
+  - ✅ 完了 (2026-01-11)
+  - サイドバーがコンテンツ量に応じてスクロール可能になるよう修正。構造デグレードも復旧済み。
+  - [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-11_fix_sidebar_scrolling.md)
+
 
 
 
