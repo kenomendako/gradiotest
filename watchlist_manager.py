@@ -324,16 +324,25 @@ class WatchlistManager:
         Args:
             entry_id: エントリーID
             group_id: 移動先グループID（Noneで「グループなし」に戻す）
+        
+        Note:
+            グループに移動すると、エントリーのcheck_intervalはグループの設定を継承します。
         """
         # グループの存在確認（Noneでない場合）
         full_group_id = None
+        group_interval = None
         if group_id is not None:
             group = self.get_group_by_id(group_id)
             if not group:
                 return None
             full_group_id = group["id"]
+            group_interval = group.get("check_interval", "manual")
         
-        return self.update_entry(entry_id, group_id=full_group_id)
+        # グループに移動する場合は時刻も継承
+        if group_interval:
+            return self.update_entry(entry_id, group_id=full_group_id, check_interval=group_interval)
+        else:
+            return self.update_entry(entry_id, group_id=full_group_id)
     
     def update_group_interval(self, group_id: str, check_interval: str) -> Tuple[bool, int]:
         """
