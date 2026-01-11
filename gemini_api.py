@@ -875,6 +875,10 @@ def count_input_tokens(**kwargs):
         episodic_memory_section = ""
         days_num = 0
         
+        # lookback_days_str が dict などの場合は無効として扱う
+        if not isinstance(lookback_days_str, str):
+            lookback_days_str = "なし（無効）"
+        
         if lookback_days_str in ("なし（無効）", "なし", "", "0", None):
             episodic_memory_section = ""
         else:
