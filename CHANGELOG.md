@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - **ドキュメント:** Windows環境の絶対パス (`file:///c:/...`) を相対パスに一括変換。GitHub上でのリンク切れを解消。
+- **Gradio警告と配線修正 (2026-01-11):** 起動時に大量発生する「Unexpected argument. Filling with None.」警告を抑制。また、テーマ選択、ルーム管理、World Builder関連のハンドラで戻り値数が不一致だった問題を修正し、システムの安定性を向上。[レポート](docs/reports/2026-01-11_fix_gradio_wiring_and_warnings.md)
 - **UI安定性の向上:** `handle_delete_room` における戻り値の不整合修正。ルーム削除時のクラッシュを防止するため、`_ensure_output_count` システムの適用を強化。
 - **サイドバーのスクロール修正とUI表示の復旧 (2026-01-11):** サイドバー内コンテンツのスクロールを可能にするためのコンテナ階層を追加。また、修正時に発生した中央カラムのネスト不良を修正し、レイアウトを復旧。[レポート](docs/reports/2026-01-11_fix_sidebar_scrolling.md)
 - **配線修正:** `handle_initial_load` 等のデフォルト戻り値数が古い定義のままだった問題を修正 (157->159, 147->148)。
