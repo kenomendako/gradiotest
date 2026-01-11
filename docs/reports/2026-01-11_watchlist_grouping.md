@@ -1,4 +1,4 @@
-# ウォッチリスト グループ化機能
+# ウォッチリスト グループ化 & AI自動リスト作成機能
 
 **日付:** 2026-01-11  
 **ブランチ:** `feat/watchlist-grouping`  
@@ -8,67 +8,54 @@
 
 ## 問題の概要
 
-ウォッチリストに登録した複数のサイトの巡回時刻を個別に変更するのが煩雑だったため、グループ化して一括管理できる機能を追加。
+ウォッチリストに登録した複数サイトの巡回時刻を個別に変更するのが煩雑だったため、グループ化して一括管理できる機能を追加。さらに、ジャンル指定でサイトを自動収集するAI機能を実装。
 
 ---
 
 ## 修正内容
 
-1. **データ構造の拡張** (v2へのマイグレーション)
-   - `watchlist.json`に`groups`配列を追加
-   - 各エントリーに`group_id`フィールドを追加
-   - 既存データからの自動マイグレーション対応
+### 1. グループ管理機能
+- `watchlist.json` v2へのマイグレーション
+- グループCRUD操作（作成/更新/削除）
+- エントリーのグループ移動時に時刻自動継承
+- AIツール3種追加: `create_watchlist_group`, `add_entry_to_group`, `update_group_schedule`
 
-2. **UI拡張**
-   - タブ構造に変更（URL一覧 / グループ管理）
-   - グループ作成・削除・時刻一括変更機能
-   - エントリーのグループ移動機能
+### 2. AI自動リスト作成機能
+- ジャンル入力 → Web検索で候補収集 → CheckboxGroupでプレビュー
+- 選択したサイトをウォッチリストに一括追加（グループ指定可能）
+- Tavily/DuckDuckGo/Google検索を順次使用
 
-3. **AIツール追加**
-   - `create_watchlist_group`: グループ作成
-   - `add_entry_to_group`: エントリーをグループに移動
-   - `update_group_schedule`: グループ時刻一括変更
+### 3. バグ修正
+- グループ作成後のドロップダウン更新（`gr.update()`形式に修正）
+- TavilySearchパラメータ名（`api_key` → `tavily_api_key`）
+- RESEARCH_ANALYSIS_PROMPTのツール名（`edit_research_notes` → `plan_research_notes_edit`）
 
 ---
 
 ## 変更したファイル
 
-- `watchlist_manager.py` - グループCRUD操作、v2マイグレーション、時刻自動継承
-- `ui_handlers.py` - グループ管理用ハンドラー追加
-- `nexus_ark.py` - グループ管理タブ、イベントハンドラ接続
-- `tools/watchlist_tools.py` - 3つのAIツール追加
+| ファイル | 変更内容 |
+|----------|----------|
+| `watchlist_manager.py` | グループCRUD操作、v2マイグレーション、時刻自動継承 |
+| `ui_handlers.py` | グループ管理ハンドラ、AI検索ハンドラ追加 |
+| `nexus_ark.py` | グループ管理タブ、AI自動リスト作成UI追加 |
+| `tools/watchlist_tools.py` | 3つのAIツール追加 |
+| `tools/web_tools.py` | TavilySearchパラメータ名修正 |
+| `agent/prompts.py` | RESEARCH_ANALYSIS_PROMPTのツール名修正 |
 
 ---
 
 ## 検証結果
 
-- [x] アプリ起動確認
-- [x] 機能動作確認（グループ作成・移動・時刻変更）
-- [x] validate_wiring.py実行 → エラーなし
-- [x] ドロップダウン更新バグ修正
-- [x] 時刻自動継承機能追加
+- [x] 構文チェック成功
+- [x] validate_wiring.py実行済み（エラーなし）
+- [x] グループ作成・移動・時刻変更の動作確認
+- [x] AI自動リスト作成の動作確認
+- [x] Tavily検索バグ修正
+- [x] 研究ノートプロンプト修正
 
 ---
 
 ## 残課題
 
-なし（AI自動リスト作成機能も実装完了）
-
----
-
-## 追加実装: AI自動リスト作成機能
-
-### 機能概要
-ジャンル（例: AI技術ニュース）を入力すると、AIがWeb検索で関連サイトを収集し、候補リストを表示。ユーザーが選択したサイトをウォッチリストに一括追加。
-
-### UIフロー
-1. グループ管理タブ → 「🤖 AI自動リスト作成」セクション
-2. ジャンル入力 → 「🔍 候補を検索」ボタン
-3. CheckboxGroupで候補表示
-4. 追加先グループ選択 → 「✅ 選択したサイトを追加」
-
-### 検索プロバイダ
-1. Tavily（設定時優先）
-2. DuckDuckGo（フォールバック）
-3. Google（上記失敗時）
-
+なし
