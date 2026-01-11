@@ -120,6 +120,12 @@
   - ✅ 完了 (2026-01-10): 研究ノート・創作ノートでセッション単位で1回のみタイムスタンプを付与するよう修正
   - レポート: [2026-01-10_notes_timestamp_per_session.md](../reports/2026-01-10_notes_timestamp_per_session.md)
 
+- [/] **Gradio警告「Unexpected argument. Filling with None.」と配線修正** 🆕
+  - 起動時に大量の警告が出る問題と、`validate_wiring.py`で検出された戻り値数の不一致を修正
+  - 詳細: 
+    - 警告: `room_individual_settings_inputs`のイベント登録時のlambdaシグネチャ問題
+    - 配線エラー: 複数のハンドラで`outputs`と`return`の数が不一致
+
 - [ ] **英語対応** 🆕
   - メニューの日本語表示と英語表示を切り替えられるようにする。 (INBOXより)
 

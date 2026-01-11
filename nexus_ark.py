@@ -47,6 +47,12 @@ logging.config.dictConfig = lambda *args, **kwargs: None
 print("--- [Nexus Ark] アプリケーション固有のロギング設定を適用しました ---")
 # --- [ここまでが新しいブロック] ---
 
+# --- [Gradio警告の抑制] ---
+# Gradioの`special_args`関数がlambdaシグネチャを正しく解析できず、
+# 起動時に大量の「Unexpected argument. Filling with None.」警告を出力する問題を抑制
+import warnings
+warnings.filterwarnings("ignore", message="Unexpected argument. Filling with None.")
+# --- [ここまで] ---
 
 # nexus_ark.py (v18: グループ会話FIX・最終版)
 

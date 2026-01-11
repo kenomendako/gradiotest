@@ -5009,7 +5009,7 @@ def handle_wb_save(room_name: str, world_data: Dict, area_name: str, place_name:
     from world_builder import save_world_data
     if not room_name or not area_name or not place_name:
         gr.Warning("保存するにはエリアと場所を選択してください。")
-        return world_data, gr.update()
+        return world_data, gr.update(), gr.update()
 
     if area_name in world_data and place_name in world_data[area_name]:
         world_data[area_name][place_name] = content
@@ -5031,10 +5031,10 @@ def handle_wb_delete_place(room_name: str, world_data: Dict, area_name: str, pla
     from world_builder import save_world_data
     if not area_name or not place_name:
         gr.Warning("削除するエリアと場所を選択してください。")
-        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
     if area_name not in world_data or place_name not in world_data[area_name]:
         gr.Warning(f"場所 '{place_name}' がエリア '{area_name}' に見つかりません。")
-        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+        return world_data, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     del world_data[area_name][place_name]
     save_world_data(room_name, world_data)
@@ -5058,7 +5058,8 @@ def handle_wb_delete_place(room_name: str, world_data: Dict, area_name: str, pla
         gr.update(value="", visible=False),
         gr.update(visible=False),
         gr.update(visible=False),
-        raw_content
+        raw_content,
+        location_dropdown_update
     )
 
 def handle_wb_confirm_add(room_name: str, world_data: Dict, selected_area: str, item_type: str, item_name: str):
@@ -6922,7 +6923,7 @@ def handle_theme_selection(selected_theme_name: str):
     """ドロップダウンでテーマが選択されたときに、プレビューUIとカスタマイズUIを更新する。"""
     if not selected_theme_name or selected_theme_name.startswith("---"):
         # 区切り線が選択された場合は、何も更新しない
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(interactive=False)
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(interactive=False), gr.update(interactive=False)
 
     all_themes_map = config_manager.get_all_themes()
     theme_source = all_themes_map.get(selected_theme_name, "preset")
@@ -9639,7 +9640,7 @@ def handle_clear_open_questions(room_name: str):
     """
     if not room_name:
         gr.Warning("ルームが選択されていません。")
-        return [], "エラー: ルーム未選択"
+        return [], "エラー: ルーム未選択", []
     
     try:
         from motivation_manager import MotivationManager
@@ -9660,7 +9661,7 @@ def handle_clear_open_questions(room_name: str):
         print(f"Clear Open Questions Error: {e}")
         traceback.print_exc()
         gr.Error(f"クリアに失敗しました: {e}")
-        return gr.update(), f"エラー: {e}"
+        return gr.update(), f"エラー: {e}", []
 
 
 def handle_delete_selected_questions(room_name: str, selected_topics: list):
@@ -10533,7 +10534,7 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
     empty_html = "<div>目標データを読み込めませんでした</div>"
     
     if not room_name:
-        return (0, 0, 0, 0, "ルームを選択してください", empty_df, "最終更新: エラー", empty_emotion_df, empty_html)
+        return (0, 0, 0, 0, "ルームを選択してください", empty_df, "最終更新: エラー", empty_emotion_df)
     
     try:
         mm = MotivationManager(room_name)
