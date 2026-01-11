@@ -10284,7 +10284,7 @@ def handle_move_entry_to_group(room_name: str, entry_id: str, group_id: str):
 def handle_get_group_choices(room_name: str):
     """グループ選択用のドロップダウン選択肢を取得する"""
     if not room_name:
-        return [("グループなし", "")]
+        return gr.update(choices=[("グループなし", "")], value="")
     
     try:
         from watchlist_manager import WatchlistManager
@@ -10295,11 +10295,11 @@ def handle_get_group_choices(room_name: str):
         for group in groups:
             choices.append((group["name"], group["id"]))
         
-        return choices
+        return gr.update(choices=choices, value="")
     
     except Exception as e:
         traceback.print_exc()
-        return [("グループなし", "")]
+        return gr.update(choices=[("グループなし", "")], value="")
 
 
 def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, float, str, pd.DataFrame, str, pd.DataFrame, str]:

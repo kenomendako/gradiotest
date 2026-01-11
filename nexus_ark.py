@@ -3215,8 +3215,8 @@ try:
         def refresh_watchlist_and_groups(room_name):
             df, status = ui_handlers.handle_watchlist_refresh(room_name)
             group_df, _ = ui_handlers.handle_group_refresh(room_name)
-            choices = ui_handlers.handle_get_group_choices(room_name)
-            return df, status, group_df, gr.update(choices=choices)
+            choices_update = ui_handlers.handle_get_group_choices(room_name)
+            return df, status, group_df, choices_update
         
         watchlist_accordion.expand(
             fn=refresh_watchlist_and_groups,
