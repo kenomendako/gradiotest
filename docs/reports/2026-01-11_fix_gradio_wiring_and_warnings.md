@@ -26,13 +26,21 @@
 | `handle_wb_delete_place` | 戻り値数を 7 → 8 に修正 |
 | `handle_theme_selection` | 戻り値数を 7 → 8 に修正 |
 | `handle_refresh_internal_state` | 戻り値数を 9 → 8 に修正（過剰な値を削除） |
+| `update_token_count_on_input` | inputsリスト不足（16/17 → 18）を修正 |
+
+---
 
 ## 検証結果
 
-### 自動検証 (`validate_wiring.py`)
-主要な致命的エラーを解消しました。
-> [!TIP]
-> 現在残っている `Returns 0 items` などのFAILメッセージは、ジェネレータ関数（`yield`）や `*args` unpacking を使用している箇所に対する静的解析ツールの誤検出であることを個別に確認済みです。
+- ✅ **「Unexpected argument. Filling with None.」警告が表示されなくなった**
+- ✅ **「Expected at least 18 arguments...」警告が表示されなくなった**
+- ✅ アプリケーションが正常に起動
+
+---
+
+## 残存課題
+PydanticやChatbotの仕様変更に関する警告が数件残っていますが、これらは外部ライブラリ由来のものであり、アプリケーションの動作には影響ありません。
+
 
 ### 手動検証
 - **起動時**: 大量に出ていた警告が完全に消失したことを確認。
