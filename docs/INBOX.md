@@ -16,8 +16,8 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
 ---
 ## 未整理タスク
 
-- [ ] Gradio警告「Unexpected argument. Filling with None.」の調査
-  - 詳細: エンティティ記憶v2実装後に大量発生。機能に影響なしだが原因を調査
+- [ ] `update_token_count_on_input`の引数不足警告
+  - 詳細: 起動時に「Expected at least 18 arguments, received 16」と表示される
   - 優先度: 🟡中
 
 ---
