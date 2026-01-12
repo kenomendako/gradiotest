@@ -344,5 +344,74 @@ if arousal > THRESHOLD:
 
 ## 関連ドキュメント
 
-- [MEMORY_SYSTEM_SPECIFICATION.md](../specifications/MEMORY_SYSTEM_SPECIFICATION.md) - 既存の内部状態システム仕様
+- [MEMORY_SYSTEM_SPECIFICATION.md](../../specifications/MEMORY_SYSTEM_SPECIFICATION.md) - 既存の内部状態システム仕様
+- [AI記憶システム仕様書への評価・助言.md](../../specifications/AI記憶システム仕様書への評価・助言.md) - Gemini Deep Researchによる包括的アドバイス
 - `motivation_manager.py` - 4ドライブの実装
+
+---
+
+## 📚 Gemini Deep Researchからの補完知見
+
+（2026-01-08調査 / 2026-01-12追記）
+
+Gemini Deep Researchの助言ドキュメントと今回の研究を照合した結果、以下の追加実装項目が有効と判断：
+
+### 1. 複合スコアリング式（Generative Agents準拠）
+
+```
+Score = α × S_recency + β × S_importance + γ × S_relevance
+```
+
+Nexus Arkへの適用：
+```
+検索スコア = α × semantic_similarity + β × arousal_score + γ × time_decay
+```
+
+- `semantic_similarity`: 既存RAG
+- `arousal_score`: 今回のArousal計算
+- `time_decay`: 時間減衰（新規実装）
+
+### 2. 時間減衰（Time Decay）
+
+```python
+S_recency = (1.0 - δ)^h
+
+# δ: 減衰率（0.01〜0.1）
+# h: 最終アクセスからの経過時間（時間単位）
+```
+
+**重要**: 作成日時ではなく**最終アクセス日時**を使用することで、再想起された記憶が再び鮮明になる
+
+### 3. 最終アクセス日時（Last_Accessed）の導入
+
+| フィールド | 用途 |
+|-----------|------|
+| `created_at` | 記憶が生成された時刻 |
+| `last_accessed` | **記憶が想起された時刻**（検索時に更新） |
+
+**効果**: 古い記憶でも会話で思い出されれば「再固定化」される（脳科学のReconsolidationを模倣）
+
+### 4. Geminiアドバイスとの対応表
+
+| Geminiの提言 | Nexus Ark現状 | 今回の研究 |
+|-------------|--------------|-----------|
+| 重要度スコア（Importance） | ❌ 未実装 | ✅ **Arousalで代替** |
+| 複合スコアリング | ⚠️ Relevanceのみ | ✅ 式を導入予定 |
+| 最終アクセス日時 | ❌ 未実装 | 🔜 追加実装予定 |
+| 時間減衰（Time Decay） | ⚠️ 週次圧縮のみ | 🔜 検索時に適用予定 |
+| 反省プロセス（Reflection） | ✅ 睡眠時省察 | ✅ EILS統合で強化 |
+| 観察オブジェクトへの変換 | ✅ エピソード要約 | - |
+| ハイブリッド検索 | ✅ RAG+キーワード | - |
+| 階層型メモリ | ✅ Core/Episodic/Entity | - |
+
+---
+
+## 追加実装タスク（Phase 1.5）
+
+Phase 1（Arousal計算）の後に追加で検討：
+
+- [ ] `episodic_memory.json`に`last_accessed`フィールド追加
+- [ ] 検索時に`last_accessed`を更新するロジック
+- [ ] 時間減衰係数`time_decay`の計算
+- [ ] 複合スコアリング式の導入（RAG検索結果のリランキング）
+
