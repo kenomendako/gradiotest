@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **チェス機能の統合 (2026-01-12):** ペルソナとチェスを楽しむ機能を追加。`chessboardjs`による対話型チェス盤をチャットタブ内にアコーディオンとして配置。ペルソナが盤面を認識し、駒を動かすことが可能。ルームごとの状態永続化、違法手の追跡・教育機能も実装。[レポート](docs/reports/2026-01-12_chess_integration.md)
+- **エピソード記憶改善研究 (2026-01-12):** MemRL、GDPO、EILS、Affect-driven RLの調査を実施。Arousal（感情の振れ幅）ベースの記憶評価・圧縮アプローチを検討。また、圧縮閾値を180日→60日に短縮し、記憶の肥大化を抑制。[研究メモ](docs/plans/research/episodic_memory_memrl_study.md) [レポート](docs/reports/2026-01-12_episodic_memory_research.md)
 - **ウォッチリスト グループ化機能 (2026-01-11):** 複数の巡回先をグループ化し、巡回時刻を一括変更可能に。グループ移動時に時刻を自動継承。AIツール3種（`create_watchlist_group`, `add_entry_to_group`, `update_group_schedule`）を追加。[レポート](docs/reports/2026-01-11_watchlist_grouping.md)
 - **AI自動リスト作成機能 (2026-01-11):** ジャンル入力で関連サイトをWeb検索し、候補リストからウォッチリストに一括追加可能。
 - **エンティティ記憶:** LLMによる「統合・要約（Consolidation）」機能を実装。追記の繰り返しによる肥大化を防ぎ、情報を常に最新かつ簡潔に維持。
