@@ -18,13 +18,19 @@ import re
 import dreaming_manager
 from typing import Any
 
-try:
-    from plyer import notification
-    PLYER_AVAILABLE = True
-except ImportError:
-    print("情報: 'plyer'ライブラリが見つかりません。PCデスクトップ通知機能は無効になります。")
-    print(" -> pip install plyer でインストールできます。")
+import sys
+
+# Linuxではplyerのデスクトップ通知がdbus/notify-send依存のため無効化
+if sys.platform.startswith('linux'):
     PLYER_AVAILABLE = False
+else:
+    try:
+        from plyer import notification
+        PLYER_AVAILABLE = True
+    except ImportError:
+        print("情報: 'plyer'ライブラリが見つかりません。PCデスクトップ通知機能は無効になります。")
+        print(" -> pip install plyer でインストールできます。")
+        PLYER_AVAILABLE = False
 
 alarms_data_global = []
 alarm_thread_stop_event = threading.Event()
