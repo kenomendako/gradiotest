@@ -16,7 +16,10 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
 ---
 ## 未整理タスク
 
-(現在、未整理のタスクはありません)
+- [ ] [エピソード記憶の分量・質・学習メカニズムの再検討]
+  - 詳細: 1日分の要約が長すぎる（1000-3000文字）。MemRL/GDPOの概念を取り入れ、Arousal（感情の振れ幅）ベースの取捨選択基準を検討。
+  - 研究メモ: [episodic_memory_memrl_study.md](plans/research/episodic_memory_memrl_study.md)
+  - 優先度: 🔴高 
 
 
 ---

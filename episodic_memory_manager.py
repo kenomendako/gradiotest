@@ -410,14 +410,14 @@ class EpisodicMemoryManager:
             traceback.print_exc()
             return "取得エラー"
 
-    def compress_old_episodes(self, api_key: str, threshold_days: int = 180) -> str:
+    def compress_old_episodes(self, api_key: str, threshold_days: int = 60) -> str:
         """
-        半年以上前のエピソード記憶を週単位に統合する。
+        一定期間以上前のエピソード記憶を週単位に統合する。
         元データはアーカイブに保存。
         
         Args:
             api_key: 要約生成に使用するAPIキー
-            threshold_days: 圧縮対象とする日数（デフォルト180日 = 約半年）
+            threshold_days: 圧縮対象とする日数（デフォルト60日 = 約2ヶ月）
             
         Returns:
             処理結果のメッセージ
@@ -567,7 +567,7 @@ class EpisodicMemoryManager:
         print(f"  - {msg}")
         return msg
 
-    def get_compression_stats(self, threshold_days: int = 180) -> dict:
+    def get_compression_stats(self, threshold_days: int = 60) -> dict:
         """
         現在の記憶ファイルの圧縮状況（圧縮済み最終日、圧縮対象件数）をスキャンして返す。
         """
