@@ -5491,9 +5491,12 @@ def handle_log_punctuation_correction(
 
             # 1. 【分割】コンテンツを3つのパーツに分離
             thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
-            timestamp_pattern = re.compile(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)')
+            # タイムスタンプの正規表現: YYYY-MM-DD (...) HH:MM:SS | モデル名
+            # 修正: \n\n がなくてもマッチするようにし、末尾のアンカーを調整
+            timestamp_pattern = re.compile(r'(\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}(?: \| .*)?)$')
 
             thoughts_match = thoughts_pattern.search(original_content)
+            # 全体の中からタイムスタンプを探す
             timestamp_match = timestamp_pattern.search(original_content)
 
             thoughts_part = thoughts_match.group(1) if thoughts_match else ""
@@ -5522,8 +5525,18 @@ def handle_log_punctuation_correction(
                 corrected_body = result if result and len(result) > len(body_part) * 0.5 else body_part
 
             # 3. 【再結合】パーツを結合してメッセージを更新
-            final_parts = [part for part in [corrected_thoughts, corrected_body, timestamp_part] if part]
-            all_messages[original_index]["content"] = "\n\n".join(final_parts).strip()
+            # パーツ間に適切な改行を入れる。タイムスタンプの前には2つの改行を入れるのがNexus Arkの標準。
+            final_content = ""
+            if corrected_thoughts:
+                final_content += corrected_thoughts + "\n\n"
+            
+            final_content += corrected_body
+            
+            if timestamp_part:
+                # 既に body_part の末尾に改行があるかもしれないので、調整して付与
+                final_content = final_content.strip() + "\n\n" + timestamp_part.strip()
+
+            all_messages[original_index]["content"] = final_content.strip()
             # --- [アーキテクチャここまで] ---
 
         _overwrite_log_file(log_f, all_messages)
