@@ -2,6 +2,8 @@
 # This block MUST be at the absolute top of the file.
 import sys
 import os
+import base64
+
 
 # Get the absolute path of the directory where this script is located.
 # This ensures that even in an embedded environment, Python knows where to find other modules.
@@ -63,6 +65,53 @@ import gradio as gr
 import traceback
 import pandas as pd
 import config_manager, room_manager, alarm_manager, ui_handlers, constants
+from game.chess_engine import game_instance
+
+def handle_user_chess_move(move_json):
+    """
+    Handle move from frontend (JS).
+    move_json: '{"from": "e2", "to": "e4"}'
+    
+    Returns (fen, status_message).
+    - Legal move: updates game state, returns new FEN and success message.
+    - Illegal move: logs the attempt to chat (so persona can teach), returns current FEN and error.
+    """
+    if not move_json:
+        return game_instance.get_fen(), "No move data"
+    
+    try:
+        move_data = json.loads(move_json)
+        start_sq = move_data.get("from")
+        end_sq = move_data.get("to")
+        move_str = f"{start_sq}{end_sq}"
+        
+        # Attempt the move
+        move_successful = False
+        error_msg = None
+        try:
+            game_instance.make_move(move_str)
+            move_successful = True
+        except ValueError as e:
+            # Retry with promotion to queen (for pawn reaching last rank)
+            try:
+                game_instance.make_move(move_str + "q")
+                move_successful = True
+            except ValueError as e2:
+                error_msg = str(e2) if "illegal" in str(e2).lower() else str(e)
+        
+        if move_successful:
+            return game_instance.get_fen(), f"Moved: {move_str}"
+        else:
+            # --- Record illegal move attempt for persona visibility ---
+            # The persona can see this via read_board_state tool
+            game_instance.record_illegal_attempt(start_sq, end_sq, error_msg or "不正な手")
+            print(f"  - [Chess] ユーザーが不正な手を試みました: {start_sq} → {end_sq} (理由: {error_msg})")
+            
+            return game_instance.get_fen(), f"Illegal move: {move_str}"
+    except Exception as e:
+        print(f"Chess move error: {e}")
+        return game_instance.get_fen(), f"Error: {e}"
+
 
 if not utils.acquire_lock():
     print("ロックが取得できなかったため、アプリケーションを終了します。")
@@ -1612,6 +1661,109 @@ try:
                                     save_user_memo_button = gr.Button("💾 保存", size="sm", variant="primary")
                                     clear_user_memo_button = gr.Button("🗑️ クリア", size="sm", variant="secondary")
 
+                            # --- チェスアコーディオン ---
+                            with gr.Accordion("♟️ チェス（ペルソナと対戦）", open=False):
+                                gr.Markdown("駒を動かすと、ペルソナもそれを認識します。ツールを使ってペルソナに動かしてもらうことも可能です。")
+                                with gr.Row():
+                                    with gr.Column(scale=2):
+                                        chess_board_html = gr.HTML("""
+                                            <div id="chess_board_container" style="width: 100%; max-width: 400px; margin: 0 auto;"></div>
+                                            <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+                                        """)
+                                        init_board_button = gr.Button("ボードを初期化", variant="secondary", size="sm")
+
+                                    with gr.Column(scale=1):
+                                        reset_game_button = gr.Button("ゲームをリセット", variant="secondary", size="sm")
+                                        game_status_output = gr.Textbox(label="ステータス", interactive=False, value="ボードを初期化してください", lines=1)
+                                        # Hidden components for JS<->Python communication
+                                        user_move_input = gr.Textbox(visible=False, elem_id="user_move_input") 
+                                        board_fen_state = gr.Textbox(visible=False, elem_id="board_fen_state")
+
+                                # --- JavaScript Definition ---
+                                init_chess_js = """
+                                async () => {
+                                    const ta = document.querySelector("#user_move_input textarea");
+                                    const updateDebug = (msg) => {
+                                        if(ta) {
+                                          ta.value = JSON.stringify({error: msg});
+                                          ta.dispatchEvent(new Event("input", { bubbles: true }));
+                                        }
+                                    };
+                                    
+                                    const loadScript = (src) => {
+                                        return new Promise((resolve, reject) => {
+                                            if(document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+                                            const s = document.createElement('script');
+                                            s.src = src;
+                                            s.onload = () => resolve();
+                                            s.onerror = () => reject(new Error(`Failed to load: ${src}`));
+                                            document.head.appendChild(s);
+                                        });
+                                    };
+
+                                    try {
+                                        updateDebug("Loading...");
+                                        await loadScript("https://code.jquery.com/jquery-3.6.0.min.js");
+                                        await loadScript("https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js");
+                                        
+                                        const container = document.getElementById("chess_board_container");
+                                        if(!container) throw new Error("Container not found");
+                                        
+                                        if(window.chess_board_obj) {
+                                            try { window.chess_board_obj.destroy(); } catch(e) {}
+                                        }
+                                        container.innerHTML = "";
+
+                                        window.chess_board_obj = Chessboard(container, {
+                                            position: 'start',
+                                            draggable: true,
+                                            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+                                            onDrop: function(source, target) {
+                                                const move = {from: source, to: target};
+                                                if(ta) {
+                                                    ta.value = JSON.stringify(move);
+                                                    ta.dispatchEvent(new Event("input", { bubbles: true }));
+                                                }
+                                            }
+                                        });
+                                        
+                                        window.updateBoardFromFen = (fen) => {
+                                            if (window.chess_board_obj && fen) window.chess_board_obj.position(fen);
+                                        };
+                                        
+                                        updateDebug("Ready!");
+                                    } catch(e) {
+                                        console.error(e);
+                                        updateDebug("Error: " + e.message);
+                                    }
+                                }
+                                """
+
+                                # Event Wiring for Chess
+                                init_board_button.click(fn=None, inputs=[], outputs=[], js=init_chess_js)
+
+                                def handle_debug_or_move(data_json):
+                                    if not data_json: return game_instance.get_fen(), "No Data"
+                                    try:
+                                        data = json.loads(data_json)
+                                        if "error" in data:
+                                            return game_instance.get_fen(), data['error']
+                                        return handle_user_chess_move(data_json)
+                                    except Exception as e:
+                                        return game_instance.get_fen(), f"Error: {e}"
+
+                                user_move_input.change(fn=handle_debug_or_move, inputs=[user_move_input], outputs=[board_fen_state, game_status_output])
+                                board_fen_state.change(fn=None, inputs=[board_fen_state], js="(fen) => { if(window.updateBoardFromFen) window.updateBoardFromFen(fen); }")
+                                
+                                def reset_chess_game_fn():
+                                    game_instance.reset_board()
+                                    return game_instance.get_fen(), "Game Reset"
+                                reset_game_button.click(fn=reset_chess_game_fn, outputs=[board_fen_state, game_status_output])
+                                
+                                # Polling timer to sync board state
+                                board_sync_timer = gr.Timer(1.0)
+                                board_sync_timer.tick(fn=lambda: game_instance.get_fen(), outputs=[board_fen_state])
+
                     with gr.TabItem("📝 RAWログエディタ") as chat_raw_editor_tab:
                         gr.Markdown(
                             "会話ログファイル (`log.txt`) を直接編集できます。\n\n"
@@ -1628,7 +1780,8 @@ try:
                             save_chat_log_button = gr.Button("💾 ログを保存", variant="primary")
                             reload_chat_log_button = gr.Button("🔄 最後に保存した内容を読み込む", variant="secondary")
 
-            with gr.TabItem(" 記憶・メモ・指示"):
+
+            with gr.TabItem("📝 記憶・メモ・指示"):
                 gr.Markdown("##  記憶・メモ・指示\nルームの根幹をなす設定ファイルを、ここで直接編集できます。")
                 with gr.Tabs():
                     with gr.TabItem("記憶"):
@@ -4375,7 +4528,7 @@ try:
             print(f"\n  ※外部接続は無効です。共通設定で有効化できます。")
         print("="*60 + "\n")
         
-        demo.queue().launch(server_name=server_name_value, server_port=7860, share=False, allowed_paths=[".", constants.ROOMS_DIR], inbrowser=True)
+        demo.queue().launch(server_name=server_name_value, server_port=7860, share=False, allowed_paths=[".", constants.ROOMS_DIR, os.path.join(script_dir, "assets")], inbrowser=True)
 
 except Exception as e:
     print("\n" + "X"*60); print("!!! [致命的エラー] アプリケーションの起動中に、予期せぬ例外が発生しました。"); print("X"*60); traceback.print_exc()

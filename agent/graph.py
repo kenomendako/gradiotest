@@ -33,6 +33,7 @@ from tools.alarm_tools import set_personal_alarm
 from tools.timer_tools import set_timer, set_pomodoro_timer
 from tools.knowledge_tools import search_knowledge_base
 from tools.entity_tools import read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory
+from tools.chess_tools import read_board_state, perform_move, get_legal_moves, reset_game as reset_chess_game
 
 from room_manager import get_world_settings_path, get_room_files_paths
 from episodic_memory_manager import EpisodicMemoryManager
@@ -85,7 +86,9 @@ all_tools = [
     read_creative_notes, plan_creative_notes_edit,
     # --- ウォッチリストツール ---
     add_to_watchlist, remove_from_watchlist, get_watchlist, check_watchlist, update_watchlist_interval,
-    read_research_notes, plan_research_notes_edit
+    read_research_notes, plan_research_notes_edit,
+    # --- チェスツール ---
+    read_board_state, perform_move, get_legal_moves, reset_chess_game
 ]
 
 side_effect_tools = [
