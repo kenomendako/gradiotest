@@ -1670,18 +1670,27 @@ try:
                                             <div id="chess_board_container" style="width: 100%; max-width: 400px; margin: 0 auto;"></div>
                                             <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
                                         """)
-                                        init_board_button = gr.Button("ボードを初期化", variant="secondary", size="sm")
+                                        init_board_button = gr.Button("チェス盤をセット・再開", variant="secondary", size="sm")
 
                                     with gr.Column(scale=1):
-                                        reset_game_button = gr.Button("ゲームをリセット", variant="secondary", size="sm")
-                                        game_status_output = gr.Textbox(label="ステータス", interactive=False, value="ボードを初期化してください", lines=1)
+                                        reset_game_button = gr.Button("リセット", variant="secondary", size="sm")
+                                        game_status_output = gr.Textbox(label="ステータス", interactive=False, value="チェス盤をセットしてください", lines=1)
                                         # Hidden components for JS<->Python communication
-                                        user_move_input = gr.Textbox(visible=False, elem_id="user_move_input") 
+                                        # NOTE: visible=True for debugging - set to False once working
+                                        user_move_input = gr.Textbox(label="Debug (Move Data)", visible=True, elem_id="user_move_input", lines=1) 
                                         board_fen_state = gr.Textbox(visible=False, elem_id="board_fen_state")
+
+                                # --- Python function to initialize with room-based persistence ---
+                                def init_chess_board(room_name):
+                                    """Initialize chess board with room-specific saved state."""
+                                    if room_name:
+                                        game_instance.set_room(room_name)
+                                    fen = game_instance.get_fen()
+                                    return fen, f"Loaded: {fen[:25]}..."
 
                                 # --- JavaScript Definition ---
                                 init_chess_js = """
-                                async () => {
+                                async (fen) => {
                                     const ta = document.querySelector("#user_move_input textarea");
                                     const updateDebug = (msg) => {
                                         if(ta) {
@@ -1714,8 +1723,11 @@ try:
                                         }
                                         container.innerHTML = "";
 
+                                        // Use FEN from Python if provided, otherwise 'start'
+                                        const position = (fen && fen.length > 10) ? fen : 'start';
+                                        
                                         window.chess_board_obj = Chessboard(container, {
-                                            position: 'start',
+                                            position: position,
                                             draggable: true,
                                             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
                                             onDrop: function(source, target) {
@@ -1739,8 +1751,17 @@ try:
                                 }
                                 """
 
-                                # Event Wiring for Chess
-                                init_board_button.click(fn=None, inputs=[], outputs=[], js=init_chess_js)
+                                # Event Wiring for Chess - Python first (sets room & loads state), then JS
+                                init_board_button.click(
+                                    fn=init_chess_board,
+                                    inputs=[current_room_name],
+                                    outputs=[board_fen_state, game_status_output]
+                                ).then(
+                                    fn=None,
+                                    inputs=[board_fen_state],
+                                    outputs=[],
+                                    js=init_chess_js
+                                )
 
                                 def handle_debug_or_move(data_json):
                                     if not data_json: return game_instance.get_fen(), "No Data"
