@@ -221,6 +221,47 @@ class GoalManager:
         
         return "\n".join(lines)
     
+    def get_goals_for_reflection(self, max_short: int = 10, max_long: int = 3) -> str:
+        """
+        省察プロンプト用に目標をIDと共にテキスト化する。
+        LLMが達成/放棄を判定できるようにIDを含める。
+        
+        Args:
+            max_short: 含める短期目標の最大数
+            max_long: 含める長期目標の最大数
+        
+        Returns:
+            省察用のテキスト（IDと作成日付き）
+        """
+        short_term = self.get_active_goals("short_term")[:max_short]
+        long_term = self.get_active_goals("long_term")[:max_long]
+        
+        if not short_term and not long_term:
+            return "現在設定されている目標はありません。"
+        
+        lines = ["【現在のアクティブな目標一覧】"]
+        lines.append("※達成した目標や、もう追求しない目標があれば completed_goals / abandoned_goals で指定してください。")
+        lines.append("")
+        
+        if short_term:
+            lines.append("▼ 短期目標:")
+            for g in short_term:
+                goal_id = g.get("id", "")
+                goal_text = g.get("goal", "")
+                created = g.get("created_at", "").split(" ")[0]
+                lines.append(f"  - [{goal_id}] {goal_text} (作成: {created})")
+        
+        if long_term:
+            lines.append("")
+            lines.append("▼ 長期目標:")
+            for g in long_term:
+                goal_id = g.get("id", "")
+                goal_text = g.get("goal", "")
+                created = g.get("created_at", "").split(" ")[0]
+                lines.append(f"  - [{goal_id}] {goal_text} (作成: {created})")
+        
+        return "\n".join(lines)
+    
     def should_run_level2_reflection(self, days_threshold: int = 7) -> bool:
         """週次省察を実行すべきか判定"""
         goals = self._load_goals()

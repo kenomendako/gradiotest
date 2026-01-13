@@ -263,7 +263,9 @@ class MotivationManager:
         """
         好奇心を計算（0.0 ~ 1.0）
         
-        未解決の問い（open_questions）の数と優先度から計算
+        未解決の問い（open_questions）の数と優先度から計算。
+        - 未質問（asked_at=None）: フル重み
+        - 回答待ち（asked_at有り、resolved_at無し）: 0.5倍の重み
         """
         curiosity_data = self._state["drives"]["curiosity"]
         open_questions = curiosity_data.get("open_questions", [])
@@ -272,16 +274,22 @@ class MotivationManager:
             self._state["drives"]["curiosity"]["level"] = 0.0
             return 0.0
         
-        # 未回答の質問のみを対象
-        unanswered = [q for q in open_questions if not q.get("asked_at")]
+        # 未質問 = まだ聞いていない（フル重み）
+        unasked = [q for q in open_questions if not q.get("asked_at")]
         
-        if not unanswered:
+        # 回答待ち = 質問したがまだ回答なし（重み0.5）
+        pending = [q for q in open_questions 
+                   if q.get("asked_at") and not q.get("resolved_at")]
+        
+        if not unasked and not pending:
             self._state["drives"]["curiosity"]["level"] = 0.0
             return 0.0
         
-        # 優先度の加重合計（最大1.0に制限）
-        total_priority = sum(q.get("priority", 0.5) for q in unanswered)
-        curiosity = min(1.0, total_priority / 2)  # 2つの質問で最大に
+        # 重み付け計算
+        unasked_score = sum(q.get("priority", 0.5) for q in unasked)
+        pending_score = sum(q.get("priority", 0.5) * 0.5 for q in pending)
+        
+        curiosity = min(1.0, (unasked_score + pending_score) / 2)
         
         self._state["drives"]["curiosity"]["level"] = curiosity
         return curiosity
@@ -525,14 +533,37 @@ class MotivationManager:
         self._state["drives"]["curiosity"]["open_questions"] = questions
         self._save_state()
     
-    def mark_question_asked(self, topic: str):
+    def mark_question_asked(self, topic: str) -> bool:
         """質問が尋ねられたことをマーク"""
         questions = self._state["drives"]["curiosity"].get("open_questions", [])
         for q in questions:
             if q.get("topic") == topic:
                 q["asked_at"] = datetime.datetime.now().isoformat()
                 self._save_state()
-                return
+                return True
+        return False
+    
+    def mark_question_resolved(self, topic: str, answer_summary: str = "") -> bool:
+        """
+        質問が解決されたことをマーク。
+        
+        Args:
+            topic: 問いのトピック
+            answer_summary: 回答の要約（オプション、記憶変換用）
+        
+        Returns:
+            成功したかどうか
+        """
+        questions = self._state["drives"]["curiosity"].get("open_questions", [])
+        for q in questions:
+            if q.get("topic") == topic:
+                q["resolved_at"] = datetime.datetime.now().isoformat()
+                if answer_summary:
+                    q["answer_summary"] = answer_summary
+                self._save_state()
+                print(f"  - [Motivation] 問い「{topic}」を解決済みとしてマークしました")
+                return True
+        return False
     
     def set_user_emotional_state(self, state: str):
         """ユーザーの感情状態を設定"""
@@ -564,13 +595,14 @@ class MotivationManager:
             判定に使うためのフォーマット済みテキスト
         """
         questions = self._state["drives"]["curiosity"].get("open_questions", [])
-        unanswered = [q for q in questions if not q.get("asked_at")]
+        # 未解決 = resolved_at がない質問
+        unresolved = [q for q in questions if not q.get("resolved_at")]
         
-        if not unanswered:
+        if not unresolved:
             return ""
         
         parts = []
-        for i, q in enumerate(unanswered, 1):
+        for i, q in enumerate(unresolved, 1):
             topic = q.get("topic", "")
             context = q.get("context", "")
             parts.append(f"{i}. 「{topic}」（背景: {context}）" if context else f"{i}. 「{topic}」")
@@ -636,18 +668,18 @@ class MotivationManager:
                 except ValueError:
                     continue
             
-            # 対応する問いをマーク
+            # 対応する問いをマーク (resolved_at を使用)
             questions = self._state["drives"]["curiosity"].get("open_questions", [])
-            unanswered = [q for q in questions if not q.get("asked_at")]
+            # 未解決 = resolved_at がない質問
+            unresolved = [q for q in questions if not q.get("resolved_at")]
             
             resolved_topics = []
             for idx in resolved_indices:
-                if 1 <= idx <= len(unanswered):
-                    topic = unanswered[idx - 1].get("topic")
+                if 1 <= idx <= len(unresolved):
+                    topic = unresolved[idx - 1].get("topic")
                     if topic:
-                        self.mark_question_asked(topic)
+                        self.mark_question_resolved(topic)
                         resolved_topics.append(topic)
-                        print(f"  - [Motivation] 問い「{topic}」を解決済みとしてマークしました")
             
             return resolved_topics
             
@@ -670,7 +702,8 @@ class MotivationManager:
         decayed_count = 0
         
         for q in questions:
-            if q.get("asked_at"):  # 既に解決済みはスキップ
+            # 解決済みはスキップ
+            if q.get("resolved_at"):
                 continue
             
             source_date_str = q.get("source_date")
@@ -696,6 +729,46 @@ class MotivationManager:
             print(f"  - [Motivation] 古い問い{decayed_count}件の優先度を下げました")
         
         return decayed_count
+    
+    def cleanup_resolved_questions(self, days_threshold: int = 7) -> int:
+        """
+        解決済みから一定期間経過した質問を削除する。
+        
+        Args:
+            days_threshold: 解決からこの日数以上経過した質問を削除
+        
+        Returns:
+            削除した質問の数
+        """
+        questions = self._state["drives"]["curiosity"].get("open_questions", [])
+        now = datetime.datetime.now()
+        
+        # 削除対象を特定
+        to_remove = []
+        for q in questions:
+            resolved_at_str = q.get("resolved_at")
+            if not resolved_at_str:
+                continue
+            
+            try:
+                resolved_at = datetime.datetime.fromisoformat(resolved_at_str)
+                age_days = (now - resolved_at).days
+                
+                if age_days >= days_threshold:
+                    to_remove.append(q)
+            except ValueError:
+                continue
+        
+        # 削除実行
+        for q in to_remove:
+            questions.remove(q)
+            print(f"  - [Motivation] 解決済みの問い「{q.get('topic', '')}」をアーカイブしました")
+        
+        if to_remove:
+            self._state["drives"]["curiosity"]["open_questions"] = questions
+            self._save_state()
+        
+        return len(to_remove)
 
     # ========================================
     # 自律行動発火時刻の永続化

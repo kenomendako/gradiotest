@@ -156,9 +156,9 @@ class DreamingManager:
 
         past_memories = "\n\n".join([f"- {doc.page_content}" for doc in search_results])
 
-        # --- [Goal Memory] 現在の目標を取得 ---
+        # --- [Goal Memory] 現在の目標を取得（IDと共に） ---
         goal_manager = GoalManager(self.room_name)
-        current_goals_text = goal_manager.get_goals_for_prompt()
+        current_goals_text = goal_manager.get_goals_for_reflection()
         
         # 省察レベルに応じた追加指示
         level_specific_instructions = ""
@@ -311,6 +311,23 @@ class DreamingManager:
                     print(f"  - [Dreaming] 未解決の問いを{len(open_questions)}件記録しました")
                 except Exception as me:
                     print(f"  - [Dreaming] 未解決の問い保存エラー: {me}")
+            
+            # --- [Motivation] 解決済み質問のクリーンアップと記憶変換 ---
+            try:
+                from motivation_manager import MotivationManager
+                mm = MotivationManager(self.room_name)
+                
+                # 古い解決済み質問を削除
+                cleaned_count = mm.cleanup_resolved_questions(days_threshold=7)
+                if cleaned_count > 0:
+                    print(f"  - [Dreaming] {cleaned_count}件の古い質問をアーカイブしました")
+                
+                # 古い未解決質問の優先度を下げる
+                decayed_count = mm.decay_old_questions(days_threshold=14)
+                if decayed_count > 0:
+                    print(f"  - [Dreaming] {decayed_count}件の古い質問の優先度を下げました")
+            except Exception as ce:
+                print(f"  - [Dreaming] 質問クリーンアップエラー: {ce}")
             
             # --- [Phase 2] 影の僕：エンティティ候補の抽出と提案 ---
             try:
