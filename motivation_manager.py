@@ -137,8 +137,18 @@ class MotivationManager:
             valid_emotions = ["joy", "sadness", "anger", "fear", "surprise", "neutral"]
             if response not in valid_emotions:
                 response = "neutral"
-                
-            detected_emotion = response
+            
+            # --- [Phase C] Devotion互換カテゴリへのマッピング ---
+            # LLM検出の基本感情 → Devotion計算用の統一カテゴリに変換
+            emotion_map = {
+                "joy": "happy",
+                "sadness": "sad",
+                "anger": "stressed",
+                "fear": "anxious",
+                "surprise": "neutral"  # 驚きはneutral扱い
+            }
+            detected_emotion = emotion_map.get(response, response)
+            # --- マッピングここまで ---
             
         except Exception as e:
             print(f"[MotivationManager] 感情検出エラー: {e}")

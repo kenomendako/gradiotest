@@ -1480,6 +1480,29 @@ def _stream_and_handle_response(
                                     print(f"  - 除去されたパターン: {existing_timestamp_match.group()}")
                                     content_str = re.sub(timestamp_pattern, '', content_str)
                                 
+                                # --- [Phase C] 感情タグのパースと除去 ---
+                                # ペルソナが出力した <user_emotion>カテゴリ</user_emotion> をパースして
+                                # MotivationManagerに反映し、ログからは除去する
+                                emotion_tag_pattern = r'<user_emotion>(\w+)</user_emotion>'
+                                emotion_match = re.search(emotion_tag_pattern, content_str, re.IGNORECASE)
+                                if emotion_match:
+                                    detected_emotion = emotion_match.group(1).lower()
+                                    valid_emotions = ["happy", "sad", "stressed", "anxious", "tired", "neutral"]
+                                    if detected_emotion in valid_emotions:
+                                        try:
+                                            from motivation_manager import MotivationManager
+                                            mm = MotivationManager(current_room)
+                                            mm.set_user_emotional_state(detected_emotion)
+                                            mm._save_state()
+                                            print(f"  - [Emotion] ペルソナ検出の感情を反映: {detected_emotion}")
+                                        except Exception as e:
+                                            print(f"  - [Emotion] 感情反映エラー: {e}")
+                                    else:
+                                        print(f"  - [Emotion] 無効なカテゴリ: {detected_emotion}")
+                                    # タグをログから除去（本文には残さない）
+                                    content_str = re.sub(emotion_tag_pattern, '', content_str, flags=re.IGNORECASE).rstrip()
+                                # --- 感情タグ処理ここまで ---
+                                
                                 # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
                                 # 使用モデル名の取得（優先順位: 1.ストリーム中に取得したmodel_name, 2.final_state, 3.effective_settings）
                                 actual_model_name = captured_model_name or (final_state.get("model_name") if final_state else None)
