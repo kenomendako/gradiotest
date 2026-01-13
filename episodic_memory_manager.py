@@ -262,9 +262,18 @@ class EpisodicMemoryManager:
             # --- 保存判定 ---
             if summary_result:
                 # 成功したか、恒久的に失敗した場合は保存して「完了」とする
+                # [Phase 2] Arousal平均値を取得
+                arousal_score = 0.5  # デフォルト
+                try:
+                    import session_arousal_manager
+                    arousal_score = session_arousal_manager.get_daily_average(self.room_name, date_str)
+                except Exception as e:
+                    print(f"  - [Arousal] 取得失敗: {e}")
+                
                 self._append_single_episode({
                     "date": date_str,
                     "summary": summary_result,
+                    "arousal": arousal_score,  # Arousal追加
                     "created_at": datetime.datetime.now().isoformat()
                 })
                 
@@ -501,12 +510,30 @@ class EpisodicMemoryManager:
             week_end_date = week_start_date + datetime.timedelta(days=6)
             week_end = week_end_date.strftime('%Y-%m-%d')
             
-            # 週内のエピソード要約を結合
+            # --- [Phase 2-B] Arousalによるソート ---
+            # 高Arousalエピソードを優先して詳細に記載
+            week_episodes_sorted = sorted(
+                week_episodes,
+                key=lambda e: e.get("arousal", 0.5),
+                reverse=True
+            )
+            
+            # 週内のArousal統計
+            arousal_values = [e.get("arousal", 0.5) for e in week_episodes]
+            avg_arousal = sum(arousal_values) / len(arousal_values) if arousal_values else 0.5
+            max_arousal = max(arousal_values) if arousal_values else 0.5
+            
+            # 週内のエピソード要約を結合（高Arousal順）
             week_summaries = []
-            for ep in week_episodes:
+            for i, ep in enumerate(week_episodes_sorted):
                 summary = ep.get('summary', '')
                 if summary and '（' not in summary[:5]:  # エラーメッセージでないことを確認
-                    week_summaries.append(f"[{ep['date']}] {summary}")
+                    ep_arousal = ep.get("arousal", 0.5)
+                    # 高Arousal（上位2件）はマークを付加
+                    if i < 2 and ep_arousal >= 0.5:
+                        week_summaries.append(f"★[{ep['date']}] {summary}")
+                    else:
+                        week_summaries.append(f"[{ep['date']}] {summary}")
             
             if not week_summaries:
                 continue
@@ -541,11 +568,13 @@ class EpisodicMemoryManager:
                     compressed_episodes.append({
                         "date": f"{week_start}~{week_end}",
                         "summary": summary,
+                        "arousal": round(avg_arousal, 3),  # 週平均Arousal
+                        "arousal_max": round(max_arousal, 3),  # 週最大Arousal
                         "compressed": True,
                         "original_count": len(week_episodes),
                         "created_at": datetime.datetime.now().isoformat()
                     })
-                    print(f"    - {week_start}〜{week_end}: {len(week_episodes)}件 → 1件")
+                    print(f"    - {week_start}〜{week_end}: {len(week_episodes)}件 → 1件 (Arousal avg:{avg_arousal:.2f})")
                 else:
                     # 要約が空だった場合は元のエピソードをそのまま保持（データ消失防止）
                     print(f"    - {week_start}〜{week_end}: 要約が空のため統合をスキップし、元データを維持します。")

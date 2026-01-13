@@ -1692,6 +1692,10 @@ def _stream_and_handle_response(
                 if arousal_score > 0:
                     print(f"    - 好奇心変化: {curiosity_change:+.3f}, 奉仕欲変化: {devotion_change:+.3f}")
                     print(f"    - 感情変化: {emotion_before} → {emotion_after}")
+                
+                # --- [Phase 2] Arousalを永続保存 ---
+                import session_arousal_manager
+                session_arousal_manager.add_arousal_score(soul_vessel_room, arousal_score)
         except Exception as e:
             print(f"  - [Arousal] 計算エラー: {e}")
         # --- Arousal計算ここまで ---
