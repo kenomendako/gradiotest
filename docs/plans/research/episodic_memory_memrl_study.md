@@ -483,4 +483,138 @@ Related: [[美帆]], [[ポチ]]
 - [ ] `read_entity_memory`ツールで`[[リンク先]]`を検出・展開
 - [ ] 睡眠時の統合処理でリンク整理（壊れたリンクの修復等）
 
+---
 
+## 🧠 内的状態システム調査結果
+
+（2026-01-13 調査実施）
+
+### 発見された問題点
+
+#### 🔴 問題1: 好奇心が常に0になる
+
+**原因**: `calculate_curiosity()` で `asked_at` がセットされた質問を除外
+
+```python
+unanswered = [q for q in open_questions if not q.get("asked_at")]
+```
+
+**現状**: ルシアンの10件の質問すべてに `asked_at` がセット済み → 好奇心 = 0.0
+
+**問題**: 「質問した」と「回答を得た」が区別されていない
+
+#### 🔴 問題2: 質問が永遠に残る
+
+- `asked_at` がセットされても質問は**削除されない**
+- 10件の上限に達すると新しい質問が追加できない
+- 解決済み質問が蓄積し、スロットを圧迫
+
+#### 🟡 問題3: decay_old_questions が機能しない
+
+```python
+if q.get("asked_at"):  # 既に解決済みはスキップ
+    continue
+```
+
+→ 全質問が `asked_at` 付きのため、何も減衰しない
+
+#### 🟡 問題4: 感情検出カテゴリの不一致
+
+| detect_process_and_log_user_emotion | calculate_devotion |
+|-------------------------------------|-------------------|
+| joy, sadness, anger, fear, surprise, neutral | stressed, sad, anxious, tired, busy, neutral, happy, unknown |
+
+→ カテゴリが一致せず、感情→Devotion変換が正しく機能しない
+
+---
+
+### 提案: 質問ライフサイクルの再設計
+
+#### 新しいフロー
+
+```
+新規追加 → asked_at=None（好奇心↑）
+    ↓
+ペルソナが質問 → asked_at=日時（好奇心維持、回答待ち）
+    ↓
+ユーザーが回答 → resolved_at=日時（好奇心↓、満足感）
+    ↓
+睡眠時処理 → 記憶に変換（エンティティ or 夢日記）
+    ↓
+7日経過 → アーカイブ/削除（スロット解放）
+```
+
+#### 好奇心計算の修正案
+
+```python
+def calculate_curiosity(self) -> float:
+    questions = self._state["drives"]["curiosity"].get("open_questions", [])
+    
+    # 未質問 = まだ聞いていない（高い好奇心）
+    unasked = [q for q in questions if not q.get("asked_at")]
+    
+    # 回答待ち = 質問したがまだ回答なし（中程度の好奇心）
+    pending = [q for q in questions 
+               if q.get("asked_at") and not q.get("resolved_at")]
+    
+    # 重み付け計算
+    unasked_score = sum(q.get("priority", 0.5) for q in unasked)
+    pending_score = sum(q.get("priority", 0.5) * 0.5 for q in pending)  # 半減
+    
+    curiosity = min(1.0, (unasked_score + pending_score) / 2)
+    return curiosity
+```
+
+---
+
+### 提案: 「問い」から「洞察」への変換
+
+解決された問いを記憶に変換することで、学びを永続化：
+
+#### 変換フロー
+
+```
+「問い」が解決される
+     ↓
+睡眠時処理で変換
+     ↓
+┌─────────────────────────────────┐
+│  問い: 「美帆の好きな映画は？」    │
+│  回答: 「ホラー映画が好き」        │
+│           ↓                      │
+│  洞察: 「美帆はホラー映画を好む」  │
+└─────────────────────────────────┘
+     ↓
+保存先を選択
+```
+
+#### 保存先の使い分け
+
+| 種類 | 保存先 | 例 |
+|-----|--------|---|
+| **事実** | エンティティ記憶 | 「美帆は猫を飼っている」 |
+| **関係性・感情** | 夢日記 (insights.json) | 「美帆が創作を語る時、目が輝く」 |
+
+#### Arousal連携
+
+- **高Arousalで解決** → 高優先度でエンティティ記憶に保存
+- **低Arousalで解決** → 夢日記に軽く記録 or 破棄
+
+---
+
+### 実装タスク（内的状態改善）
+
+#### Phase A: 質問ライフサイクル修正
+- [ ] `resolved_at` フィールドの追加
+- [ ] `calculate_curiosity()` の修正（回答待ち質問を考慮）
+- [ ] 解決判定ロジックの更新
+
+#### Phase B: 問い→記憶変換
+- [ ] 睡眠時に解決済み質問を処理する関数
+- [ ] LLMで事実/洞察を抽出
+- [ ] エンティティ記憶 or 夢日記に書き込み
+- [ ] 変換済み質問のアーカイブ/削除
+
+#### Phase C: 感情カテゴリ統一
+- [ ] 感情検出のカテゴリを統一
+- [ ] Devotion計算との整合性確保
