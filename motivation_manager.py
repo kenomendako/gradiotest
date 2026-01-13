@@ -107,6 +107,20 @@ class MotivationManager:
         except IOError as e:
             print(f"[MotivationManager] 感情ログ保存エラー: {e}")
 
+    def get_state_snapshot(self) -> dict:
+        """
+        現在の内部状態のスナップショットを返す。
+        Arousal計算用に会話開始時・終了時に呼び出す。
+        """
+        drives = self._state.get("drives", {})
+        return {
+            "curiosity": drives.get("curiosity", {}).get("level", 0.0),
+            "devotion": drives.get("devotion", {}).get("level", 0.0),
+            "boredom": drives.get("boredom", {}).get("level", 0.0),
+            "goal_achievement": drives.get("goal_achievement", {}).get("level", 0.0),
+            "user_emotional_state": drives.get("devotion", {}).get("user_emotional_state", "unknown")
+        }
+
     def detect_process_and_log_user_emotion(self, user_text: str, model_name: str, api_key: str):
         """
         ユーザーの感情を検出し、ログに保存し、Devotion Driveに反映する統合メソッド。

@@ -44,8 +44,16 @@ def load_today_summary(room_name: str) -> Optional[Dict]:
 
 
 def save_today_summary(room_name: str, summary_text: str, 
-                        chars_summarized: int) -> bool:
-    """本日の要約を保存する"""
+                        chars_summarized: int, arousal: float = 0.0) -> bool:
+    """
+    本日の要約を保存する。
+    
+    Args:
+        room_name: ルーム名
+        summary_text: 要約テキスト
+        chars_summarized: 要約対象の文字数
+        arousal: 感情的重要度スコア（0.0〜1.0）
+    """
     path = get_summary_file_path(room_name)
     today_str = datetime.datetime.now().strftime('%Y-%m-%d')
     now_str = datetime.datetime.now().strftime('%H:%M:%S')
@@ -54,7 +62,8 @@ def save_today_summary(room_name: str, summary_text: str,
         "date": today_str,
         "last_updated": now_str,
         "summary": summary_text,
-        "chars_summarized": chars_summarized
+        "chars_summarized": chars_summarized,
+        "arousal": arousal  # 感情的重要度スコア
     }
     
     try:

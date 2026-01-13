@@ -1233,6 +1233,17 @@ def _stream_and_handle_response(
 
 
     try:
+        # --- [Arousal] 会話開始時の内部状態スナップショット ---
+        # エピソード記憶の重要度（Arousal）計算のため、会話前後の内部状態変化を記録
+        internal_state_before = None
+        try:
+            from motivation_manager import MotivationManager
+            mm = MotivationManager(soul_vessel_room)
+            internal_state_before = mm.get_state_snapshot()
+        except Exception as e:
+            print(f"  - [Arousal] スナップショット取得失敗: {e}")
+        # --- Arousalここまで ---
+        
         # UIをストリーミングモードに移行
         # この時点の履歴を一度取得
         effective_settings = config_manager.get_effective_settings(soul_vessel_room) # <<< "initial"を削除
@@ -1656,6 +1667,34 @@ def _stream_and_handle_response(
             print(f"--- [MotivationManager] {soul_vessel_room}: 対話完了によりクールダウンをリセットしました ---")
         except Exception as e:
             print(f"--- [MotivationManager] クールダウンリセットエラー: {e} ---")
+        
+        # --- [Arousal] 会話終了時のArousal計算 ---
+        # 会話前後の内部状態変化からArousalスコアを計算し、ログに出力
+        try:
+            if internal_state_before:
+                from motivation_manager import MotivationManager
+                from arousal_calculator import calculate_arousal, get_arousal_level
+                
+                mm = MotivationManager(soul_vessel_room)
+                internal_state_after = mm.get_state_snapshot()
+                
+                arousal_score = calculate_arousal(internal_state_before, internal_state_after)
+                arousal_level = get_arousal_level(arousal_score)
+                
+                print(f"  - [Arousal] 会話のArousalスコア: {arousal_score:.3f} ({arousal_level})")
+                
+                # 変化の詳細をログ出力
+                curiosity_change = internal_state_after.get("curiosity", 0) - internal_state_before.get("curiosity", 0)
+                devotion_change = internal_state_after.get("devotion", 0) - internal_state_before.get("devotion", 0)
+                emotion_before = internal_state_before.get("user_emotional_state", "unknown")
+                emotion_after = internal_state_after.get("user_emotional_state", "unknown")
+                
+                if arousal_score > 0:
+                    print(f"    - 好奇心変化: {curiosity_change:+.3f}, 奉仕欲変化: {devotion_change:+.3f}")
+                    print(f"    - 感情変化: {emotion_before} → {emotion_after}")
+        except Exception as e:
+            print(f"  - [Arousal] 計算エラー: {e}")
+        # --- Arousal計算ここまで ---
         
         # 【修正】タイプライター完了時は既に正しい履歴がyieldされているので、再読み込みをスキップ
         if typewriter_completed_successfully:
