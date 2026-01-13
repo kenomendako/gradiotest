@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Arousalベース エピソード記憶 Phase 1 (2026-01-13):** 会話の感情的重要度（Arousal）をリアルタイム計算。内部状態変化（好奇心・奉仕欲・感情）から0.0〜1.0のスコアを算出し、ログに出力。将来の記憶圧縮・検索に活用予定。[レポート](docs/reports/2026-01-13_arousal_episodic_memory.md)
 - **感情検出改善 & タイムスタンプ抑制 (2026-01-13):** ペルソナ応答に感情タグ出力を組み込み、追加APIコールを削減。タイムスタンプ模倣をプロンプトで抑制。感情カテゴリをDevotion計算と統一。[レポート](docs/reports/2026-01-13_emotion_detection_improvement.md)
 - **内的状態システム改善 (2026-01-13):** 好奇心が常に0になる問題を修正。質問に`resolved_at`フィールドを追加し、「回答待ち」と「解決済み」を区別可能に。目標達成判定のため、省察プロンプトに目標IDを含める`get_goals_for_reflection()`を追加。[レポート](docs/reports/2026-01-13_internal_state_improvement.md)
 - **チェス機能の統合 (2026-01-12):** ペルソナとチェスを楽しむ機能を追加。`chessboardjs`による対話型チェス盤をチャットタブ内にアコーディオンとして配置。ペルソナが盤面を認識し、駒を動かすことが可能。ルームごとの状態永続化、違法手の追跡・教育機能も実装。[レポート](docs/reports/2026-01-12_chess_integration.md)
