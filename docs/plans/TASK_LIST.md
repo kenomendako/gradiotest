@@ -1,6 +1,11 @@
 # 📋 Nexus Ark タスクリスト
 
-**最終更新**: 2026-01-12
+**最終更新**: 2026-01-14
+
+- [/] **Phase E: 自己実現欲求の還元** 🆕
+  - 目標達成時に高Arousalエピソード記憶を自動生成
+  - 達成体験を「輝く星」としてRAG検索で想起可能に
+  - 関連: [motivation_system_improvement.md](motivation_system_improvement.md)
 
 - [x] **チェス機能の統合** 🆕 ✅ (2026-01-12 完了)
   - `chessboardjs`による対話型チェス盤（チャットタブ内にアコーディオン）

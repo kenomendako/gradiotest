@@ -12,6 +12,7 @@ from typing import List, Dict, Optional, Any
 import uuid
 
 import constants
+from episodic_memory_manager import EpisodicMemoryManager
 
 
 class GoalManager:
@@ -145,6 +146,7 @@ class GoalManager:
     def complete_goal(self, goal_id: str, completion_note: str = None):
         """
         目標を達成済みとしてマークし、アーカイブに移動する。
+        Phase E: 達成時に高Arousalエピソード記憶を自動生成。
         
         Args:
             goal_id: 目標ID
@@ -161,9 +163,47 @@ class GoalManager:
                         goal["completion_note"] = completion_note
                     
                     # アーカイブに移動
-                    goals["completed"].append(goals[goal_type].pop(i))
+                    completed_goal = goals[goal_type].pop(i)
+                    goals["completed"].append(completed_goal)
                     self._save_goals(goals)
+                    
+                    # Phase E: 達成エピソード記憶を生成
+                    self._create_achievement_episode(completed_goal, completion_note)
                     return
+    
+    def _create_achievement_episode(self, goal: dict, completion_note: str = None):
+        """
+        Phase E: 目標達成時に高Arousalエピソード記憶を生成する。
+        達成体験を「輝く星」としてRAG検索で想起可能にする。
+        
+        Args:
+            goal: 達成した目標データ
+            completion_note: 達成時のメモ
+        """
+        try:
+            em = EpisodicMemoryManager(self.room_name)
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 達成内容を要約
+            goal_text = goal.get("goal", "目標")
+            summary = f"【達成】目標「{goal_text}」を達成した。"
+            if completion_note:
+                summary += f" {completion_note}"
+            
+            # 高Arousalエピソード記憶を生成
+            em._append_single_episode({
+                "date": today,
+                "summary": summary,
+                "arousal": 0.8,        # 高Arousal = 成功体験
+                "arousal_max": 0.8,
+                "type": "achievement",  # 達成タイプのマーカー
+                "goal_id": goal.get("id", ""),
+                "created_at": now_str
+            })
+            print(f"✨ 達成エピソード記憶を生成: {goal_text[:30]}...")
+        except Exception as e:
+            print(f"⚠️ 達成エピソード記憶の生成に失敗: {e}")
     
     def abandon_goal(self, goal_id: str, reason: str = None):
         """
