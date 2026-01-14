@@ -312,7 +312,17 @@ class DreamingManager:
                 except Exception as me:
                     print(f"  - [Dreaming] 未解決の問い保存エラー: {me}")
             
-            # --- [Motivation] 解決済み質問のクリーンアップと記憶変換 ---
+            # --- [Motivation] 解決済み質問の記憶変換（Phase B） ---
+            try:
+                from motivation_manager import MotivationManager
+                mm = MotivationManager(self.room_name)
+                converted_count = self._convert_resolved_questions_to_memory(mm, recent_context, effective_settings)
+                if converted_count > 0:
+                    print(f"  - [Dreaming] {converted_count}件の解決済み質問を記憶に変換しました")
+            except Exception as qe:
+                print(f"  - [Dreaming] 質問→記憶変換エラー: {qe}")
+            
+            # --- [Motivation] 解決済み質問のクリーンアップ ---
             try:
                 from motivation_manager import MotivationManager
                 mm = MotivationManager(self.room_name)
@@ -377,6 +387,115 @@ class DreamingManager:
             return self.dream(reflection_level=2)
         else:
             return self.dream(reflection_level=1)
+    
+    # ========== [Phase B] 解決済み質問→記憶変換 ==========
+    
+    def _convert_resolved_questions_to_memory(self, mm, recent_context: str, effective_settings: dict) -> int:
+        """
+        解決済みの質問を記憶（エンティティ記憶 or 夢日記）に変換する。
+        
+        Args:
+            mm: MotivationManager インスタンス
+            recent_context: 直近の会話テキスト
+            effective_settings: 設定
+        
+        Returns:
+            変換した質問の数
+        """
+        # 変換対象の質問を取得
+        questions = mm.get_resolved_questions_for_conversion()
+        if not questions:
+            return 0
+        
+        print(f"  - [Phase B] {len(questions)}件の解決済み質問を記憶に変換中...")
+        
+        # LLMで分類・抽出
+        llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, self.api_key, effective_settings)
+        
+        converted_count = 0
+        for q in questions:
+            topic = q.get("topic", "")
+            context = q.get("context", "")
+            answer_summary = q.get("answer_summary", "")
+            
+            # 回答要約がない場合、直近ログから関連する部分を抽出（簡易版）
+            if not answer_summary and topic:
+                # ログ内でトピックに関連する部分を探す
+                for line in recent_context.split("\n"):
+                    if topic in line:
+                        answer_summary += line[:200] + "\n"
+                answer_summary = answer_summary[:500] if answer_summary else "（回答詳細なし）"
+            
+            # LLMプロンプト
+            prompt = f"""以下の「問い」と「回答」のペアから、記憶として保存すべき情報を抽出してください。
+
+【問い】{topic}
+【背景】{context}
+【回答要約】{answer_summary}
+
+【分類ルール】
+- FACT: 人物・事物の属性、具体的な情報（例：「美帆は猫を飼っている」）
+- INSIGHT: 関係性、感情的な気づき、行動パターン（例：「美帆が創作を語る時、目が輝く」）
+- SKIP: 保存する価値がない（曖昧すぎる、一時的すぎる等）
+
+【出力形式】JSON（思考やMarkdown不要、JSONのみ）
+{{
+  "type": "FACT" | "INSIGHT" | "SKIP",
+  "entity_name": "（FACTの場合、関連エンティティ名。人名やトピック名）",
+  "content": "（保存すべき内容。事実や洞察を簡潔に）",
+  "reason": "（SKIPの場合のみ、理由）"
+}}
+"""
+            
+            try:
+                response = llm.invoke(prompt).content.strip()
+                # JSON部分を抽出
+                json_match = re.search(r'\{.*\}', response, re.DOTALL)
+                if not json_match:
+                    continue
+                
+                result = json.loads(json_match.group(0))
+                convert_type = result.get("type", "SKIP")
+                content = result.get("content", "")
+                entity_name = result.get("entity_name", "")
+                
+                if convert_type == "FACT" and entity_name and content:
+                    # エンティティ記憶に保存
+                    em_manager = EntityMemoryManager(self.room_name)
+                    em_manager.create_or_update_entry(
+                        entity_name, 
+                        content, 
+                        consolidate=True, 
+                        api_key=self.api_key
+                    )
+                    print(f"    → 問い「{topic[:20]}...」を FACT としてエンティティ記憶「{entity_name}」に保存")
+                    mm.mark_question_converted(topic)
+                    converted_count += 1
+                    
+                elif convert_type == "INSIGHT" and content:
+                    # 夢日記（insights.json）に保存
+                    insight_record = {
+                        "created_at": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "trigger_topic": f"解決された問い: {topic}",
+                        "insight": content,
+                        "strategy": "",  # Phase Bでは戦略は空
+                        "log_entry": f"問い「{topic}」への回答から得た気づき"
+                    }
+                    self._save_insight(insight_record)
+                    print(f"    → 問い「{topic[:20]}...」を INSIGHT として夢日記に保存")
+                    mm.mark_question_converted(topic)
+                    converted_count += 1
+                    
+                elif convert_type == "SKIP":
+                    reason = result.get("reason", "不明")
+                    print(f"    → 問い「{topic[:20]}...」はスキップ（理由: {reason}）")
+                    mm.mark_question_converted(topic)  # スキップも変換済みとしてマーク
+                
+            except Exception as e:
+                print(f"    → 問い「{topic[:20]}...」の変換でエラー: {e}")
+                continue
+        
+        return converted_count
     
     # ========== [Phase 2] Shadow Servant: エンティティ候補抽出 ==========
     

@@ -793,6 +793,43 @@ class MotivationManager:
             self._save_state()
         
         return len(to_remove)
+    
+    def get_resolved_questions_for_conversion(self) -> List[Dict]:
+        """
+        記憶変換用の解決済み質問を取得する。
+        
+        Returns:
+            resolved_at がセットされており、converted_to_memory フラグがない質問のリスト
+        """
+        questions = self._state["drives"]["curiosity"].get("open_questions", [])
+        
+        # 解決済みかつ未変換の質問を抽出
+        to_convert = []
+        for q in questions:
+            if q.get("resolved_at") and not q.get("converted_to_memory"):
+                to_convert.append(q)
+        
+        return to_convert
+    
+    def mark_question_converted(self, topic: str) -> bool:
+        """
+        質問を記憶変換済みとしてマーク。
+        
+        Args:
+            topic: 問いのトピック
+        
+        Returns:
+            成功したかどうか
+        """
+        questions = self._state["drives"]["curiosity"].get("open_questions", [])
+        for q in questions:
+            if q.get("topic") == topic:
+                q["converted_to_memory"] = True
+                q["converted_at"] = datetime.datetime.now().isoformat()
+                self._save_state()
+                print(f"  - [Motivation] 問い「{topic}」を記憶変換済みとしてマークしました")
+                return True
+        return False
 
     # ========================================
     # 自律行動発火時刻の永続化
