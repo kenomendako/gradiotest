@@ -890,6 +890,24 @@ def context_generator_node(state: AgentState):
                 )
                 dream_insights_text += internal_state_brief
                 print(f"  - [Context] 内的状態を注入: {drive_label} ({drive_level:.2f})")
+            
+            # 最も優先度の高い未解決の問いを注入
+            questions = mm._state.get("drives", {}).get("curiosity", {}).get("open_questions", [])
+            unresolved = [q for q in questions if not q.get("resolved_at")]
+            if unresolved:
+                # 優先度でソートして上位1件
+                top_question = max(unresolved, key=lambda q: q.get("priority", 0))
+                topic = top_question.get("topic", "")
+                context = top_question.get("context", "")
+                if topic:
+                    question_text = (
+                        f"\n### あなたが今気になっていること\n"
+                        f"- {topic}\n"
+                    )
+                    if context:
+                        question_text += f"  （背景: {context[:100]}...）\n" if len(context) > 100 else f"  （背景: {context}）\n"
+                    dream_insights_text += question_text
+                    print(f"  - [Context] 未解決の問いを注入: {topic[:30]}...")
         except Exception as e:
             print(f"  - [Context] 内的状態の読み込みエラー: {e}")
 
@@ -1455,9 +1473,10 @@ def agent_node(state: AgentState):
                 
                 if recent_turns:
                     recent_text = "\n".join(recent_turns)
-                    resolved = mm.auto_resolve_questions(recent_text, state['api_key'])
-                    if resolved:
-                        print(f"  - [Agent] 未解決の問い {len(resolved)}件を解決済みとしてマーク")
+                    # [2026-01-14] 自動解決を無効化 - 睡眠時振り返りに移行
+                    # resolved = mm.auto_resolve_questions(recent_text, state['api_key'])
+                    # if resolved:
+                    #     print(f"  - [Agent] 未解決の問い {len(resolved)}件を解決済みとしてマーク")
                     
                     # 古い問いの優先度を下げる（毎回ではなくたまに実行）
                     if loop_count == 0:  # 最初のループ時のみ
