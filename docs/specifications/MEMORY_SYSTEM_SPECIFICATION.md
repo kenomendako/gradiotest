@@ -275,6 +275,34 @@ Created: 2026-01-01 12:00:00
 - `GoalManager.enforce_goal_limit(max_short=10)` - 上限超過分を放棄
 - `GoalManager.get_goal_statistics()` - 統計情報を取得
 
+### Phase E: 達成記憶の自動生成 [NEW 2026-01-14]
+
+目標達成時に高Arousalエピソード記憶を自動生成し、達成体験を永続化する機能:
+
+**目的**: 目標達成という重要な瞬間を「輝く星」としてRAG検索で想起可能にする
+
+**動作フロー**:
+1. `complete_goal()` で目標が達成済みとしてマーク
+2. `_create_achievement_episode()` が自動呼び出し
+3. `episodic_memory.json` に高Arousalエピソードを追加
+
+**生成されるエピソード**:
+```json
+{
+  "date": "2026-01-14",
+  "summary": "【達成】目標「創作ノートで詩を書く」を達成した。",
+  "arousal": 0.8,
+  "arousal_max": 0.8,
+  "type": "achievement",
+  "goal_id": "sh_abc123",
+  "created_at": "2026-01-14 22:00:00"
+}
+```
+
+**関連メソッド**:
+- `GoalManager._create_achievement_episode(goal, completion_note)` - 達成エピソード生成
+
+
 ---
 
 ### 8. 内部状態 (`memory/internal_state.json`) [NEW]

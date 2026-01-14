@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **Phase 1.5: Arousal複合スコアリング (2026-01-14):** RAG検索結果を感情的重要度（Arousal）を加味してリランキング。`Score = α × 類似度 + β × (1 - Arousal)`。時間減衰は「古い記憶も大切」の哲学に基づき廃止。[レポート](docs/reports/2026-01-14_phase_1.5_arousal_scoring.md)
+- **Phase E: 達成記憶の自動生成 (2026-01-14):** 目標達成時に高Arousal（0.8）エピソード記憶を自動生成。達成体験が「輝く星」としてRAG検索で想起されるようになった。[レポート](docs/reports/2026-01-14_phase_e_achievement_memory.md)
 - **Phase D: 目標ライフサイクル改善 (2026-01-14):** 目標リストの肥大化問題を解決。省察プロンプトで達成/放棄を強く促すよう改善。30日以上の古い目標を自動放棄、短期目標の上限10件を設定。`abandon_goal()`の保存先を`abandoned`配列に修正。
 - **Phase B: 解決済み質問→記憶変換 (2026-01-14):** 睡眠時整理で解決済みの問いをLLMで分析し、FACT（事実）はエンティティ記憶に、INSIGHT（洞察）は夢日記（insights.json）に自動変換。知識の永続化と学びの蓄積を実現。
 - **Arousalベース エピソード記憶 Phase 2 (2026-01-14):** Arousalの永続保存（session_arousal.json）と圧縮時の優先度付け。高Arousalエピソードは★マークで優先保持。[レポート](docs/reports/2026-01-14_arousal_phase2.md)
