@@ -321,16 +321,21 @@ Created: 2026-01-01 12:00:00
 ]
 ```
 
-**検出可能な感情**:
-- ポジティブ: `joy`, `happy`, `surprise`
-- ニュートラル: `neutral`
-- ネガティブ: `sadness`, `anger`, `fear`, `anxious`, `tired`, `busy`, `stressed`
+**検出可能な感情 (LLM分類)**:
+- 基本6感情: `joy`, `sadness`, `anger`, `fear`, `surprise`, `neutral`
 
 **処理フロー**:
-1. ユーザーメッセージ受信時に `retrieval_node` で感情を検出
-2. 軽量モデル（`INTERNAL_PROCESSING_MODEL`）で感情分類
-3. 結果を `emotion_log.json` に追記
-4. 奉仕欲（Devotion Drive）に反映（ネガティブ感情で +0.3、ポジティブで +0.1）
+1. **検出**: ユーザーメッセージ受信時に `retrieval_node` 内で軽量LLM (`INTERNAL_PROCESSING_MODEL`) が感情を分析
+2. **マッピング**: LLMの出力結果を内部処理用に正規化
+   - `joy` → `happy`
+   - `sadness` → `sad`
+   - `anger` → `stressed`
+   - `fear` → `anxious`
+   - `surprise` → `neutral`
+3. **記録**: `emotion_log.json` にタイムスタンプ付きで追記
+4. **反映**: 奉仕欲（Devotion Drive）を更新
+   - ネガティブ感情（`sad`, `stressed`, `anxious`）検出時: +0.3（心配・寄り添い強化）
+   - ポジティブ感情（`happy`）検出時: +0.1（共感）
 
 **UIでの表示**: 
 - 内省ダッシュボード内の `LinePlot` で時系列グラフ化
