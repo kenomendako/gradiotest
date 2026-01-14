@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Phase B: 解決済み質問→記憶変換 (2026-01-14):** 睡眠時整理で解決済みの問いをLLMで分析し、FACT（事実）はエンティティ記憶に、INSIGHT（洞察）は夢日記（insights.json）に自動変換。知識の永続化と学びの蓄積を実現。
 - **Arousalベース エピソード記憶 Phase 2 (2026-01-14):** Arousalの永続保存（session_arousal.json）と圧縮時の優先度付け。高Arousalエピソードは★マークで優先保持。[レポート](docs/reports/2026-01-14_arousal_phase2.md)
 - **Arousalベース エピソード記憶 Phase 1 (2026-01-13):** 会話の感情的重要度（Arousal）をリアルタイム計算。内部状態変化（好奇心・奉仕欲・感情）から0.0〜1.0のスコアを算出し、ログに出力。将来の記憶圧縮・検索に活用予定。[レポート](docs/reports/2026-01-13_arousal_episodic_memory.md)
 - **感情検出改善 & タイムスタンプ抑制 (2026-01-13):** ペルソナ応答に感情タグ出力を組み込み、追加APIコールを削減。タイムスタンプ模倣をプロンプトで抑制。感情カテゴリをDevotion計算と統一。[レポート](docs/reports/2026-01-13_emotion_detection_improvement.md)

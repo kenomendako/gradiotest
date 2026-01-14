@@ -1,6 +1,6 @@
 # 📊 プロジェクトステータス
 
-> 最終更新: 2026-01-14 (Arousal Phase 2)
+> 最終更新: 2026-01-14 (Phase B: 質問→記憶変換)
 
 ---
 
@@ -22,6 +22,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2026-01-14 | **Phase B: 解決済み質問→記憶変換**<br>・睡眠時整理で解決済みの問いをLLMで分析<br>・FACT→エンティティ記憶、INSIGHT→夢日記に変換 | - |
 | 2026-01-14 | **Arousalベース エピソード記憶 Phase 2**<br>・Arousal永続保存（session_arousal.json）<br>・圧縮時の優先度付け（高Arousal=★） | [レポート](reports/2026-01-14_arousal_phase2.md) |
 | 2026-01-13 | **Arousalベース エピソード記憶 Phase 1**<br>・内部状態スナップショット<br>・Arousalリアルタイム計算<br>・ログ出力実装 | [レポート](reports/2026-01-13_arousal_episodic_memory.md) |
 | 2026-01-13 | **感情検出改善 & タイムスタンプ抑制**<br>・ペルソナ内蔵感情検出（追加APIコール削減）<br>・タイムスタンプ模倣をプロンプトで抑制<br>・感情カテゴリ統一 | [レポート](reports/2026-01-13_emotion_detection_improvement.md) |
