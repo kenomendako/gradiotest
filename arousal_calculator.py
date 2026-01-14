@@ -27,45 +27,51 @@ def calculate_arousal(before: Dict, after: Dict) -> float:
     curiosity_after = after.get("curiosity", 0.0)
     curiosity_delta = abs(curiosity_after - curiosity_before)
     
-    # --- 2. 奉仕欲の変化 = 深い関わり ---
-    devotion_before = before.get("devotion", 0.0)
-    devotion_after = after.get("devotion", 0.0)
-    devotion_delta = abs(devotion_after - devotion_before)
+    # --- 2. 関係性維持欲求の変化 = 深い関わり ---
+    # 後方互換性: devotionがあればそれを使用、なければrelatednessを使用
+    relatedness_before = before.get("relatedness", before.get("devotion", 0.0))
+    relatedness_after = after.get("relatedness", after.get("devotion", 0.0))
+    relatedness_delta = abs(relatedness_after - relatedness_before)
     
-    # --- 3. ユーザー感情の変化 ---
-    # 感情カテゴリをスコア化（強い感情ほど高スコア）
-    emotion_scores = {
-        "happy": 0.6,
-        "sad": 0.8,
-        "stressed": 0.9,
-        "anxious": 0.8,
-        "tired": 0.5,
-        "neutral": 0.2,
-        "unknown": 0.2
+    # --- 3. ペルソナ感情の強度と変化 ---
+    # カテゴリごとのArousal寄与ウェイト
+    category_weights = {
+        "joy": 0.8,          # 喜び = 高Arousal
+        "anger": 1.0,        # 怒り = 最高Arousal
+        "sadness": 0.6,      # 悲しみ = 中程度
+        "protective": 0.5,   # 庇護欲 = 中程度
+        "anxious": 0.5,      # 不安 = 中程度
+        "contentment": 0.2,  # 満足 = 低Arousal
+        "neutral": 0.0       # 平常 = なし
     }
     
-    before_emotion = before.get("user_emotional_state", "unknown")
-    after_emotion = after.get("user_emotional_state", "unknown")
+    before_category = before.get("persona_emotion", "neutral")
+    after_category = after.get("persona_emotion", "neutral")
+    before_intensity = before.get("persona_intensity", 0.0)
+    after_intensity = after.get("persona_intensity", 0.0)
     
-    before_score = emotion_scores.get(before_emotion, 0.2)
-    after_score = emotion_scores.get(after_emotion, 0.2)
-    emotion_delta = abs(after_score - before_score)
+    # ペルソナ感情からの寄与 = ウェイト × 強度
+    before_contribution = category_weights.get(before_category, 0.0) * before_intensity
+    after_contribution = category_weights.get(after_category, 0.0) * after_intensity
     
-    # --- 4. 感情の絶対的強度も考慮 ---
-    # ユーザーが強い感情を持っている場合、それ自体が重要
-    emotion_intensity = max(before_score, after_score)
-    if emotion_intensity >= 0.7:
-        emotion_delta = max(emotion_delta, 0.3)  # 最低限の重要度を保証
+    # 変化と最大値の両方を考慮
+    emotion_delta = abs(after_contribution - before_contribution)
+    emotion_max = max(before_contribution, after_contribution)
     
-    # --- 5. 複合Arousalスコア ---
+    # 強い感情があれば最低限の重要度を保証
+    if emotion_max >= 0.5:
+        emotion_delta = max(emotion_delta, 0.3)
+    
+    # --- 4. 複合Arousalスコア ---
     raw_arousal = (
-        curiosity_delta * 0.30 +
+        curiosity_delta * 0.25 +
         emotion_delta * 0.40 +
-        devotion_delta * 0.30
+        emotion_max * 0.15 +        # 絶対的な感情の強さも考慮
+        relatedness_delta * 0.20
     )
     
     # スケール調整（変化が小さくてもある程度のスコアが出るように）
-    arousal = min(1.0, raw_arousal * 2.5)
+    arousal = min(1.0, raw_arousal * 2.0)
     
     return round(arousal, 3)
 

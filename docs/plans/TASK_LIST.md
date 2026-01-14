@@ -14,6 +14,12 @@
   - 関連: [motivation_system_improvement.md](motivation_system_improvement.md)
   - [レポート](../reports/2026-01-14_phase_g_discovery_memory.md)
 
+- [/] **Phase F: 関係性維持欲求の実装** 🆕
+  - ペルソナ感情出力（`<persona_emotion>`）を追加
+  - ユーザー感情分析を廃止
+  - 絆確認エピソード記憶の生成
+  - 関連: [motivation_system_improvement.md](motivation_system_improvement.md)
+
 - [x] **チェス機能の統合** 🆕 ✅ (2026-01-12 完了)
   - `chessboardjs`による対話型チェス盤（チャットタブ内にアコーディオン）
   - ペルソナが盤面認識・操作可能

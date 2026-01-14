@@ -1491,27 +1491,28 @@ def _stream_and_handle_response(
                                     print(f"  - 除去されたパターン: {existing_timestamp_match.group()}")
                                     content_str = re.sub(timestamp_pattern, '', content_str)
                                 
-                                # --- [Phase C] 感情タグのパースと除去 ---
-                                # ペルソナが出力した <user_emotion>カテゴリ</user_emotion> をパースして
+                                # --- [Phase F] ペルソナ感情タグのパースと除去 ---
+                                # ペルソナが出力した <persona_emotion category="xxx" intensity="0.0-1.0"/> をパースして
                                 # MotivationManagerに反映し、ログからは除去する
-                                emotion_tag_pattern = r'<user_emotion>(\w+)</user_emotion>'
-                                emotion_match = re.search(emotion_tag_pattern, content_str, re.IGNORECASE)
+                                persona_emotion_pattern = r'<persona_emotion\s+category=["\'](\w+)["\']\s+intensity=["\']([0-9.]+)["\']\s*/>'
+                                emotion_match = re.search(persona_emotion_pattern, content_str, re.IGNORECASE)
                                 if emotion_match:
-                                    detected_emotion = emotion_match.group(1).lower()
-                                    valid_emotions = ["happy", "sad", "stressed", "anxious", "tired", "neutral"]
-                                    if detected_emotion in valid_emotions:
+                                    detected_category = emotion_match.group(1).lower()
+                                    detected_intensity = float(emotion_match.group(2))
+                                    valid_categories = ["joy", "contentment", "protective", "anxious", "sadness", "anger", "neutral"]
+                                    if detected_category in valid_categories:
                                         try:
                                             from motivation_manager import MotivationManager
                                             mm = MotivationManager(current_room)
-                                            mm.set_user_emotional_state(detected_emotion)
+                                            mm.set_persona_emotion(detected_category, detected_intensity)
                                             mm._save_state()
-                                            print(f"  - [Emotion] ペルソナ検出の感情を反映: {detected_emotion}")
+                                            print(f"  - [Emotion] ペルソナ感情を反映: {detected_category} (強度: {detected_intensity})")
                                         except Exception as e:
                                             print(f"  - [Emotion] 感情反映エラー: {e}")
                                     else:
-                                        print(f"  - [Emotion] 無効なカテゴリ: {detected_emotion}")
+                                        print(f"  - [Emotion] 無効なカテゴリ: {detected_category}")
                                     # タグをログから除去（本文には残さない）
-                                    content_str = re.sub(emotion_tag_pattern, '', content_str, flags=re.IGNORECASE).rstrip()
+                                    content_str = re.sub(persona_emotion_pattern, '', content_str, flags=re.IGNORECASE).rstrip()
                                 # --- 感情タグ処理ここまで ---
                                 
                                 # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
