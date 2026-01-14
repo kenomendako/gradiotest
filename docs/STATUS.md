@@ -1,6 +1,6 @@
 # 📊 プロジェクトステータス
 
-> 最終更新: 2026-01-13 (Arousal Phase 1)
+> 最終更新: 2026-01-14 (Arousal Phase 2)
 
 ---
 
@@ -11,9 +11,9 @@
 ---
 
 ### 次の予定 (ロードマップ)
-- **Arousalベース記憶評価 Phase 2** (High) - 記憶圧縮・検索への適用
 - **APIキーのローリング・フォールバック機能** (High)
 - **自律行動時の記憶想起をオフに** (High)
+- **Arousal Phase 3: 自己進化ループ** (Medium) - Q値更新
 - **APIキー設定の集約管理** (Low)
 
 ---
@@ -22,9 +22,9 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2026-01-14 | **Arousalベース エピソード記憶 Phase 2**<br>・Arousal永続保存（session_arousal.json）<br>・圧縮時の優先度付け（高Arousal=★） | [レポート](reports/2026-01-14_arousal_phase2.md) |
 | 2026-01-13 | **Arousalベース エピソード記憶 Phase 1**<br>・内部状態スナップショット<br>・Arousalリアルタイム計算<br>・ログ出力実装 | [レポート](reports/2026-01-13_arousal_episodic_memory.md) |
 | 2026-01-13 | **感情検出改善 & タイムスタンプ抑制**<br>・ペルソナ内蔵感情検出（追加APIコール削減）<br>・タイムスタンプ模倣をプロンプトで抑制<br>・感情カテゴリ統一 | [レポート](reports/2026-01-13_emotion_detection_improvement.md) |
-| 2026-01-13 | **内的状態システム改善**<br>・好奇心が常に0になる問題を修正<br>・質問に`resolved_at`フィールド追加<br>・目標達成判定の改善 | [レポート](reports/2026-01-13_internal_state_improvement.md) |
 | 2026-01-12 | **エピソード記憶改善研究**<br>・MemRL/GDPO/EILSの調査<br>・Arousalベース記憶評価の設計<br>・圧縮閾値を180日→60日に短縮 | [レポート](reports/2026-01-12_episodic_memory_research.md) |
 | 2026-01-11 | **Gradio警告抑制と配線修正**<br>・起動時の大量警告を抑制<br>・主要ハンドラの戻り値不整合を修正 | [レポート](reports/2026-01-11_fix_gradio_wiring_and_warnings.md) |
 | 2026-01-11 | **エンティティ記憶 v2**<br>・目次方式への移行（自動想起廃止）<br>・二層記録システム（影の僕AIによる抽出+ペルソナへの提案） | [レポート](reports/2026-01-11_entity_memory_v2.md) |
