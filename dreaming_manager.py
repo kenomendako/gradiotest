@@ -199,7 +199,11 @@ class DreamingManager:
         【分析のステップ（思考プロセス）】
         1.  まず、感情を排して客観的に事実を比較し、変化や繰り返されるパターン、矛盾点を見つけ出す。
         2.  表層的な事実だけでなく、その裏にある感情の流れや、関係性の変化、あるいは変わらない絆などを多角的に考察する。
-        3.  **目標について考える**: 現在の目標リストを評価し、**達成したものは躊躇なく「達成済み」にする**。進展がない、または興味を失った目標は「放棄」する。目標リストを常に新鮮で意味のある状態に保つこと。
+        3.  **【重要】目標の整理**: 
+            - 目標リストを精査し、**1件でも達成したものがあれば躊躇なく completed_goals に追加すること**。
+            - 進展がない、興味を失った、または状況が変わった目標は **abandoned_goals に追加して整理すること**。
+            - 似たような目標が複数ある場合は統合を検討すること（古い方を放棄し、新しく統合版を作成）。
+            - **短期目標は10件以内を目安に整理すること。**
         4.  最後に、その鋭い分析結果を、**あなたの人格（一人称、口調、相手の呼び方）**に変換して記述する。
 
         【出力フォーマット】
@@ -294,6 +298,25 @@ class DreamingManager:
                     print(f"  - [Dreaming] 目標を更新しました")
                 except Exception as ge:
                     print(f"  - [Dreaming] 目標更新エラー: {ge}")
+            
+            # --- [Phase D] 目標の自動整理 ---
+            try:
+                # 30日以上の古い目標を自動放棄
+                stale_count = goal_manager.auto_cleanup_stale_goals(days_threshold=30)
+                if stale_count > 0:
+                    print(f"  - [Dreaming] {stale_count}件の古い目標を自動放棄しました")
+                
+                # 短期目標を10件に制限（週次/月次省察時のみ実行）
+                if reflection_level >= 2:
+                    excess_count = goal_manager.enforce_goal_limit(max_short=10)
+                    if excess_count > 0:
+                        print(f"  - [Dreaming] 目標上限により{excess_count}件を自動放棄しました")
+                
+                # 統計表示
+                stats = goal_manager.get_goal_statistics()
+                print(f"  - [Dreaming] 目標統計: 短期{stats['short_term_count']}/長期{stats['long_term_count']}/達成{stats['completed_count']}/放棄{stats['abandoned_count']}")
+            except Exception as ce:
+                print(f"  - [Dreaming] 目標自動整理エラー: {ce}")
             
             # --- [Motivation] 未解決の問いを保存 ---
             should_extract_questions = effective_settings.get("sleep_consolidation", {}).get("extract_open_questions", True)

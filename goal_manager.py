@@ -37,6 +37,7 @@ class GoalManager:
             "short_term": [],
             "long_term": [],
             "completed": [],
+            "abandoned": [],
             "meta": {
                 "last_updated": None,
                 "last_reflection_level": 0,
@@ -174,6 +175,10 @@ class GoalManager:
         """
         goals = self._load_goals()
         
+        # abandoned配列がない場合は初期化
+        if "abandoned" not in goals:
+            goals["abandoned"] = []
+        
         for goal_type in ["short_term", "long_term"]:
             for i, goal in enumerate(goals.get(goal_type, [])):
                 if goal["id"] == goal_id:
@@ -182,7 +187,7 @@ class GoalManager:
                     if reason:
                         goal["abandon_reason"] = reason
                     
-                    goals["completed"].append(goals[goal_type].pop(i))
+                    goals["abandoned"].append(goals[goal_type].pop(i))
                     self._save_goals(goals)
                     return
     
@@ -348,3 +353,94 @@ class GoalManager:
                 goal_id=abandoned.get("goal_id", ""),
                 reason=abandoned.get("reason")
             )
+    
+    # ==========================================
+    # Auto Cleanup (Phase D)
+    # ==========================================
+    
+    def auto_cleanup_stale_goals(self, days_threshold: int = 30) -> int:
+        """
+        長期間アクティブな短期目標を自動放棄する。
+        
+        Args:
+            days_threshold: この日数以上経過した短期目標は放棄対象
+        
+        Returns:
+            放棄した目標の数
+        """
+        goals = self._load_goals()
+        now = datetime.datetime.now()
+        abandoned_count = 0
+        
+        # abandoned配列がない場合は初期化
+        if "abandoned" not in goals:
+            goals["abandoned"] = []
+        
+        short_term = goals.get("short_term", [])
+        to_abandon = []
+        
+        for goal in short_term:
+            created_str = goal.get("created_at", "")
+            if not created_str:
+                continue
+            try:
+                created = datetime.datetime.strptime(created_str, '%Y-%m-%d %H:%M:%S')
+                days_elapsed = (now - created).days
+                if days_elapsed >= days_threshold:
+                    to_abandon.append(goal["id"])
+            except ValueError:
+                continue
+        
+        for goal_id in to_abandon:
+            self.abandon_goal(goal_id, reason=f"自動整理: {days_threshold}日以上進展なし")
+            abandoned_count += 1
+        
+        return abandoned_count
+    
+    def enforce_goal_limit(self, max_short: int = 10) -> int:
+        """
+        短期目標の上限を設定し、超過分は放棄する。
+        優先度が低く、古い目標から放棄する。
+        
+        Args:
+            max_short: 短期目標の最大数
+        
+        Returns:
+            放棄した目標の数
+        """
+        goals = self._load_goals()
+        short_term = goals.get("short_term", [])
+        
+        if len(short_term) <= max_short:
+            return 0
+        
+        # 優先度（低いほど放棄）と作成日（古いほど放棄）でソート
+        sorted_goals = sorted(
+            short_term,
+            key=lambda g: (g.get("priority", 999), g.get("created_at", "")),
+            reverse=True  # 優先度が高い(数値が大きい)＝放棄対象
+        )
+        
+        # 超過分を放棄
+        excess_count = len(short_term) - max_short
+        to_abandon = sorted_goals[:excess_count]
+        
+        for goal in to_abandon:
+            self.abandon_goal(goal["id"], reason="自動整理: 目標上限超過")
+        
+        return excess_count
+    
+    def get_goal_statistics(self) -> Dict:
+        """
+        目標の統計情報を取得する。
+        
+        Returns:
+            統計情報の辞書
+        """
+        goals = self._load_goals()
+        return {
+            "short_term_count": len(goals.get("short_term", [])),
+            "long_term_count": len(goals.get("long_term", [])),
+            "completed_count": len(goals.get("completed", [])),
+            "abandoned_count": len(goals.get("abandoned", []))
+        }
