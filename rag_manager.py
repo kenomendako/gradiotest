@@ -740,7 +740,7 @@ class RAGManager:
         return final_msg
 
     def search(self, query: str, k: int = 10, score_threshold: float = 0.75) -> List[Document]:
-        """静的・動的インデックスの両方を検索し、スコアで足切りして結果を統合する"""
+        """静的・動的インデックスの両方を検索し、複合スコアでリランキングして結果を統合する"""
         results_with_scores = []
         print(f"--- [RAG Search Debug] Query: '{query}' (Threshold: {score_threshold}) ---")
 
@@ -758,33 +758,56 @@ class RAGManager:
                 results_with_scores.extend(static_results)
             except Exception as e: print(f"  - [RAG Warning] Static index search failed: {e}")
 
-        # スコアでソート
-        results_with_scores.sort(key=lambda x: x[1])
+        # [Phase 1.5] 複合スコアリング: α × similarity + β × (1 - arousal)
+        # 高Arousalな記憶を優先（arousalが高い = より重要な記憶）
+        ALPHA = 0.7  # 類似度の重み
+        BETA = 0.3   # Arousalの重み
+        
+        scored_results = []
+        for doc, similarity_score in results_with_scores:
+            arousal = doc.metadata.get("arousal", 0.5)  # デフォルト0.5（中立）
+            # 複合スコア: 類似度は低いほど良い、arousalは高いほど良い
+            composite_score = ALPHA * similarity_score + BETA * (1.0 - arousal)
+            scored_results.append((doc, similarity_score, arousal, composite_score))
+        
+        # 複合スコアでソート（低いほど良い）
+        scored_results.sort(key=lambda x: x[3])
         
         # [2026-01-10 追加] コンテンツベースの重複除去
         seen_contents = set()
         unique_results = []
         duplicate_count = 0
-        for doc, score in results_with_scores:
+        for doc, sim_score, arousal, comp_score in scored_results:
             # 先頭100文字で重複判定（完全一致ではなくプレフィックス比較）
             content_key = doc.page_content[:100].strip()
             if content_key not in seen_contents:
                 seen_contents.add(content_key)
-                unique_results.append((doc, score))
+                unique_results.append((doc, sim_score, arousal, comp_score))
             else:
                 duplicate_count += 1
         
         if duplicate_count > 0:
-            print(f"  - [RAG] 重複除去: {len(results_with_scores)}件 → {len(unique_results)}件 ({duplicate_count}件除去)")
+            print(f"  - [RAG] 重複除去: {len(scored_results)}件 → {len(unique_results)}件 ({duplicate_count}件除去)")
 
         filtered_docs = []
-        for doc, score in unique_results:
-            is_relevant = score <= score_threshold
+        arousal_boost_count = 0
+        for doc, sim_score, arousal, comp_score in unique_results:
+            is_relevant = sim_score <= score_threshold
             clean_content = doc.page_content.replace('\n', ' ')[:50]
             status_icon = "✅" if is_relevant else "❌"
-            print(f"  - {status_icon} Score: {score:.4f} | {clean_content}...")
+            
+            # Arousalが高い場合は★マークを追加
+            arousal_mark = ""
+            if arousal > 0.6:
+                arousal_mark = " ★"
+                arousal_boost_count += 1
+            
+            print(f"  - {status_icon} Sim: {sim_score:.3f} | Arousal: {arousal:.2f} | Comp: {comp_score:.3f}{arousal_mark} | {clean_content}...")
             
             if is_relevant:
                 filtered_docs.append(doc)
+        
+        if arousal_boost_count > 0:
+            print(f"  - [RAG] 高Arousal記憶: {arousal_boost_count}件がブースト対象")
 
         return filtered_docs[:k]
