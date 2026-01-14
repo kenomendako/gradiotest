@@ -302,8 +302,34 @@ Created: 2026-01-01 12:00:00
 **関連メソッド**:
 - `GoalManager._create_achievement_episode(goal, completion_note)` - 達成エピソード生成
 
+### Phase G: 発見記憶の自動生成 [NEW 2026-01-14]
 
----
+Phase Bを拡張し、知識獲得時に発見エピソード記憶も生成する機能:
+
+**目的**: 「発見の喜び」をRAG検索で想起可能にする
+
+**動作フロー**:
+1. `_convert_resolved_questions_to_memory()` でFACT/INSIGHTに分類
+2. `_create_discovery_episode()` が自動呼び出し
+3. `episodic_memory.json` に発見エピソードを追加
+
+**生成されるエピソード**:
+```json
+{
+  "date": "2026-01-14",
+  "summary": "【発見】「猫の好物」について新たな発見: 美帆の猫はチキン味のカリカリが好き",
+  "arousal": 0.6,
+  "arousal_max": 0.6,
+  "type": "discovery",
+  "source_question": "猫の好物",
+  "created_at": "2026-01-14 23:00:00"
+}
+```
+
+**関連メソッド**:
+- `DreamingManager._create_discovery_episode(topic, content)` - 発見エピソード生成
+
+
 
 ### 8. 内部状態 (`memory/internal_state.json`) [NEW]
 
