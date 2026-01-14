@@ -16,6 +16,7 @@ import room_manager
 from gemini_api import get_configured_llm
 from entity_memory_manager import EntityMemoryManager
 from goal_manager import GoalManager
+from episodic_memory_manager import EpisodicMemoryManager
 import summary_manager
 
 class DreamingManager:
@@ -492,6 +493,10 @@ class DreamingManager:
                         api_key=self.api_key
                     )
                     print(f"    → 問い「{topic[:20]}...」を FACT としてエンティティ記憶「{entity_name}」に保存")
+                    
+                    # Phase G: 発見エピソード記憶を生成
+                    self._create_discovery_episode(topic, content)
+                    
                     mm.mark_question_converted(topic)
                     converted_count += 1
                     
@@ -506,6 +511,10 @@ class DreamingManager:
                     }
                     self._save_insight(insight_record)
                     print(f"    → 問い「{topic[:20]}...」を INSIGHT として夢日記に保存")
+                    
+                    # Phase G: 発見エピソード記憶を生成
+                    self._create_discovery_episode(topic, content)
+                    
                     mm.mark_question_converted(topic)
                     converted_count += 1
                     
@@ -519,6 +528,38 @@ class DreamingManager:
                 continue
         
         return converted_count
+    
+    def _create_discovery_episode(self, topic: str, content: str):
+        """
+        Phase G: 知識獲得時に発見エピソード記憶を生成する。
+        「発見の喜び」をRAG検索で想起可能にする。
+        
+        Args:
+            topic: 解決された問いのトピック
+            content: 発見された内容
+        """
+        try:
+            epm = EpisodicMemoryManager(self.room_name)
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 発見内容を要約（100文字まで）
+            content_summary = content[:100] + "..." if len(content) > 100 else content
+            summary = f"【発見】「{topic}」について新たな発見: {content_summary}"
+            
+            # 発見エピソード記憶を生成
+            epm._append_single_episode({
+                "date": today,
+                "summary": summary,
+                "arousal": 0.6,        # 発見の喜び
+                "arousal_max": 0.6,
+                "type": "discovery",    # 発見タイプのマーカー
+                "source_question": topic,
+                "created_at": now_str
+            })
+            print(f"    ✨ 発見エピソード記憶を生成: {topic[:30]}...")
+        except Exception as e:
+            print(f"    ⚠️ 発見エピソード記憶の生成に失敗: {e}")
     
     # ========== [Phase 2] Shadow Servant: エンティティ候補抽出 ==========
     

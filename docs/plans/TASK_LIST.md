@@ -8,6 +8,11 @@
   - 関連: [motivation_system_improvement.md](motivation_system_improvement.md)
   - [レポート](../reports/2026-01-14_phase_e_achievement_memory.md)
 
+- [/] **Phase G: 知識欲求の拡張** 🆕
+  - Phase Bを拡張し、発見時にエピソード記憶も生成
+  - 知識獲得が「発見の喜び」として記憶に刻まれる
+  - 関連: [motivation_system_improvement.md](motivation_system_improvement.md)
+
 - [x] **チェス機能の統合** 🆕 ✅ (2026-01-12 完了)
   - `chessboardjs`による対話型チェス盤（チャットタブ内にアコーディオン）
   - ペルソナが盤面認識・操作可能
