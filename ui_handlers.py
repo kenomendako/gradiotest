@@ -10628,7 +10628,10 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
         boredom = round(drives.get("boredom", {}).get("level", 0.0), 2)
         curiosity = round(drives.get("curiosity", {}).get("level", 0.0), 2)
         goal_drive = round(drives.get("goal_achievement", {}).get("level", 0.0), 2)
-        devotion = round(drives.get("devotion", {}).get("level", 0.0), 2)
+        # Phase F: relatednessがあればそちらを優先、なければdevotionを使用
+        relatedness_level = drives.get("relatedness", {}).get("level", 0.0)
+        devotion_level = drives.get("devotion", {}).get("level", 0.0)
+        devotion = round(max(relatedness_level, devotion_level), 2)
         
         # 2. Dominant Drive (ドライブに応じた動的情報)
         dominant = mm.get_dominant_drive()
@@ -10672,14 +10675,27 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
                 dynamic_info = "🎯 目標達成欲（Goal Drive）\n目標達成に向けて意欲的です"
                 
         elif dominant == "devotion":
-            # 奉仕欲：直近のユーザー感情
+            # 奉仕欲（後方互換性）：直近のユーザー感情
             user_emotion = drives.get("devotion", {}).get("user_emotional_state", "unknown")
             emotion_display = {
                 "joy": "😊 喜び", "sadness": "😢 悲しみ", "anger": "😠 怒り",
                 "fear": "😨 恐れ", "surprise": "😲 驚き", "neutral": "😐 平静",
-                "unknown": "❓ 不明"
+                "unknown": "❓ 不明", "happy": "😊 喜び", "stressed": "😰 ストレス",
+                "anxious": "😟 不安", "tired": "😴 疲労", "busy": "🏃 忙しい"
             }.get(user_emotion, user_emotion)
             dynamic_info = f"💕 奉仕欲（Devotion）\n直近のユーザー感情: {emotion_display}"
+            
+        elif dominant == "relatedness":
+            # 関係性維持欲求：ペルソナの感情
+            relatedness_data = drives.get("relatedness", {})
+            persona_emotion = relatedness_data.get("persona_emotion", "neutral")
+            persona_intensity = relatedness_data.get("persona_intensity", 0.0)
+            emotion_display = {
+                "joy": "😊 喜び", "contentment": "☺️ 満足", "protective": "🛡️ 庇護欲",
+                "anxious": "😟 不安", "sadness": "😢 悲しみ", "anger": "😠 怒り",
+                "neutral": "😐 平静"
+            }.get(persona_emotion, persona_emotion)
+            dynamic_info = f"💞 関係性維持（Relatedness）\nペルソナ感情: {emotion_display} (強度: {persona_intensity:.1f})"
         else:
             dynamic_info = f"【{dominant.upper()}】"
         
