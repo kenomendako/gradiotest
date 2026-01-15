@@ -409,7 +409,12 @@ class EpisodicMemoryManager:
                 
                 # 範囲チェック: (既存エピソードの終端がルックバック開始日以降) かつ (既存エピソードの開始が生ログ開始日より前)
                 if (item_end_date >= start_date) and (item_start_date < cutoff_date):
-                    relevant_episodes.append(f"[{d_str}] {item['summary']}")
+                    # Phase H: IDを含めて出力（共鳴フィードバック用）
+                    episode_id = item.get('id', '')
+                    if episode_id:
+                        relevant_episodes.append(f'[id="{episode_id}"] [{d_str}] {item["summary"]}')
+                    else:
+                        relevant_episodes.append(f"[{d_str}] {item['summary']}")
             except Exception:
                 continue
 
