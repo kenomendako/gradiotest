@@ -1,6 +1,6 @@
 # 📊 プロジェクトステータス
 
-> 最終更新: 2026-01-15 (Phase F: 関係性維持欲求)
+> 最終更新: 2026-01-15 (Phase H: 記憶共鳴フィードバック機構)
 
 ---
 
@@ -12,8 +12,8 @@
 
 ### 次の予定 (ロードマップ)
 - **自律行動時の記憶想起をオフに** (High)
-- **Arousal Phase 3: 自己進化ループ** (Medium) - Q値更新
-- **Phase H: UIドライブ表示の改善** (Low)
+- **Salience-Based Token Budgeting** (Medium) - 高Arousal=詳細、低Arousal=要約
+- **Phase I: UIドライブ表示の改善** (Low)
 
 ---
 
@@ -21,9 +21,9 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2026-01-15 | **Phase H: 記憶共鳴フィードバック機構**<br>・エピソード記憶にID自動付与<br>・ペルソナが`<memory_trace>`タグで共鳴度を報告<br>・共鳴度に基づきArousalを自己更新 | [レポート](reports/2026-01-15_phase_h_arousal_self_evolution.md) |
 | 2026-01-15 | **Phase F: 関係性維持欲求**<br>・奉仕欲（Devotion）を廃止<br>・ペルソナ感情出力に基づくRelatedness Drive導入<br>・ユーザー感情分析LLM呼び出しを廃止（APIコスト削減）<br>・絆確認エピソード記憶の自動生成 | [レポート](reports/2026-01-15_phase_f_relatedness_drive.md) |
 | 2026-01-14 | **Phase G: 発見記憶の自動生成**<br>・FACT/INSIGHT変換時に発見エピソード記憶を生成<br>・「発見の喜び」がRAG検索で想起可能に | [レポート](reports/2026-01-14_phase_g_discovery_memory.md) |
-| 2026-01-14 | **Phase E: 達成記憶の自動生成**<br>・目標達成時に高Arousalエピソード記憶を自動生成<br>・達成体験が「輝く星」としてRAG検索で想起可能に | [レポート](reports/2026-01-14_phase_e_achievement_memory.md) |
 | 2026-01-14 | **Phase 1.5: Arousal複合スコアリング**<br>・RAG検索にArousalを加味したリランキング<br>・時間減衰を廃止（古い記憶も大切） | [レポート](reports/2026-01-14_phase_1.5_arousal_scoring.md) |
 | 2026-01-14 | **Phase D: 目標ライフサイクル改善**<br>・省察プロンプト強化（達成/放棄を促す）<br>・30日以上の古い目標を自動放棄<br>・短期目標の上限を10件に設定 | - |
 | 2026-01-14 | **Phase B: 解決済み質問→記憶変換**<br>・睡眠時整理で解決済みの問いをLLMで分析<br>・FACT→エンティティ記憶、INSIGHT→夢日記に変換 | - |
