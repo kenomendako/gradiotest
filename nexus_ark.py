@@ -2020,7 +2020,7 @@ try:
                                 x="timestamp", 
                                 y="value", 
                                 color="emotion",
-                                title="ユーザー感情の推移",
+                                title="ペルソナ感情の推移",
                                 tooltip=["timestamp", "emotion", "user_text"],
                                 height=250,
                                 width="100%",
