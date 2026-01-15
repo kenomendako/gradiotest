@@ -126,6 +126,97 @@ class RAGManager:
         
         return filtered
 
+    def classify_query_intent(self, query: str) -> dict:
+        """
+        クエリの意図を分類し、Intent-Aware Retrievalの重みを返す。
+        
+        Returns:
+            {
+                "intent": "emotional" | "factual" | "technical" | "temporal" | "relational",
+                "weights": {"alpha": float, "beta": float, "gamma": float}
+            }
+        """
+        try:
+            from gemini_api import get_configured_llm
+            
+            llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, self.api_key, {})
+            
+            prompt = """あなたはクエリ分類の専門家です。以下のクエリを5つのカテゴリのいずれか1つに分類してください。
+
+カテゴリ:
+- emotional: 感情・体験・思い出を問う（例：「あの時どう思った？」「嬉しかったこと」「初めて会った日」）
+- factual: 事実・属性を問う（例：「猫の名前は？」「誕生日いつ？」「好きな食べ物」）
+- technical: 技術・手順・設定を問う（例：「設定方法は？」「どうやって動かす？」「バージョン」）
+- temporal: 時間軸で問う（例：「最近何した？」「昨日の話」「今週の予定」）
+- relational: 関係性を問う（例：「〇〇との関係は？」「誰と仲良い？」「どんな人？」）
+
+クエリ: {query}
+
+カテゴリ名のみを1単語で回答してください（emotional/factual/technical/temporal/relational）:"""
+
+            response = llm.invoke(prompt.format(query=query)).content.strip().lower()
+            
+            # 応答からIntentを抽出
+            intent = constants.DEFAULT_INTENT
+            for valid_intent in constants.INTENT_WEIGHTS.keys():
+                if valid_intent in response:
+                    intent = valid_intent
+                    break
+            
+            weights = constants.INTENT_WEIGHTS.get(intent, constants.INTENT_WEIGHTS[constants.DEFAULT_INTENT])
+            print(f"  - [Intent] Query: '{query[:30]}...' -> {intent} (α={weights['alpha']}, β={weights['beta']}, γ={weights['gamma']})")
+            
+            return {"intent": intent, "weights": weights}
+            
+        except Exception as e:
+            print(f"  - [Intent] 分類エラー、デフォルト使用: {e}")
+            return {
+                "intent": constants.DEFAULT_INTENT,
+                "weights": constants.INTENT_WEIGHTS[constants.DEFAULT_INTENT]
+            }
+
+    def calculate_time_decay(self, metadata: dict) -> float:
+        """
+        メタデータの日付から時間減衰スコアを計算する。
+        
+        Args:
+            metadata: {"date": "2026-01-15", ...} または {"created_at": "2026-01-15 10:00:00", ...}
+        
+        Returns:
+            0.0（非常に古い）～ 1.0（今日）
+        """
+        import math
+        from datetime import datetime, timedelta
+        
+        # 日付を抽出（複数のフォーマットに対応）
+        date_str = metadata.get("date") or metadata.get("created_at", "")
+        
+        if not date_str:
+            return 0.5  # 日付不明は中立
+        
+        try:
+            # 日付部分のみを抽出（"2026-01-15" or "2026-01-15 10:00:00"）
+            date_part = str(date_str).split()[0]
+            
+            # 日付範囲の場合（"2026-01-01~2026-01-07"）は最新日を使用
+            if "~" in date_part:
+                date_part = date_part.split("~")[-1]
+            
+            record_date = datetime.strptime(date_part, "%Y-%m-%d")
+            today = datetime.now()
+            days_ago = (today - record_date).days
+            
+            if days_ago < 0:
+                return 1.0  # 未来の日付は最新扱い
+            
+            # 指数減衰: decay = e^(-rate × days)
+            decay_score = math.exp(-constants.TIME_DECAY_RATE * days_ago)
+            return decay_score
+            
+        except Exception as e:
+            # パースエラー時は中立
+            return 0.5
+
     def _safe_save_index(self, db: FAISS, target_path: Path):
         """インデックスを安全に保存する（リネーム退避方式）"""
         target_path = Path(target_path)
@@ -739,10 +830,26 @@ class RAGManager:
         print(f"--- [RAG] 処理完了: {final_msg} ---")
         return final_msg
 
-    def search(self, query: str, k: int = 10, score_threshold: float = 0.75) -> List[Document]:
-        """静的・動的インデックスの両方を検索し、複合スコアでリランキングして結果を統合する"""
+    def search(self, query: str, k: int = 10, score_threshold: float = 0.75, enable_intent_aware: bool = True) -> List[Document]:
+        """
+        静的・動的インデックスの両方を検索し、複合スコアでリランキングして結果を統合する。
+        
+        [Phase 1.5+] Intent-Aware Retrieval対応:
+        - クエリ意図を分類し、Intent別に重み付けを動的に調整
+        - 高Arousal記憶は時間減衰を抑制（感情的記憶の保護）
+        """
         results_with_scores = []
-        print(f"--- [RAG Search Debug] Query: '{query}' (Threshold: {score_threshold}) ---")
+        
+        # [Intent-Aware] クエリ意図を分類
+        if enable_intent_aware and self.api_key:
+            intent_info = self.classify_query_intent(query)
+            intent = intent_info["intent"]
+            weights = intent_info["weights"]
+            print(f"--- [RAG Search Debug] Query: '{query}' (Intent: {intent}, Threshold: {score_threshold}) ---")
+        else:
+            intent = constants.DEFAULT_INTENT
+            weights = constants.INTENT_WEIGHTS[constants.DEFAULT_INTENT]
+            print(f"--- [RAG Search Debug] Query: '{query}' (Intent: disabled, Threshold: {score_threshold}) ---")
 
         dynamic_db = self._safe_load_index(self.dynamic_index_path)
         if dynamic_db:
@@ -758,31 +865,43 @@ class RAGManager:
                 results_with_scores.extend(static_results)
             except Exception as e: print(f"  - [RAG Warning] Static index search failed: {e}")
 
-        # [Phase 1.5] 複合スコアリング: α × similarity + β × (1 - arousal)
-        # 高Arousalな記憶を優先（arousalが高い = より重要な記憶）
-        ALPHA = 0.7  # 類似度の重み
-        BETA = 0.3   # Arousalの重み
+        # [Intent-Aware] 3項式複合スコアリング:
+        # Score = α × similarity + β × (1 - arousal) + γ × (1 - decay) × (1 - arousal)
+        # - α: 類似度の重み
+        # - β: Arousalの重み（高Arousal = 重要な記憶）
+        # - γ: 時間減衰の重み（高Arousalで抑制）
+        alpha = weights["alpha"]
+        beta = weights["beta"]
+        gamma = weights["gamma"]
         
         scored_results = []
         for doc, similarity_score in results_with_scores:
             arousal = doc.metadata.get("arousal", 0.5)  # デフォルト0.5（中立）
-            # 複合スコア: 類似度は低いほど良い、arousalは高いほど良い
-            composite_score = ALPHA * similarity_score + BETA * (1.0 - arousal)
-            scored_results.append((doc, similarity_score, arousal, composite_score))
+            time_decay = self.calculate_time_decay(doc.metadata)  # 0.0~1.0（新しいほど高い）
+            
+            # 3項式複合スコア:
+            # - 類似度は低いほど良い（L2距離）
+            # - Arousalは高いほど良い → (1 - arousal) で反転
+            # - 時間減衰は新しいほど良い → (1 - decay) で古いほどペナルティ
+            # - ただし高Arousal記憶は (1 - arousal) で減衰ペナルティを軽減
+            time_penalty = (1.0 - time_decay) * (1.0 - arousal)  # Arousal高いと減衰無効化
+            composite_score = alpha * similarity_score + beta * (1.0 - arousal) + gamma * time_penalty
+            
+            scored_results.append((doc, similarity_score, arousal, time_decay, composite_score))
         
         # 複合スコアでソート（低いほど良い）
-        scored_results.sort(key=lambda x: x[3])
+        scored_results.sort(key=lambda x: x[4])
         
         # [2026-01-10 追加] コンテンツベースの重複除去
         seen_contents = set()
         unique_results = []
         duplicate_count = 0
-        for doc, sim_score, arousal, comp_score in scored_results:
+        for doc, sim_score, arousal, decay, comp_score in scored_results:
             # 先頭100文字で重複判定（完全一致ではなくプレフィックス比較）
             content_key = doc.page_content[:100].strip()
             if content_key not in seen_contents:
                 seen_contents.add(content_key)
-                unique_results.append((doc, sim_score, arousal, comp_score))
+                unique_results.append((doc, sim_score, arousal, decay, comp_score))
             else:
                 duplicate_count += 1
         
@@ -791,18 +910,20 @@ class RAGManager:
 
         filtered_docs = []
         arousal_boost_count = 0
-        for doc, sim_score, arousal, comp_score in unique_results:
+        for doc, sim_score, arousal, decay, comp_score in unique_results:
             is_relevant = sim_score <= score_threshold
             clean_content = doc.page_content.replace('\n', ' ')[:50]
             status_icon = "✅" if is_relevant else "❌"
             
-            # Arousalが高い場合は★マークを追加
-            arousal_mark = ""
+            # Arousalが高い場合は★マーク、Decayが高い場合は🆕マーク
+            markers = ""
             if arousal > 0.6:
-                arousal_mark = " ★"
+                markers += " ★"
                 arousal_boost_count += 1
+            if decay > 0.9:
+                markers += " 🆕"
             
-            print(f"  - {status_icon} Sim: {sim_score:.3f} | Arousal: {arousal:.2f} | Comp: {comp_score:.3f}{arousal_mark} | {clean_content}...")
+            print(f"  - {status_icon} Sim: {sim_score:.3f} | Arousal: {arousal:.2f} | Decay: {decay:.2f} | Comp: {comp_score:.3f}{markers} | {clean_content}...")
             
             if is_relevant:
                 filtered_docs.append(doc)

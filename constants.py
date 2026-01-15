@@ -39,6 +39,19 @@ SUMMARIZATION_MODEL = "gemini-2.5-flash"          # 高品質（要約、文章�
 EMBEDDING_MODEL = "gemini-embedding-001"
 SUPERVISOR_MODEL = "gemma-3-12b-it"
 
+# --- Intent-Aware Retrieval設定 (2026-01-15) ---
+# クエリ意図に応じた複合スコアリングの重み
+# α: 類似度、β: Arousal（感情的重要度）、γ: 時間減衰
+INTENT_WEIGHTS = {
+    "emotional": {"alpha": 0.3, "beta": 0.6, "gamma": 0.1},   # 感情的質問: Arousal重視、時間無視
+    "factual": {"alpha": 0.5, "beta": 0.2, "gamma": 0.3},     # 事実的質問: バランス
+    "technical": {"alpha": 0.3, "beta": 0.1, "gamma": 0.6},   # 技術的質問: 時間重視（古い情報は価値低下）
+    "temporal": {"alpha": 0.2, "beta": 0.2, "gamma": 0.6},    # 時間軸質問: 時間重視
+    "relational": {"alpha": 0.4, "beta": 0.4, "gamma": 0.2},  # 関係性質問: Arousalやや重視
+}
+DEFAULT_INTENT = "factual"  # Intent分類失敗時のデフォルト
+TIME_DECAY_RATE = 0.05  # 時間減衰率（約14日で半減）
+
 # --- 自動会話要約設定 ---
 AUTO_SUMMARY_DEFAULT_THRESHOLD = 20000  # デフォルト閾値（文字数）
 AUTO_SUMMARY_MIN_THRESHOLD = 5000       # 最小閾値
