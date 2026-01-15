@@ -206,9 +206,24 @@ class MotivationManager:
         self._save_state()
 
     def get_user_emotion_history(self, limit: int = 10) -> List[Dict]:
-        """UI表示用の感情履歴取得"""
+        """UI表示用の感情履歴取得（後方互換性）"""
         logs = self._load_emotion_log()
         return logs[:limit]
+    
+    def get_persona_emotion_history(self, limit: int = 50) -> List[Dict]:
+        """UI表示用のペルソナ感情履歴取得"""
+        logs = self._load_emotion_log()
+        # ペルソナ感情のみフィルタリング
+        persona_logs = [
+            {
+                "timestamp": log.get("timestamp"),
+                "emotion": log.get("category", "neutral"),
+                "intensity": log.get("intensity", 0.5)
+            }
+            for log in logs
+            if log.get("type") == "persona"
+        ]
+        return persona_logs[:limit]
 
     def get_dominant_drive(self) -> str:
         """

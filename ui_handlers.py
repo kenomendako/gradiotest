@@ -10728,9 +10728,9 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
         else:
             open_questions_df = pd.DataFrame(df_data, columns=["話題", "背景・文脈", "優先度", "尋ねた日時"])
 
-        # 4. Emotion History (LinePlot)
-        if hasattr(mm, "get_user_emotion_history"):
-            emotion_history = mm.get_user_emotion_history(limit=50)
+        # 4. Persona Emotion History (LinePlot)
+        if hasattr(mm, "get_persona_emotion_history"):
+            emotion_history = mm.get_persona_emotion_history(limit=50)
         else:
             emotion_history = []
             
@@ -10745,11 +10745,13 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
                 pass
             
             emotion_map = {
-                "joy": 1.0, "happy": 0.8, 
+                # ペルソナ感情カテゴリ
+                "joy": 1.0, "contentment": 0.8, "protective": 0.6,
                 "neutral": 0.0,
-                "surprise": 0.2, "busy": -0.2, "tired": -0.4,
-                "sadness": -0.6, "sad": -0.6,
-                "anxious": -0.7, "fear": -0.8, "anger": -1.0, "stressed": -0.9
+                "anxious": -0.5, "sadness": -0.7, "anger": -1.0,
+                # 後方互換性（ユーザー感情）
+                "happy": 0.8, "surprise": 0.2, "busy": -0.2, "tired": -0.4,
+                "sad": -0.6, "fear": -0.8, "stressed": -0.9
             }
             emotion_df['value'] = emotion_df['emotion'].map(lambda x: emotion_map.get(x, 0.0))
         else:
