@@ -1515,6 +1515,28 @@ def _stream_and_handle_response(
                                     content_str = re.sub(persona_emotion_pattern, '', content_str, flags=re.IGNORECASE).rstrip()
                                 # --- 感情タグ処理ここまで ---
                                 
+                                # --- [Phase H] 記憶共鳴タグのパースとArousal更新 ---
+                                # ペルソナが出力した <memory_trace id="xxx" resonance="0.0-1.0"/> をパースして
+                                # EpisodicMemoryManagerでArousalを更新し、ログからは除去する
+                                memory_trace_pattern = r'<memory_trace\s+id=["\']([^"\']+)["\']\s+resonance=["\']([0-9.]+)["\']\s*/>'
+                                trace_matches = re.findall(memory_trace_pattern, content_str, re.IGNORECASE)
+                                if trace_matches:
+                                    try:
+                                        from episodic_memory_manager import EpisodicMemoryManager
+                                        emm = EpisodicMemoryManager(current_room)
+                                        for episode_id, resonance_str in trace_matches:
+                                            resonance = float(resonance_str)
+                                            if 0.0 <= resonance <= 1.0:
+                                                emm.update_arousal(episode_id, resonance)
+                                            else:
+                                                print(f"  - [MemoryTrace] 無効な共鳴度: {resonance_str}")
+                                        print(f"  - [MemoryTrace] {len(trace_matches)}件の記憶共鳴を処理")
+                                    except Exception as e:
+                                        print(f"  - [MemoryTrace] 共鳴処理エラー: {e}")
+                                    # タグをログから除去
+                                    content_str = re.sub(memory_trace_pattern, '', content_str, flags=re.IGNORECASE).rstrip()
+                                # --- 記憶共鳴タグ処理ここまで ---
+                                
                                 # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
                                 # 使用モデル名の取得（優先順位: 1.ストリーム中に取得したmodel_name, 2.final_state, 3.effective_settings）
                                 actual_model_name = captured_model_name or (final_state.get("model_name") if final_state else None)

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Phase H: 記憶共鳴フィードバック機構 (2026-01-15):** エピソード記憶にID自動付与。ペルソナが `<memory_trace>` タグで共鳴度を報告し、Arousalを自己更新する機構を導入。MAGMA論文の知見を適用。[レポート](docs/reports/2026-01-15_phase_h_arousal_self_evolution.md)
 - **Phase F: 関係性維持欲求 (2026-01-15):** 「奉仕欲（Devotion）」を廃止し、ペルソナ自身の感情に基づく「関係性維持欲求（Relatedness Drive）」を導入。ユーザー感情分析LLM呼び出しを廃止しAPIコスト削減。絆確認エピソード記憶の自動生成機能を追加。[レポート](docs/reports/2026-01-15_phase_f_relatedness_drive.md)
 - **Phase 1.5: Arousal複合スコアリング (2026-01-14):** RAG検索結果を感情的重要度（Arousal）を加味してリランキング。`Score = α × 類似度 + β × (1 - Arousal)`。時間減衰は「古い記憶も大切」の哲学に基づき廃止。[レポート](docs/reports/2026-01-14_phase_1.5_arousal_scoring.md)
 - **Phase G: 発見記憶の自動生成 (2026-01-14):** Phase Bを拡張し、FACT/INSIGHT変換時に発見エピソード記憶（arousal: 0.6）を自動生成。「発見の喜び」がRAG検索で想起されるようになった。[レポート](docs/reports/2026-01-14_phase_g_discovery_memory.md)

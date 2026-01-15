@@ -23,7 +23,28 @@ class EpisodicMemoryManager:
         
         # ディレクトリの保証
         self.memory_dir.mkdir(parents=True, exist_ok=True)
-        self.memory_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _generate_episode_id(self, date_str: str) -> str:
+        """
+        エピソードの一意なIDを生成する。
+        フォーマット: episode_{日付}_{連番}
+        例: episode_2026-01-15_001
+        """
+        # 既存のエピソードからこの日付の連番を取得
+        existing = self._load_memory()
+        date_prefix = f"episode_{date_str.split('~')[0].split('～')[0].strip()}_"
+        
+        max_seq = 0
+        for ep in existing:
+            ep_id = ep.get("id", "")
+            if ep_id.startswith(date_prefix):
+                try:
+                    seq = int(ep_id.split("_")[-1])
+                    max_seq = max(max_seq, seq)
+                except ValueError:
+                    pass
+        
+        return f"{date_prefix}{max_seq + 1:03d}"
 
     def _load_memory(self) -> List[Dict]:
         """JSONファイルからエピソード記憶を読み込む"""
@@ -297,8 +318,13 @@ class EpisodicMemoryManager:
         """
         単一のエピソードをファイルに追記保存するヘルパーメソッド。
         読み込み→追加→保存をアトミックに行う。
+        IDがない場合は自動生成する。
         """
         try:
+            # IDがない場合は自動生成
+            if "id" not in new_episode and "date" in new_episode:
+                new_episode["id"] = self._generate_episode_id(new_episode["date"])
+            
             # 常に最新の状態を読み込む
             current_data = self._load_memory()
             
@@ -383,7 +409,12 @@ class EpisodicMemoryManager:
                 
                 # 範囲チェック: (既存エピソードの終端がルックバック開始日以降) かつ (既存エピソードの開始が生ログ開始日より前)
                 if (item_end_date >= start_date) and (item_start_date < cutoff_date):
-                    relevant_episodes.append(f"[{d_str}] {item['summary']}")
+                    # Phase H: IDを含めて出力（共鳴フィードバック用）
+                    episode_id = item.get('id', '')
+                    if episode_id:
+                        relevant_episodes.append(f'[id="{episode_id}"] [{d_str}] {item["summary"]}')
+                    else:
+                        relevant_episodes.append(f"[{d_str}] {item['summary']}")
             except Exception:
                 continue
 
@@ -632,3 +663,64 @@ class EpisodicMemoryManager:
             "pending_count": pending_count,
             "total_count": len(episodes)
         }
+    
+    def update_arousal(self, episode_id: str, resonance: float, alpha: float = 0.2) -> bool:
+        """
+        共鳴度（resonance）に基づいてエピソードのArousalを更新する。
+        Phase H: 自己進化ループの核心機能。
+        
+        Args:
+            episode_id: 更新対象のエピソードID（例: episode_2026-01-15_001）
+            resonance: ペルソナが報告した共鳴度（0.0〜1.0）
+            alpha: 学習率（デフォルト: 0.2）
+            
+        Returns:
+            更新成功ならTrue
+        """
+        try:
+            episodes = self._load_memory()
+            updated = False
+            
+            for ep in episodes:
+                if ep.get("id") == episode_id:
+                    # Q値更新式: arousal_new = arousal_old + α(resonance - arousal_old)
+                    old_arousal = ep.get("arousal", 0.5)
+                    new_arousal = old_arousal + alpha * (resonance - old_arousal)
+                    
+                    # Arousalは0.0〜1.0の範囲に制限
+                    new_arousal = max(0.0, min(1.0, new_arousal))
+                    
+                    # 変化幅の上限（±0.2）を適用して急激な変化を防ぐ
+                    delta = new_arousal - old_arousal
+                    if abs(delta) > 0.2:
+                        new_arousal = old_arousal + (0.2 if delta > 0 else -0.2)
+                    
+                    ep["arousal"] = round(new_arousal, 3)
+                    ep["last_resonance"] = resonance
+                    ep["resonance_updated_at"] = datetime.datetime.now().isoformat()
+                    
+                    print(f"  [Arousal更新] {episode_id}: {old_arousal:.3f} → {new_arousal:.3f} (resonance={resonance})")
+                    updated = True
+                    break
+            
+            if updated:
+                self._save_memory(episodes)
+                return True
+            else:
+                print(f"  [Arousal更新] ID '{episode_id}' が見つかりません")
+                return False
+                
+        except Exception as e:
+            print(f"Error updating arousal: {e}")
+            traceback.print_exc()
+            return False
+    
+    def get_episode_by_id(self, episode_id: str) -> Optional[Dict]:
+        """
+        IDでエピソードを取得する。
+        """
+        episodes = self._load_memory()
+        for ep in episodes:
+            if ep.get("id") == episode_id:
+                return ep
+        return None
