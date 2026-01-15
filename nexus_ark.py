@@ -1985,8 +1985,8 @@ try:
                                         interactive=False, info="アクティブな目標に比例"
                                     )
                                     devotion_level_display = gr.Slider(
-                                        label="奉仕欲 (Devotion)", minimum=0, maximum=1, value=0,
-                                        interactive=False, info="ユーザーの状態に比例"
+                                        label="関係性維持 (Relatedness)", minimum=0, maximum=1, value=0,
+                                        interactive=False, info="ペルソナ感情に比例"
                                     )
                             
                             dominant_drive_display = gr.Textbox(

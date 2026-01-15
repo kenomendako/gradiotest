@@ -418,23 +418,23 @@ def retrieval_node(state: AgentState):
         print("  - [Retrieval Skip] 検索対象となるテキストコンテンツが含まれていません。")
         return {"retrieved_context": ""}
 
-    # --- [User Emotion Detection] ユーザー感情状態の検出 ---
-    # 奉仕欲ドライブを機能させるため、ユーザーの感情を分析してログに記録
-    # 【自己意識機能】トグルがOFFの場合はスキップ
-    enable_self_awareness = state.get("generation_config", {}).get("enable_self_awareness", True)
-    if enable_self_awareness:
-        try:
-            from motivation_manager import MotivationManager
-            mm = MotivationManager(state['room_name'])
-            # 感情検出し、ログ保存とDevotion更新を一括で行う
-            mm.detect_process_and_log_user_emotion(
-                user_text=query_source,
-                model_name=constants.INTERNAL_PROCESSING_MODEL,
-                api_key=state['api_key']
-            )
-            # print(f"  - [Emotion] 感情検出プロセス完了") # ログ過多防止のためコメントアウト
-        except Exception as emotion_e:
-            print(f"  - [Emotion] 感情検出でエラー（無視）: {emotion_e}")
+    # --- [Phase F 廃止] ユーザー感情分析のLLM呼び出しを廃止 ---
+    # ペルソナが自身の感情を出力する新方式（<persona_emotion>タグ）に移行。
+    # 以下のユーザー感情検出コードは維持するが、実行はスキップする。
+    # ---
+    # enable_self_awareness = state.get("generation_config", {}).get("enable_self_awareness", True)
+    # if enable_self_awareness:
+    #     try:
+    #         from motivation_manager import MotivationManager
+    #         mm = MotivationManager(state['room_name'])
+    #         mm.detect_process_and_log_user_emotion(
+    #             user_text=query_source,
+    #             model_name=constants.INTERNAL_PROCESSING_MODEL,
+    #             api_key=state['api_key']
+    #         )
+    #     except Exception as emotion_e:
+    #         print(f"  - [Emotion] 感情検出でエラー（無視）: {emotion_e}")
+    # --- ユーザー感情分析廃止ここまで ---
 
     # 2. クエリ生成AI（Flash Lite）による判断
     api_key = state['api_key']
@@ -867,12 +867,12 @@ def context_generator_node(state: AgentState):
             from motivation_manager import MotivationManager
             mm = MotivationManager(room_name)
             
-            # 全動機を計算して最も高い動機を取得
+            # ドライブを計算（Phase F: devotion廃止、relatednessのみ）
             drives = {
                 "boredom": mm.calculate_boredom(),
                 "curiosity": mm.calculate_curiosity(),
                 "goal_achievement": mm.calculate_goal_achievement(),
-                "devotion": mm.calculate_devotion()
+                "relatedness": mm.calculate_relatedness()
             }
             
             dominant_drive = max(drives, key=drives.get)

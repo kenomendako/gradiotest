@@ -1,7 +1,7 @@
 # motivation_manager.py
 """
 Autonomous Motivation System for Nexus Ark
-AIペルソナの内発的動機（退屈、好奇心、目標達成欲、奉仕欲）を管理し、
+AIペルソナの内発的動機（退屈、好奇心、目標達成欲、関係性維持欲求）を管理し、
 内部状態ログを生成するモジュール。
 """
 
@@ -27,7 +27,8 @@ class MotivationManager:
         "boredom": "退屈（Boredom）",
         "curiosity": "好奇心（Curiosity）",
         "goal_achievement": "目標達成欲（Goal Achievement Drive）",
-        "devotion": "奉仕欲（Devotion Drive）"
+        "devotion": "奉仕欲（Devotion Drive）",  # 後方互換性のため維持
+        "relatedness": "関係性維持欲求（Relatedness Drive）"
     }
     
     # デフォルトの閾値
@@ -72,6 +73,12 @@ class MotivationManager:
                     "level": 0.0,
                     "user_emotional_state": "unknown",
                     "last_service_opportunity": None
+                },
+                "relatedness": {
+                    "level": 0.0,
+                    "persona_emotion": "neutral",
+                    "persona_intensity": 0.0,
+                    "last_emotion_change": None
                 }
             },
             "motivation_log": None,
@@ -118,7 +125,9 @@ class MotivationManager:
             "devotion": drives.get("devotion", {}).get("level", 0.0),
             "boredom": drives.get("boredom", {}).get("level", 0.0),
             "goal_achievement": drives.get("goal_achievement", {}).get("level", 0.0),
-            "user_emotional_state": drives.get("devotion", {}).get("user_emotional_state", "unknown")
+            "user_emotional_state": drives.get("devotion", {}).get("user_emotional_state", "unknown"),
+            "persona_emotion": drives.get("relatedness", {}).get("persona_emotion", "neutral"),
+            "persona_intensity": drives.get("relatedness", {}).get("persona_intensity", 0.0)
         }
 
     def detect_process_and_log_user_emotion(self, user_text: str, model_name: str, api_key: str):
@@ -210,16 +219,16 @@ class MotivationManager:
         boredom = self.calculate_boredom()
         curiosity = self.calculate_curiosity()
         goal_achievement = self.calculate_goal_achievement()
-        devotion = self.calculate_devotion()
+        relatedness = self.calculate_relatedness()
         
         drives = {
             "boredom": boredom,
             "curiosity": curiosity,
             "goal_achievement": goal_achievement,
-            "devotion": devotion
+            "relatedness": relatedness  # Phase F: devotionを廃止
         }
         
-        # 最大値の動機を返す（同値の場合はiterationの順序で先に来たものが選ばれる）
+        # 最大値の動機を返す
         dominant = max(drives, key=drives.get)
         return dominant
 
@@ -590,11 +599,128 @@ class MotivationManager:
         return False
     
     def set_user_emotional_state(self, state: str):
-        """ユーザーの感情状態を設定"""
+        """[DEPRECATED] ユーザーの感情状態を設定（後方互換性のため維持）"""
         valid_states = ["stressed", "sad", "anxious", "tired", "busy", "neutral", "happy", "unknown"]
         if state in valid_states:
             self._state["drives"]["devotion"]["user_emotional_state"] = state
             self._save_state()
+    
+    def set_persona_emotion(self, category: str, intensity: float):
+        """
+        ペルソナ自身の感情状態を設定し、関係性維持欲求と絆確認エピソードを更新する。
+        
+        Args:
+            category: 感情カテゴリ（joy, contentment, protective, anxious, sadness, anger, neutral）
+            intensity: 強度（0.0〜1.0）
+        """
+        valid_categories = ["joy", "contentment", "protective", "anxious", "sadness", "anger", "neutral"]
+        if category not in valid_categories:
+            return
+        
+        # relatednessデータが存在しない場合は初期化
+        if "relatedness" not in self._state["drives"]:
+            self._state["drives"]["relatedness"] = {
+                "level": 0.0,
+                "persona_emotion": "neutral",
+                "persona_intensity": 0.0,
+                "last_emotion_change": None
+            }
+        
+        relatedness = self._state["drives"]["relatedness"]
+        previous_category = relatedness.get("persona_emotion", "neutral")
+        previous_intensity = relatedness.get("persona_intensity", 0.0)
+        
+        # 感情を更新
+        relatedness["persona_emotion"] = category
+        relatedness["persona_intensity"] = max(0.0, min(1.0, intensity))
+        relatedness["last_emotion_change"] = datetime.datetime.now().isoformat()
+        
+        # 関係性維持欲求のレベルを計算
+        relatedness["level"] = self._calculate_relatedness_from_emotion(category, intensity)
+        
+        # 感情ログに記録
+        self._append_emotion_log({
+            "timestamp": datetime.datetime.now().isoformat(),
+            "type": "persona",
+            "category": category,
+            "intensity": intensity
+        })
+        
+        # 絆確認エピソードのチェック（不安→安定への変化）
+        self._check_and_create_bonding_episode(previous_category, previous_intensity, category, intensity)
+        
+        self._save_state()
+        
+    def _calculate_relatedness_from_emotion(self, category: str, intensity: float) -> float:
+        """
+        ペルソナの感情から関係性維持欲求レベルを計算。
+        庇護欲や不安を感じている時に欲求が高まる。
+        """
+        # カテゴリ別の基本ウェイト
+        category_weights = {
+            "protective": 0.9,   # 守りたい → 欲求最大
+            "anxious": 0.8,      # 不安 → 欲求高
+            "sadness": 0.5,      # 悲しみ → 中程度
+            "anger": 0.4,        # 怒り → 中程度（距離を置きたいかも）
+            "joy": 0.2,          # 喜び → 安定（欲求低）
+            "contentment": 0.1, # 満足 → 最安定
+            "neutral": 0.3       # 平常
+        }
+        
+        base_weight = category_weights.get(category, 0.3)
+        return base_weight * intensity
+    
+    def _check_and_create_bonding_episode(self, prev_category: str, prev_intensity: float,
+                                           curr_category: str, curr_intensity: float):
+        """
+        感情変化から絆確認エピソード記憶を生成すべきか判定し、生成する。
+        不安/庇護欲 → 安定/喜びへの変化時に生成。
+        """
+        # 不安系から安定系への変化をチェック
+        unstable_categories = ["anxious", "protective", "sadness"]
+        stable_categories = ["joy", "contentment"]
+        
+        if prev_category in unstable_categories and curr_category in stable_categories:
+            # 変化の大きさを計算（前の不安の強さ）
+            crisis_severity = prev_intensity
+            
+            try:
+                from episodic_memory_manager import EpisodicMemoryManager
+                epm = EpisodicMemoryManager(self.room_name)
+                
+                today = datetime.datetime.now().strftime('%Y-%m-%d')
+                now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+                # Arousalは危機の深刻さに応じて
+                arousal = 0.5 + crisis_severity * 0.4
+                
+                prev_label = {"anxious": "不安", "protective": "心配", "sadness": "悲しみ"}.get(prev_category, prev_category)
+                curr_label = {"joy": "喜び", "contentment": "安心"}.get(curr_category, curr_category)
+                
+                summary = f"【絆確認】{prev_label}から{curr_label}へ。関係性が安定し、絆を確認した。"
+                
+                epm._append_single_episode({
+                    "date": today,
+                    "summary": summary,
+                    "arousal": round(arousal, 2),
+                    "arousal_max": round(arousal, 2),
+                    "type": "bonding",
+                    "emotion_change": f"{prev_category}→{curr_category}",
+                    "created_at": now_str
+                })
+                print(f"  ✨ 絆確認エピソード記憶を生成: {prev_category}→{curr_category}")
+            except Exception as e:
+                print(f"  ⚠️ 絆確認エピソード生成エラー: {e}")
+    
+    def calculate_relatedness(self) -> float:
+        """
+        関係性維持欲求を計算（0.0 ~ 1.0）
+        ペルソナ自身の感情状態に基づく。
+        """
+        if "relatedness" not in self._state["drives"]:
+            return 0.0
+        
+        return self._state["drives"]["relatedness"].get("level", 0.0)
     
     def set_boredom_threshold(self, threshold: float):
         """退屈度の閾値を設定"""

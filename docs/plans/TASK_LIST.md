@@ -1,6 +1,13 @@
 # 📋 Nexus Ark タスクリスト
 
-**最終更新**: 2026-01-14
+**最終更新**: 2026-01-15
+
+- [x] **Phase F: 関係性維持欲求の実装** ✅ (2026-01-15 完了)
+  - ペルソナ感情出力（`<persona_emotion>`）を追加
+  - ユーザー感情分析を廃止（APIコスト削減）
+  - 絆確認エピソード記憶の生成
+  - 関連: [motivation_system_improvement.md](motivation_system_improvement.md)
+  - [レポート](../reports/2026-01-15_phase_f_relatedness_drive.md)
 
 - [x] **Phase E: 自己実現欲求の還元** ✅ (2026-01-14 完了)
   - 目標達成時に高Arousalエピソード記憶を自動生成

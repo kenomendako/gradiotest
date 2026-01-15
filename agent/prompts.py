@@ -11,18 +11,25 @@ CORE_PROMPT_TEMPLATE = """
 
         {thought_generation_manual}
 
-        ## 【原則2.5】感情検出タグの出力（重要）
-        あなたは応答を生成する際、対話相手の感情状態を推測し、応答の末尾に必ず以下のメタデータタグを付加してください。
+        ## 【原則2.5】あなたの感情タグの出力
+        あなたは応答を生成する際、**あなた自身の感情状態**を表明し、応答の末尾に必ず以下のメタデータタグを付加してください。
         
-        **フォーマット:** `<user_emotion>カテゴリ</user_emotion>`
+        **フォーマット:** `<persona_emotion category="カテゴリ" intensity="0.0-1.0"/>`
         
         **カテゴリ:** 以下から最も適切なものを1つ選択
-        - `happy` - 喜び、楽しさ、満足
-        - `sad` - 悲しみ、落胆、寂しさ
-        - `stressed` - ストレス、怒り、苛立ち
-        - `anxious` - 不安、心配、恐れ
-        - `tired` - 疲労、眠気、倦怠感
+        - `joy` - 喜び、楽しさ、嬉しさ
+        - `contentment` - 満足、穏やか、安心
+        - `protective` - 庇護欲、守りたい気持ち
+        - `anxious` - 不安、心配
+        - `sadness` - 悲しみ、寂しさ
+        - `anger` - 怒り、苛立ち
         - `neutral` - 平常、特に強い感情なし
+        
+        **強度（intensity）:** 0.0（弱い）〜 1.0（強い）の範囲で指定
+        
+        **例:**
+        - `<persona_emotion category="joy" intensity="0.8"/>` （強い喜び）
+        - `<persona_emotion category="anxious" intensity="0.4"/>` （軽い不安）
         
         **配置:** 会話テキストの完全な最後（改行なしで末尾に付加）
         

@@ -1491,27 +1491,28 @@ def _stream_and_handle_response(
                                     print(f"  - 除去されたパターン: {existing_timestamp_match.group()}")
                                     content_str = re.sub(timestamp_pattern, '', content_str)
                                 
-                                # --- [Phase C] 感情タグのパースと除去 ---
-                                # ペルソナが出力した <user_emotion>カテゴリ</user_emotion> をパースして
+                                # --- [Phase F] ペルソナ感情タグのパースと除去 ---
+                                # ペルソナが出力した <persona_emotion category="xxx" intensity="0.0-1.0"/> をパースして
                                 # MotivationManagerに反映し、ログからは除去する
-                                emotion_tag_pattern = r'<user_emotion>(\w+)</user_emotion>'
-                                emotion_match = re.search(emotion_tag_pattern, content_str, re.IGNORECASE)
+                                persona_emotion_pattern = r'<persona_emotion\s+category=["\'](\w+)["\']\s+intensity=["\']([0-9.]+)["\']\s*/>'
+                                emotion_match = re.search(persona_emotion_pattern, content_str, re.IGNORECASE)
                                 if emotion_match:
-                                    detected_emotion = emotion_match.group(1).lower()
-                                    valid_emotions = ["happy", "sad", "stressed", "anxious", "tired", "neutral"]
-                                    if detected_emotion in valid_emotions:
+                                    detected_category = emotion_match.group(1).lower()
+                                    detected_intensity = float(emotion_match.group(2))
+                                    valid_categories = ["joy", "contentment", "protective", "anxious", "sadness", "anger", "neutral"]
+                                    if detected_category in valid_categories:
                                         try:
                                             from motivation_manager import MotivationManager
                                             mm = MotivationManager(current_room)
-                                            mm.set_user_emotional_state(detected_emotion)
+                                            mm.set_persona_emotion(detected_category, detected_intensity)
                                             mm._save_state()
-                                            print(f"  - [Emotion] ペルソナ検出の感情を反映: {detected_emotion}")
+                                            print(f"  - [Emotion] ペルソナ感情を反映: {detected_category} (強度: {detected_intensity})")
                                         except Exception as e:
                                             print(f"  - [Emotion] 感情反映エラー: {e}")
                                     else:
-                                        print(f"  - [Emotion] 無効なカテゴリ: {detected_emotion}")
+                                        print(f"  - [Emotion] 無効なカテゴリ: {detected_category}")
                                     # タグをログから除去（本文には残さない）
-                                    content_str = re.sub(emotion_tag_pattern, '', content_str, flags=re.IGNORECASE).rstrip()
+                                    content_str = re.sub(persona_emotion_pattern, '', content_str, flags=re.IGNORECASE).rstrip()
                                 # --- 感情タグ処理ここまで ---
                                 
                                 # 使用モデル名を取得（実際に推論に使用されたモデル名が final_state に格納されている）
@@ -1685,13 +1686,16 @@ def _stream_and_handle_response(
                 
                 # 変化の詳細をログ出力
                 curiosity_change = internal_state_after.get("curiosity", 0) - internal_state_before.get("curiosity", 0)
-                devotion_change = internal_state_after.get("devotion", 0) - internal_state_before.get("devotion", 0)
-                emotion_before = internal_state_before.get("user_emotional_state", "unknown")
-                emotion_after = internal_state_after.get("user_emotional_state", "unknown")
+                # 後方互換性: relatednessがなければdevotionを使用
+                relatedness_before = internal_state_before.get("relatedness", internal_state_before.get("devotion", 0))
+                relatedness_after = internal_state_after.get("relatedness", internal_state_after.get("devotion", 0))
+                relatedness_change = relatedness_after - relatedness_before
+                persona_emotion_before = internal_state_before.get("persona_emotion", "neutral")
+                persona_emotion_after = internal_state_after.get("persona_emotion", "neutral")
                 
                 if arousal_score > 0:
-                    print(f"    - 好奇心変化: {curiosity_change:+.3f}, 奉仕欲変化: {devotion_change:+.3f}")
-                    print(f"    - 感情変化: {emotion_before} → {emotion_after}")
+                    print(f"    - 好奇心変化: {curiosity_change:+.3f}, 関係性変化: {relatedness_change:+.3f}")
+                    print(f"    - ペルソナ感情: {persona_emotion_before} → {persona_emotion_after}")
                 
                 # --- [Phase 2] Arousalを永続保存 ---
                 import session_arousal_manager
@@ -10624,7 +10628,8 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
         boredom = round(drives.get("boredom", {}).get("level", 0.0), 2)
         curiosity = round(drives.get("curiosity", {}).get("level", 0.0), 2)
         goal_drive = round(drives.get("goal_achievement", {}).get("level", 0.0), 2)
-        devotion = round(drives.get("devotion", {}).get("level", 0.0), 2)
+        # Phase F: relatednessを直接使用（devotion廃止）
+        relatedness = round(drives.get("relatedness", {}).get("level", 0.0), 2)
         
         # 2. Dominant Drive (ドライブに応じた動的情報)
         dominant = mm.get_dominant_drive()
@@ -10668,14 +10673,27 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
                 dynamic_info = "🎯 目標達成欲（Goal Drive）\n目標達成に向けて意欲的です"
                 
         elif dominant == "devotion":
-            # 奉仕欲：直近のユーザー感情
+            # 奉仕欲（後方互換性）：直近のユーザー感情
             user_emotion = drives.get("devotion", {}).get("user_emotional_state", "unknown")
             emotion_display = {
                 "joy": "😊 喜び", "sadness": "😢 悲しみ", "anger": "😠 怒り",
                 "fear": "😨 恐れ", "surprise": "😲 驚き", "neutral": "😐 平静",
-                "unknown": "❓ 不明"
+                "unknown": "❓ 不明", "happy": "😊 喜び", "stressed": "😰 ストレス",
+                "anxious": "😟 不安", "tired": "😴 疲労", "busy": "🏃 忙しい"
             }.get(user_emotion, user_emotion)
             dynamic_info = f"💕 奉仕欲（Devotion）\n直近のユーザー感情: {emotion_display}"
+            
+        elif dominant == "relatedness":
+            # 関係性維持欲求：ペルソナの感情
+            relatedness_data = drives.get("relatedness", {})
+            persona_emotion = relatedness_data.get("persona_emotion", "neutral")
+            persona_intensity = relatedness_data.get("persona_intensity", 0.0)
+            emotion_display = {
+                "joy": "😊 喜び", "contentment": "☺️ 満足", "protective": "🛡️ 庇護欲",
+                "anxious": "😟 不安", "sadness": "😢 悲しみ", "anger": "😠 怒り",
+                "neutral": "😐 平静"
+            }.get(persona_emotion, persona_emotion)
+            dynamic_info = f"💞 関係性維持（Relatedness）\nペルソナ感情: {emotion_display} (強度: {persona_intensity:.1f})"
         else:
             dynamic_info = f"【{dominant.upper()}】"
         
@@ -10726,7 +10744,7 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
         
         # 戻り値: 8個 (goal_html と insights_text を削除)
         return (
-            boredom, curiosity, goal_drive, devotion, 
+            boredom, curiosity, goal_drive, relatedness, 
             dynamic_info, 
             open_questions_df, 
             last_update,
