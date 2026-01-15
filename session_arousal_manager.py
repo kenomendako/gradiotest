@@ -51,26 +51,41 @@ def add_arousal_score(room_name: str, arousal_score: float):
         room_name: ルーム名
         arousal_score: 会話のArousalスコア（0.0〜1.0）
     """
-    today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+    now = datetime.datetime.now()
+    today_str = now.strftime('%Y-%m-%d')
+    time_str = now.strftime('%H:%M:%S')
+    
     data = _load_arousal_data(room_name)
     
-    # 今日のデータがなければ初期化
+    # 今日のデータがなければ初期化（新形式）
     if today_str not in data:
         data[today_str] = {
-            "scores": [],
-            "last_updated": None
+            "sessions": []
         }
     
-    # スコアを追加
-    data[today_str]["scores"].append(round(arousal_score, 3))
-    data[today_str]["last_updated"] = datetime.datetime.now().strftime('%H:%M:%S')
+    # 旧形式からの移行（scores配列があればsessionsに変換）
+    if "scores" in data[today_str] and "sessions" not in data[today_str]:
+        old_scores = data[today_str]["scores"]
+        data[today_str]["sessions"] = [
+            {"time": "00:00:00", "arousal": s, "processed": True}
+            for s in old_scores
+        ]
+        del data[today_str]["scores"]
+    
+    # セッションを追加
+    data[today_str]["sessions"].append({
+        "time": time_str,
+        "arousal": round(arousal_score, 3),
+        "processed": False
+    })
     
     # 古いデータを削除（7日以上前）
     cutoff_date = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
     data = {date: values for date, values in data.items() if date >= cutoff_date}
     
     _save_arousal_data(room_name, data)
-    print(f"  - [SessionArousal] 蓄積: {arousal_score:.3f} (本日{len(data[today_str]['scores'])}件)")
+    session_count = len(data[today_str]["sessions"])
+    print(f"  - [SessionArousal] 蓄積: {arousal_score:.3f} (本日{session_count}件)")
 
 
 def get_daily_average(room_name: str, date_str: Optional[str] = None) -> float:
@@ -92,7 +107,16 @@ def get_daily_average(room_name: str, date_str: Optional[str] = None) -> float:
     if date_str not in data:
         return 0.5  # デフォルト値
     
-    scores = data[date_str].get("scores", [])
+    day_data = data[date_str]
+    
+    # 新形式（sessions配列）を優先
+    if "sessions" in day_data:
+        scores = [s["arousal"] for s in day_data["sessions"]]
+    elif "scores" in day_data:
+        scores = day_data["scores"]
+    else:
+        return 0.5
+    
     if not scores:
         return 0.5
     
@@ -118,11 +142,71 @@ def get_daily_max(room_name: str, date_str: Optional[str] = None) -> float:
     if date_str not in data:
         return 0.5
     
-    scores = data[date_str].get("scores", [])
+    day_data = data[date_str]
+    
+    # 新形式（sessions配列）を優先
+    if "sessions" in day_data:
+        scores = [s["arousal"] for s in day_data["sessions"]]
+    elif "scores" in day_data:
+        scores = day_data["scores"]
+    else:
+        return 0.5
+    
     if not scores:
         return 0.5
     
     return max(scores)
+
+
+def get_sessions_for_date(room_name: str, date_str: str) -> List[Dict]:
+    """
+    指定日の未処理セッション一覧を取得する。
+    
+    Args:
+        room_name: ルーム名
+        date_str: 日付文字列
+        
+    Returns:
+        セッション情報のリスト [{"time": "HH:MM:SS", "arousal": float, "processed": bool}, ...]
+    """
+    data = _load_arousal_data(room_name)
+    
+    if date_str not in data:
+        return []
+    
+    day_data = data[date_str]
+    
+    # 新形式
+    if "sessions" in day_data:
+        return [s for s in day_data["sessions"] if not s.get("processed", False)]
+    
+    # 旧形式の場合は空を返す（移行が必要）
+    return []
+
+
+def mark_sessions_processed(room_name: str, date_str: str, times: List[str]):
+    """
+    指定したセッションを処理済みとしてマークする。
+    
+    Args:
+        room_name: ルーム名
+        date_str: 日付文字列
+        times: マークするセッションの時刻リスト
+    """
+    data = _load_arousal_data(room_name)
+    
+    if date_str not in data:
+        return
+    
+    day_data = data[date_str]
+    
+    if "sessions" in day_data:
+        for session in day_data["sessions"]:
+            if session["time"] in times:
+                session["processed"] = True
+        
+        _save_arousal_data(room_name, data)
+        print(f"  - [SessionArousal] {len(times)}件のセッションを処理済みにマーク")
 
 
 def clear_daily_data(room_name: str, date_str: Optional[str] = None):
