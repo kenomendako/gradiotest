@@ -339,7 +339,7 @@ Phase Bを拡張し、知識獲得時に発見エピソード記憶も生成す�
 1. **退屈（Boredom）** - 無操作時間に基づいて対数曲線で計算
 2. **好奇心（Curiosity）** - 夢想処理で抽出された「未解決の問い」に基づく
 3. **目標達成欲（Goal Achievement Drive）** - アクティブな目標の優先度に基づく
-4. **奉仕欲（Devotion Drive）** - ユーザーの感情状態に基づく
+4. **関係性維持欲求（Relatedness Drive）** - **ペルソナ自身の感情状態**に基づく [Phase F 2026-01-15]
 
 **データ構造**:
 ```json
@@ -362,13 +362,18 @@ Phase Bを拡張し、知識獲得時に発見エピソード記憶も生成す�
       ]
     },
     "goal_achievement": { "level": 0.6, "active_goal_id": "sh_abc123" },
-    "devotion": { "level": 0.3, "user_emotional_state": "neutral" }
+    "relatedness": {
+      "level": 0.8,
+      "persona_emotion": "protective",
+      "persona_intensity": 0.9,
+      "last_emotion_change": "2026-01-15T10:30:00"
+    }
   },
   "motivation_log": {
-    "dominant_drive": "curiosity",
-    "dominant_drive_label": "好奇心（Curiosity）",
+    "dominant_drive": "relatedness",
+    "dominant_drive_label": "関係性維持欲求（Relatedness Drive）",
     "drive_level": 0.8,
-    "narrative": "昨夜の夢想の中で..."
+    "narrative": "ユーザーを守りたいという気持ちがある。"
   }
 }
 ```
@@ -379,7 +384,7 @@ Phase Bを拡張し、知識獲得時に発見エピソード記憶も生成す�
 - **自律行動発火時**: 完全な内部状態ログとして注入
 
 **更新タイミング**: 
-- 対話時（`last_interaction` を更新、ユーザー感情を検出）
+- 対話時（`last_interaction` を更新、**ペルソナ感情を出力タグから取得**）
 - **質問解決**: 睡眠時の振り返り、またはツールによる明示的解決（※自動判定による即時解決は廃止 2026-01-14）
 - 睡眠時（会話から `open_questions` を抽出・追加）
 - 自律行動判定時（全動機を再計算）
@@ -388,43 +393,72 @@ Phase Bを拡張し、知識獲得時に発見エピソード記憶も生成す�
 
 ### 9. 感情ログ (`memory/emotion_log.json`) [NEW]
 
-**目的**: ユーザーの感情状態を時系列で記録し、AIの共感能力を強化
+**目的**: ペルソナとユーザーの感情状態を時系列で記録し、AIの共感能力を強化
 
-**データ構造**:
+**データ構造** [Phase F対応]:
 ```json
 [
   {
-    "timestamp": "2026-01-06T19:25:49.272253",
-    "user_text_snippet": "But I am trying to stay positive...",
-    "emotion": "joy"
+    "timestamp": "2026-01-15T10:30:00",
+    "type": "persona",
+    "category": "protective",
+    "intensity": 0.9
   },
   {
-    "timestamp": "2026-01-06T19:22:34.194224",
-    "user_text_snippet": "This is a test message. I am feeling very sad...",
-    "emotion": "sadness"
+    "timestamp": "2026-01-06T19:25:49",
+    "type": "user",
+    "user_text_snippet": "But I am trying to stay positive...",
+    "emotion": "joy"
   }
 ]
 ```
 
-**検出可能な感情 (LLM分類)**:
-- 基本6感情: `joy`, `sadness`, `anger`, `fear`, `surprise`, `neutral`
+### Phase F: 関係性維持欲求（Relatedness Drive）[NEW 2026-01-15]
 
-**処理フロー**:
-1. **検出**: ユーザーメッセージ受信時に `retrieval_node` 内で軽量LLM (`INTERNAL_PROCESSING_MODEL`) が感情を分析
-2. **マッピング**: LLMの出力結果を内部処理用に正規化
-   - `joy` → `happy`
-   - `sadness` → `sad`
-   - `anger` → `stressed`
-   - `fear` → `anxious`
-   - `surprise` → `neutral`
-3. **記録**: `emotion_log.json` にタイムスタンプ付きで追記
-4. **反映**: 奉仕欲（Devotion Drive）を更新
-   - ネガティブ感情（`sad`, `stressed`, `anxious`）検出時: +0.3（心配・寄り添い強化）
-   - ポジティブ感情（`happy`）検出時: +0.1（共感）
+ペルソナが自身の感情を出力し、関係性維持欲求の計算に使用する機能:
 
-**UIでの表示**: 
-- 内省ダッシュボード内の `LinePlot` で時系列グラフ化
-- 感情を数値化（joy=1.0, neutral=0.0, sadness=-0.6, anger=-1.0 など）
+**目的**: 奉仕欲（Devotion）に代わり、ペルソナ自身の感情状態に基づく「関係性維持欲求」を導入
+
+**プロンプト出力フォーマット**:
+```xml
+<persona_emotion category="protective" intensity="0.8"/>
+```
+
+**感情カテゴリ**:
+- `joy` - 喜び
+- `contentment` - 満足・安心
+- `protective` - 庇護欲・守りたい気持ち
+- `anxious` - 不安
+- `sadness` - 悲しみ
+- `anger` - 怒り
+- `neutral` - 平常
+
+**関係性維持欲求の計算**:
+- `protective`/`anxious` = 高Arousal（欲求が高まる）
+- `joy`/`contentment` = 低Arousal（安定状態）
+- 計算式: `level = category_weight × intensity`
+
+**絆確認エピソード記憶**:
+不安/庇護欲 → 安心/喜びへの感情シフト時に自動生成:
+```json
+{
+  "date": "2026-01-15",
+  "summary": "【絆確認】不安から安心へ。関係性が安定し、絆を確認した。",
+  "arousal": 0.7,
+  "type": "bonding",
+  "emotion_change": "anxious→contentment",
+  "created_at": "2026-01-15 10:30:00"
+}
+```
+
+**廃止された機能**:
+- ユーザー感情分析のLLM呼び出し（`detect_process_and_log_user_emotion`）
+- `devotion` ドライブ（`relatedness` に置き換え）
+
+> **注意**: 以下の感情検出フローはPhase Fで廃止されました。現在はペルソナが`<persona_emotion>`タグで自身の感情を出力します。
+
+~~**検出可能な感情 (LLM分類)**:~~
+~~- 基本6感情: `joy`, `sadness`, `anger`, `fear`, `surprise`, `neutral`~~
 
 ---
 
