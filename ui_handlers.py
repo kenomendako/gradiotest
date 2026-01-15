@@ -10695,15 +10695,8 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
                 dynamic_info = "🎯 目標達成欲（Goal Drive）\n目標達成に向けて意欲的です"
                 
         elif dominant == "devotion":
-            # 奉仕欲（後方互換性）：直近のユーザー感情
-            user_emotion = drives.get("devotion", {}).get("user_emotional_state", "unknown")
-            emotion_display = {
-                "joy": "😊 喜び", "sadness": "😢 悲しみ", "anger": "😠 怒り",
-                "fear": "😨 恐れ", "surprise": "😲 驚き", "neutral": "😐 平静",
-                "unknown": "❓ 不明", "happy": "😊 喜び", "stressed": "😰 ストレス",
-                "anxious": "😟 不安", "tired": "😴 疲労", "busy": "🏃 忙しい"
-            }.get(user_emotion, user_emotion)
-            dynamic_info = f"💕 奉仕欲（Devotion）\n直近のユーザー感情: {emotion_display}"
+            # 奉仕欲（後方互換性）→ 関係性維持に統合案内
+            dynamic_info = "💞 関係性維持（Relatedness）\n（旧奉仕欲はRelatednessに統合されました）"
             
         elif dominant == "relatedness":
             # 関係性維持欲求：ペルソナの感情
