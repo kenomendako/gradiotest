@@ -2,6 +2,12 @@
 
 **最終更新**: 2026-01-15
 
+- [/] **Phase H: Arousal Phase 3 - 自己進化ループ** 🆕
+  - 記憶の重要度（Arousal/Q値）を自己更新
+  - Salience-Based Token Budgeting（MAGMA論文より）
+  - 想起された記憶の有用性フィードバック機構
+  - 関連: [episodic_memory_memrl_study.md](research/episodic_memory_memrl_study.md)
+
 - [x] **Phase F: 関係性維持欲求の実装** ✅ (2026-01-15 完了)
   - ペルソナ感情出力（`<persona_emotion>`）を追加
   - ユーザー感情分析を廃止（APIコスト削減）
