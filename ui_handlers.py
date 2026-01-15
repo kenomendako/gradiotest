@@ -10743,17 +10743,7 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
                 emotion_df['timestamp'] = emotion_df['timestamp'].dt.tz_localize(jst)
             except ImportError:
                 pass
-            
-            emotion_map = {
-                # ペルソナ感情カテゴリ
-                "joy": 1.0, "contentment": 0.8, "protective": 0.6,
-                "neutral": 0.0,
-                "anxious": -0.5, "sadness": -0.7, "anger": -1.0,
-                # 後方互換性（ユーザー感情）
-                "happy": 0.8, "surprise": 0.2, "busy": -0.2, "tired": -0.4,
-                "sad": -0.6, "fear": -0.8, "stressed": -0.9
-            }
-            emotion_df['value'] = emotion_df['emotion'].map(lambda x: emotion_map.get(x, 0.0))
+            # intensityはget_persona_emotion_history()が返す
         else:
             emotion_df = empty_emotion_df
 

@@ -2016,12 +2016,12 @@ try:
                             open_questions_status = gr.Markdown("---")
                             
                             gr.Markdown("#### 📈 感情モニタリング")
-                            user_emotion_history_plot = gr.LinePlot(
+                            user_emotion_history_plot = gr.ScatterPlot(
                                 x="timestamp", 
-                                y="value", 
+                                y="intensity",
                                 color="emotion",
                                 title="ペルソナ感情の推移",
-                                tooltip=["timestamp", "emotion", "user_text"],
+                                tooltip=["timestamp", "emotion", "intensity"],
                                 height=250,
                                 width="100%",
                                 interactive=False
