@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Intent-Aware Retrieval (2026-01-16):** 記憶検索にクエリ意図分類を導入。感情的質問は古い記憶も優先（時間減衰抑制）、技術的質問は新しい情報優先（時間減衰強め）。3項式複合スコアリング（Similarity + Arousal + TimeDecay×Arousal）を実装。[レポート](docs/reports/2026-01-16_intent_aware_retrieval.md) [研究メモ](docs/plans/research/arousal_aware_time_decay_study.md)
 - **Phase I: UIドライブ表示の改善 (2026-01-15):** 感情モニタリングを「ユーザー感情」から「ペルソナ感情」に変更。LinePlot→ScatterPlotに変更し視認性向上。[レポート](docs/reports/2026-01-15_phase_i_ui_drive_display.md)
 - **セッション単位エピソード記憶 (2026-01-15):** 日単位からセッション単位へエピソード記憶生成を変更。各セッションのArousalに応じて詳細度を調整（高Arousal: 300文字、中: 150文字、低: 50文字）。MAGMA論文のSalience-Based Budgetingを適用。[レポート](docs/reports/2026-01-15_session_based_episodic_memory.md)
 - **Phase H: 記憶共鳴フィードバック機構 (2026-01-15):** エピソード記憶にID自動付与。ペルソナが `<memory_trace>` タグで共鳴度を報告し、Arousalを自己更新する機構を導入。MAGMA論文の知見を適用。[レポート](docs/reports/2026-01-15_phase_h_arousal_self_evolution.md)
