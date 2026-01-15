@@ -229,7 +229,7 @@ class MotivationManager:
         }
         
         # relatednessがdevotionより高い場合はそちらを使用（Phase F移行）
-        if relatedness > devotion:
+        if relatedness >= devotion:
             drives["relatedness"] = relatedness
         else:
             drives["devotion"] = devotion

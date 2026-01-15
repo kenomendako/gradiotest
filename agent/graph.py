@@ -877,7 +877,7 @@ def context_generator_node(state: AgentState):
             }
             
             # relatednessがdevotionより高い場合はそちらを優先
-            if drives["relatedness"] > drives["devotion"]:
+            if drives["relatedness"] >= drives["devotion"]:
                 del drives["devotion"]
             else:
                 del drives["relatedness"]
