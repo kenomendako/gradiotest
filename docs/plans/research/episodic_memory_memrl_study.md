@@ -869,7 +869,7 @@ MAGMAは、AIエージェント向けの**多層グラフベース記憶アー�
 
 ## 次の実装フェーズ
 
-### Phase H: Arousal Phase 3 - 自己進化ループ
+### Phase H: Arousal Phase 3 - 自己進化ループ ✅ (2026-01-15 完了)
 
 **目標**: 記憶の重要度（Arousal/Q値）を自己更新し、「よく使われる記憶」が自然に浮上するようにする
 
@@ -877,8 +877,47 @@ MAGMAは、AIエージェント向けの**多層グラフベース記憶アー�
 1. **Salience-Based Token Budgeting** - 高Arousal記憶は詳細に、低Arousalは要約で
 2. **Q値更新式** - 想起された記憶が役立ったかどうかでArousalを更新
 
-**実装タスク** (検討中):
-- [ ] 想起された記憶の「有用性フィードバック」機構
-- [ ] Arousal更新式: `arousal_new = arousal_old + α(usefulness - arousal_old)`
-- [ ] 検索時のArousal-weighted ranking（Phase 1.5で部分実装済み）
-- [ ] 圧縮時のSalience-Based選択（高Arousal=詳細保持、低Arousal=要約化）
+**実装タスク**:
+- [x] 想起された記憶の「有用性フィードバック」機構 → `<memory_trace>`タグで共鳴度報告
+- [x] Arousal更新式: `arousal_new = arousal_old + α(resonance - arousal_old)`
+- [x] 検索時のArousal-weighted ranking（Phase 1.5で実装済み）
+- [x] セッション単位エピソード記憶（Arousal連動で詳細度調整）
+
+[レポート](../../reports/2026-01-15_phase_h_arousal_self_evolution.md)
+
+### Phase I: UIドライブ表示の改善 ✅ (2026-01-15 完了)
+
+- [x] 感情モニタリングをユーザー感情→ペルソナ感情に変更
+- [x] LinePlot→ScatterPlotで視認性向上
+- [x] `get_persona_emotion_history()` 追加
+
+[レポート](../../reports/2026-01-15_phase_i_ui_drive_display.md)
+
+---
+
+## 🎉 研究完了まとめ
+
+**研究期間**: 2026-01-12 〜 2026-01-15
+
+### 達成した主要機能
+
+| 機能 | 説明 |
+|------|------|
+| **Arousal-basedエピソード記憶** | 感情の振れ幅で記憶の重要度を判定 |
+| **セッション単位記憶生成** | 高Arousal=詳細、低Arousal=簡潔 |
+| **記憶共鳴フィードバック** | ペルソナが記憶の有用性を報告しArousal自己更新 |
+| **関係性維持欲求** | ペルソナ感情ベースの新ドライブ |
+| **達成・発見エピソード** | 目標達成/発見が「輝く星」として記憶される |
+
+### 参照した主要論文
+
+- **MemRL** (arXiv:2601.03192) - エピソード記憶への強化学習
+- **EILS** (arXiv:2512.22200) - 感情ホメオスタシスフレームワーク
+- **MAGMA** (arXiv:2601.03236) - Salience-Based Token Budgeting
+
+### 今後の展望
+
+- エンティティ記憶のバックリンク（GraphRAG）
+- 類似目標の統合機能
+- Intent-Aware Retrieval（Why/When/Entityでルーティング）
+
