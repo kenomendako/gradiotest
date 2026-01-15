@@ -867,13 +867,20 @@ def context_generator_node(state: AgentState):
             from motivation_manager import MotivationManager
             mm = MotivationManager(room_name)
             
-            # 全動機を計算して最も高い動機を取得
+            # ドライブを計算
             drives = {
                 "boredom": mm.calculate_boredom(),
                 "curiosity": mm.calculate_curiosity(),
                 "goal_achievement": mm.calculate_goal_achievement(),
-                "devotion": mm.calculate_devotion()
+                "devotion": mm.calculate_devotion(),  # 後方互換性
+                "relatedness": mm.calculate_relatedness()  # Phase F
             }
+            
+            # relatednessがdevotionより高い場合はそちらを優先
+            if drives["relatedness"] > drives["devotion"]:
+                del drives["devotion"]
+            else:
+                del drives["relatedness"]
             
             dominant_drive = max(drives, key=drives.get)
             drive_level = drives[dominant_drive]

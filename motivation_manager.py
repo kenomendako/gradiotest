@@ -1,7 +1,7 @@
 # motivation_manager.py
 """
 Autonomous Motivation System for Nexus Ark
-AIペルソナの内発的動機（退屈、好奇心、目標達成欲、奉仕欲）を管理し、
+AIペルソナの内発的動機（退屈、好奇心、目標達成欲、関係性維持欲求）を管理し、
 内部状態ログを生成するモジュール。
 """
 
@@ -27,7 +27,8 @@ class MotivationManager:
         "boredom": "退屈（Boredom）",
         "curiosity": "好奇心（Curiosity）",
         "goal_achievement": "目標達成欲（Goal Achievement Drive）",
-        "devotion": "奉仕欲（Devotion Drive）"
+        "devotion": "奉仕欲（Devotion Drive）",  # 後方互換性のため維持
+        "relatedness": "関係性維持欲求（Relatedness Drive）"
     }
     
     # デフォルトの閾値

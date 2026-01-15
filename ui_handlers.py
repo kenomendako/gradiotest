@@ -1686,13 +1686,16 @@ def _stream_and_handle_response(
                 
                 # 変化の詳細をログ出力
                 curiosity_change = internal_state_after.get("curiosity", 0) - internal_state_before.get("curiosity", 0)
-                devotion_change = internal_state_after.get("devotion", 0) - internal_state_before.get("devotion", 0)
-                emotion_before = internal_state_before.get("user_emotional_state", "unknown")
-                emotion_after = internal_state_after.get("user_emotional_state", "unknown")
+                # 後方互換性: relatednessがなければdevotionを使用
+                relatedness_before = internal_state_before.get("relatedness", internal_state_before.get("devotion", 0))
+                relatedness_after = internal_state_after.get("relatedness", internal_state_after.get("devotion", 0))
+                relatedness_change = relatedness_after - relatedness_before
+                persona_emotion_before = internal_state_before.get("persona_emotion", "neutral")
+                persona_emotion_after = internal_state_after.get("persona_emotion", "neutral")
                 
                 if arousal_score > 0:
-                    print(f"    - 好奇心変化: {curiosity_change:+.3f}, 奉仕欲変化: {devotion_change:+.3f}")
-                    print(f"    - 感情変化: {emotion_before} → {emotion_after}")
+                    print(f"    - 好奇心変化: {curiosity_change:+.3f}, 関係性変化: {relatedness_change:+.3f}")
+                    print(f"    - ペルソナ感情: {persona_emotion_before} → {persona_emotion_after}")
                 
                 # --- [Phase 2] Arousalを永続保存 ---
                 import session_arousal_manager
