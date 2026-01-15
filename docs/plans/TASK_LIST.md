@@ -2,6 +2,13 @@
 
 **最終更新**: 2026-01-15
 
+- [x] **セッション単位エピソード記憶 (Arousal連動)** ✅ (2026-01-15 完了)
+  - 日単位からセッション単位へのエピソード記憶生成
+  - 高Arousalセッションは詳細に、低Arousalは簡潔に
+  - MAGMA論文のSalience-Based Budgetingを適用
+  - 関連: [episodic_memory_memrl_study.md](research/episodic_memory_memrl_study.md)
+  - [レポート](../reports/2026-01-15_session_based_episodic_memory.md)
+
 - [x] **Phase H: Arousal Phase 3 - 記憶共鳴フィードバック機構** ✅ (2026-01-15 完了)
   - 記憶の重要度（Arousal）を共鳴度フィードバックで自己更新
   - エピソード記憶へのID自動付与

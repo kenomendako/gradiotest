@@ -314,6 +314,195 @@ class EpisodicMemoryManager:
 
         return f"処理完了: 成功 {success_count}件 / エラー・スキップ {error_count}件"
 
+    def update_memory_by_session(self, api_key: str, date_str: str) -> str:
+        """
+        セッション単位でエピソード記憶を生成する。
+        各セッションのArousalに応じて要約の詳細度を調整。
+        
+        Args:
+            api_key: Gemini API Key
+            date_str: 処理対象の日付（YYYY-MM-DD）
+            
+        Returns:
+            処理結果メッセージ
+        """
+        from gemini_api import get_configured_llm
+        import session_arousal_manager
+        
+        print(f"--- [Episodic Memory] セッション単位処理: {self.room_name} ({date_str}) ---")
+        
+        import room_manager
+        room_config = room_manager.get_room_config(self.room_name) or {}
+        user_name = room_config.get("user_display_name", "ユーザー")
+        agent_name = room_config.get("agent_display_name") or room_config.get("room_name", "AI")
+        
+        # 1. 未処理セッションを取得
+        sessions = session_arousal_manager.get_sessions_for_date(self.room_name, date_str)
+        
+        if not sessions:
+            print(f"  - 未処理セッションがありません")
+            return "未処理セッションがありません"
+        
+        print(f"  - 未処理セッション数: {len(sessions)}")
+        
+        # 2. 当日のログを読み込む
+        log_files = []
+        current_log = self.room_dir / "log.txt"
+        if current_log.exists():
+            log_files.append(str(current_log))
+        
+        if not log_files:
+            print(f"  - ログファイルが見つかりません")
+            return "ログファイルが見つかりません"
+        
+        # ログを時刻でグループ化
+        logs_by_time = {}
+        date_time_pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) \(...\) (\d{2}:\d{2}:\d{2})')
+        
+        for file_path in log_files:
+            try:
+                raw_logs = utils.load_chat_log(file_path)
+                current_time = None
+                
+                for msg in raw_logs:
+                    content = msg.get('content', '')
+                    match = date_time_pattern.search(content)
+                    
+                    if match:
+                        msg_date = match.group(1)
+                        msg_time = match.group(2)
+                        
+                        if msg_date != date_str:
+                            continue
+                        
+                        current_time = msg_time
+                    
+                    if current_time and msg.get('role') in ['USER', 'MODEL']:
+                        if current_time not in logs_by_time:
+                            logs_by_time[current_time] = []
+                        
+                        role = msg.get('role', 'UNKNOWN')
+                        responder = msg.get('responder', '')
+                        speaker = user_name if role == 'USER' else (responder if responder and responder != "model" else agent_name)
+                        
+                        clean_text = utils.remove_thoughts_from_text(content)
+                        clean_text = re.sub(r'\n\n\d{4}-\d{2}-\d{2}.*$', '', clean_text).strip()
+                        
+                        if clean_text:
+                            logs_by_time[current_time].append(f"{speaker}: {clean_text}")
+            except Exception as e:
+                print(f"  - ログ読み込みエラー: {e}")
+        
+        # 3. 各セッションについて要約生成
+        effective_settings = config_manager.get_effective_settings(self.room_name)
+        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        
+        success_count = 0
+        processed_times = []
+        
+        for session in sessions:
+            session_time = session["time"]
+            session_arousal = session.get("arousal", 0.5)
+            
+            # セッションに最も近い時刻のログを取得
+            session_logs = self._find_logs_for_session(logs_by_time, session_time)
+            
+            if not session_logs or len(session_logs) < 2:
+                print(f"  - {session_time}: ログが少ないためスキップ")
+                processed_times.append(session_time)
+                continue
+            
+            # Arousal連動で文字数指示を決定
+            if session_arousal >= 0.6:
+                char_limit = "300文字程度で詳細に"
+                target_chars = 300
+            elif session_arousal >= 0.3:
+                char_limit = "150文字程度で簡潔に"
+                target_chars = 150
+            else:
+                char_limit = "50文字以内で1行に"
+                target_chars = 50
+            
+            print(f"  - {session_time} (Arousal: {session_arousal:.2f}) の要約を作成中...")
+            
+            combined_log = "\n".join(session_logs[:20])  # 最大20ターンまで
+            
+            prompt = f"""
+あなたは、日々の出来事を記録する日記の執筆者です。
+以下の会話ログは、「{user_name}」と「{agent_name}（あなた）」のある時間帯のやり取りです。
+この会話の出来事と感情の動きを、**{char_limit}**記録してください。
+
+【会話ログ ({date_str} {session_time}頃)】
+---
+{combined_log}
+---
+
+【要約のルール】
+1. **三人称視点（だ・である調）**で記述
+2. 固有名詞はそのまま使用
+3. **必ず{target_chars}文字以内**にまとめる
+4. 重要な出来事、感情的な交流を優先
+
+【出力（要約のみ）】
+"""
+            
+            try:
+                result = llm.invoke(prompt)
+                summary = result.content.strip()
+                
+                if summary:
+                    # 文字数制限を強制
+                    if len(summary) > target_chars * 1.5:
+                        summary = summary[:target_chars] + "..."
+                    
+                    self._append_single_episode({
+                        "date": date_str,
+                        "time": session_time,
+                        "summary": summary,
+                        "arousal": session_arousal,
+                        "created_at": datetime.datetime.now().isoformat()
+                    })
+                    success_count += 1
+                    print(f"    → 成功 ({len(summary)}文字)")
+                    
+            except Exception as e:
+                print(f"    → エラー: {e}")
+            
+            processed_times.append(session_time)
+        
+        # 処理済みセッションをマーク
+        if processed_times:
+            session_arousal_manager.mark_sessions_processed(self.room_name, date_str, processed_times)
+        
+        return f"セッション処理完了: {success_count}件のエピソード生成"
+    
+    def _find_logs_for_session(self, logs_by_time: Dict, session_time: str) -> List[str]:
+        """
+        セッション時刻に最も近いログを取得する。
+        セッション時刻の前後5分以内のログを収集。
+        """
+        from datetime import datetime, timedelta
+        
+        try:
+            session_dt = datetime.strptime(session_time, "%H:%M:%S")
+        except ValueError:
+            return []
+        
+        result = []
+        
+        for log_time, logs in logs_by_time.items():
+            try:
+                log_dt = datetime.strptime(log_time, "%H:%M:%S")
+                diff = abs((session_dt - log_dt).total_seconds())
+                
+                # 前後5分（300秒）以内
+                if diff <= 300:
+                    result.extend(logs)
+            except ValueError:
+                continue
+        
+        return result
+
     def _append_single_episode(self, new_episode: Dict):
         """
         単一のエピソードをファイルに追記保存するヘルパーメソッド。

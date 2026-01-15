@@ -1,6 +1,6 @@
 # 📊 プロジェクトステータス
 
-> 最終更新: 2026-01-15 (Phase H: 記憶共鳴フィードバック機構)
+> 最終更新: 2026-01-15 (セッション単位エピソード記憶)
 
 ---
 
@@ -12,8 +12,8 @@
 
 ### 次の予定 (ロードマップ)
 - **自律行動時の記憶想起をオフに** (High)
-- **Salience-Based Token Budgeting** (Medium) - 高Arousal=詳細、低Arousal=要約
-- **Phase I: UIドライブ表示の改善** (Low)
+- **Phase I: UIドライブ表示の改善** (Medium)
+- **既存エピソード記憶のスリム化** (Low) - 既存の長大な要約を圧縮
 
 ---
 
@@ -21,6 +21,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
+| 2026-01-15 | **セッション単位エピソード記憶**<br>・日単位→セッション単位へ変更<br>・Arousal連動で詳細度調整（高: 300文字、中: 150文字、低: 50文字）<br>・MAGMA論文のSalience-Based Budgeting適用 | [レポート](reports/2026-01-15_session_based_episodic_memory.md) |
 | 2026-01-15 | **Phase H: 記憶共鳴フィードバック機構**<br>・エピソード記憶にID自動付与<br>・ペルソナが`<memory_trace>`タグで共鳴度を報告<br>・共鳴度に基づきArousalを自己更新 | [レポート](reports/2026-01-15_phase_h_arousal_self_evolution.md) |
 | 2026-01-15 | **Phase F: 関係性維持欲求**<br>・奉仕欲（Devotion）を廃止<br>・ペルソナ感情出力に基づくRelatedness Drive導入<br>・ユーザー感情分析LLM呼び出しを廃止（APIコスト削減）<br>・絆確認エピソード記憶の自動生成 | [レポート](reports/2026-01-15_phase_f_relatedness_drive.md) |
 | 2026-01-14 | **Phase G: 発見記憶の自動生成**<br>・FACT/INSIGHT変換時に発見エピソード記憶を生成<br>・「発見の喜び」がRAG検索で想起可能に | [レポート](reports/2026-01-14_phase_g_discovery_memory.md) |
