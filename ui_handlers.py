@@ -10628,10 +10628,8 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
         boredom = round(drives.get("boredom", {}).get("level", 0.0), 2)
         curiosity = round(drives.get("curiosity", {}).get("level", 0.0), 2)
         goal_drive = round(drives.get("goal_achievement", {}).get("level", 0.0), 2)
-        # Phase F: relatednessがあればそちらを優先、なければdevotionを使用
-        relatedness_level = drives.get("relatedness", {}).get("level", 0.0)
-        devotion_level = drives.get("devotion", {}).get("level", 0.0)
-        devotion = round(max(relatedness_level, devotion_level), 2)
+        # Phase F: relatednessを直接使用（devotion廃止）
+        relatedness = round(drives.get("relatedness", {}).get("level", 0.0), 2)
         
         # 2. Dominant Drive (ドライブに応じた動的情報)
         dominant = mm.get_dominant_drive()
@@ -10746,7 +10744,7 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
         
         # 戻り値: 8個 (goal_html と insights_text を削除)
         return (
-            boredom, curiosity, goal_drive, devotion, 
+            boredom, curiosity, goal_drive, relatedness, 
             dynamic_info, 
             open_questions_df, 
             last_update,

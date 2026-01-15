@@ -219,22 +219,16 @@ class MotivationManager:
         boredom = self.calculate_boredom()
         curiosity = self.calculate_curiosity()
         goal_achievement = self.calculate_goal_achievement()
-        devotion = self.calculate_devotion()
         relatedness = self.calculate_relatedness()
         
         drives = {
             "boredom": boredom,
             "curiosity": curiosity,
             "goal_achievement": goal_achievement,
+            "relatedness": relatedness  # Phase F: devotionを廃止
         }
         
-        # relatednessがdevotionより高い場合はそちらを使用（Phase F移行）
-        if relatedness >= devotion:
-            drives["relatedness"] = relatedness
-        else:
-            drives["devotion"] = devotion
-        
-        # 最大値の動機を返す（同値の場合はiterationの順序で先に来たものが選ばれる）
+        # 最大値の動機を返す
         dominant = max(drives, key=drives.get)
         return dominant
 
