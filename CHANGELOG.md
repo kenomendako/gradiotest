@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Phase I: UIドライブ表示の改善 (2026-01-15):** 感情モニタリングを「ユーザー感情」から「ペルソナ感情」に変更。LinePlot→ScatterPlotに変更し視認性向上。[レポート](docs/reports/2026-01-15_phase_i_ui_drive_display.md)
 - **セッション単位エピソード記憶 (2026-01-15):** 日単位からセッション単位へエピソード記憶生成を変更。各セッションのArousalに応じて詳細度を調整（高Arousal: 300文字、中: 150文字、低: 50文字）。MAGMA論文のSalience-Based Budgetingを適用。[レポート](docs/reports/2026-01-15_session_based_episodic_memory.md)
 - **Phase H: 記憶共鳴フィードバック機構 (2026-01-15):** エピソード記憶にID自動付与。ペルソナが `<memory_trace>` タグで共鳴度を報告し、Arousalを自己更新する機構を導入。MAGMA論文の知見を適用。[レポート](docs/reports/2026-01-15_phase_h_arousal_self_evolution.md)
 - **Phase F: 関係性維持欲求 (2026-01-15):** 「奉仕欲（Devotion）」を廃止し、ペルソナ自身の感情に基づく「関係性維持欲求（Relatedness Drive）」を導入。ユーザー感情分析LLM呼び出しを廃止しAPIコスト削減。絆確認エピソード記憶の自動生成機能を追加。[レポート](docs/reports/2026-01-15_phase_f_relatedness_drive.md)
