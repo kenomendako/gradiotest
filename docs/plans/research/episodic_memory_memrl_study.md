@@ -793,15 +793,92 @@ def on_relationship_stabilized(self, crisis_severity: float):
 
 ### 実装タスク
 
-#### Phase E: 自己実現欲求の還元
-- [ ] 目標達成時に高Arousalエピソード記憶を生成
-- [ ] 達成目標の詳細をLLMで要約して記録
+#### Phase E: 自己実現欲求の還元 ✅ (2026-01-14 完了)
+- [x] 目標達成時に高Arousalエピソード記憶を生成
+- [x] 達成目標の詳細をLLMで要約して記録
+- [レポート](../../reports/2026-01-14_phase_e_achievement_memory.md)
 
-#### Phase F: 関係性維持欲求の実装
-- [ ] ペルソナ感情出力（`[PERSONA_EMOTION: xxx]`）を追加
-- [ ] ペルソナ感情からArousalを計算
-- [ ] 関係修復時のエピソード記憶生成
-- [ ] ユーザー感情分析の廃止またはオプション化
+#### Phase F: 関係性維持欲求の実装 ✅ (2026-01-15 完了)
+- [x] ペルソナ感情出力（`<persona_emotion category="..." intensity="..."/>`）を追加
+- [x] ペルソナ感情からArousalを計算
+- [x] 関係修復時のエピソード記憶生成（絆確認エピソード）
+- [x] ユーザー感情分析の廃止
+- [レポート](../../reports/2026-01-15_phase_f_relatedness_drive.md)
 
-#### Phase G: 知識欲求の拡張
-- [ ] Phase Bを拡張し、発見時にエピソード記憶も生成
+#### Phase G: 知識欲求の拡張 ✅ (2026-01-14 完了)
+- [x] Phase Bを拡張し、発見時にエピソード記憶も生成
+- [レポート](../../reports/2026-01-14_phase_g_discovery_memory.md)
+
+---
+
+## 追加調査: MAGMA
+
+**論文**: MAGMA: A Multi-Graph based Agentic Memory Architecture for AI Agents (arXiv:2601.03236)
+
+**調査日**: 2026-01-15
+
+### 概要
+
+MAGMAは、AIエージェント向けの**多層グラフベース記憶アーキテクチャ**。単純なベクトル検索ではなく、複数の関係グラフを統合して高度な推論を可能にする。
+
+### 4層グラフ構造
+
+| グラフ | 役割 | エッジの定義 |
+|--------|------|------------|
+| **Temporal Graph** | 時系列順の記憶連鎖 | τi < τj（不変の時間軸） |
+| **Causal Graph** | 因果関係（「なぜ」への回答） | LLM推論による因果リンク |
+| **Semantic Graph** | 意味的類似性 | cos(vi, vj) > θ |
+| **Entity Graph** | エンティティ軸の接続 | 同一エンティティへの参照 |
+
+### Dual-Stream Memory Evolution
+
+**Fast Path（Synaptic Ingestion）**:
+- 低遅延・ノンブロッキング
+- イベント分割、ベクトルインデックス化、時間軸更新
+- **現在の対話時処理に相当**
+
+**Slow Path（Structural Consolidation）**:
+- 非同期・計算集約的
+- 因果リンク・エンティティリンクの推論
+- **現在の睡眠時処理に相当**
+
+### Intent-Aware Retrieval
+
+クエリ意図に応じて検索戦略を切り替え：
+- **Why** → Causal Graphを優先
+- **When** → Temporal Graphを優先
+- **Entity** → Entity Graphを優先
+
+### Salience-Based Token Budgeting
+
+**Arousal Phase 3に直接適用可能**：
+- 高Arousal記憶 → 全文をコンテキストに含める
+- 低Arousal記憶 → 要約のみ（「…3つの日常会話…」）
+- トークン予算を効率的に配分
+
+### Nexus Arkへの適用案
+
+| MAGMA機能 | Nexus Ark適用 | 優先度 |
+|----------|---------------|--------|
+| **Salience-Based Budgeting** | Arousal Phase 3: 高Arousal記憶の詳細保持 | ⭐⭐⭐ |
+| **Intent-Aware Router** | RAG検索時のクエリ意図分類 | ⭐⭐ |
+| **Causal Graph** | エピソード間の因果リンク | ⭐ |
+| **Dual-Stream Evolution** | 既に実装済み（対話時/睡眠時） | ✅ |
+
+---
+
+## 次の実装フェーズ
+
+### Phase H: Arousal Phase 3 - 自己進化ループ
+
+**目標**: 記憶の重要度（Arousal/Q値）を自己更新し、「よく使われる記憶」が自然に浮上するようにする
+
+**MAGMAからの知見を適用**:
+1. **Salience-Based Token Budgeting** - 高Arousal記憶は詳細に、低Arousalは要約で
+2. **Q値更新式** - 想起された記憶が役立ったかどうかでArousalを更新
+
+**実装タスク** (検討中):
+- [ ] 想起された記憶の「有用性フィードバック」機構
+- [ ] Arousal更新式: `arousal_new = arousal_old + α(usefulness - arousal_old)`
+- [ ] 検索時のArousal-weighted ranking（Phase 1.5で部分実装済み）
+- [ ] 圧縮時のSalience-Based選択（高Arousal=詳細保持、低Arousal=要約化）
