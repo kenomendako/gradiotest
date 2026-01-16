@@ -3698,7 +3698,7 @@ def handle_show_latest_episodic(room_name: str):
         # 最新順にソート
         episodes.sort(key=lambda x: x.get("date", ""), reverse=True)
         
-        choices = []
+        choices_set = set()
         years = set()
         months = set()
         
@@ -3712,8 +3712,9 @@ def handle_show_latest_episodic(room_name: str):
                 years.add(parts[0])
                 months.add(parts[1])
             
-            choices.append(date_str)
+            choices_set.add(date_str)
         
+        choices = sorted(list(choices_set), reverse=True)
         year_choices = ["すべて"] + sorted(list(years), reverse=True)
         month_choices = ["すべて"] + sorted(list(months))
         
