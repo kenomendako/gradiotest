@@ -3894,8 +3894,18 @@ def handle_episodic_selection_from_dropdown(room_name: str, selected_date: str):
         if not matching_episodes:
             return "選択されたエピソードが見つかりませんでした。"
         
+        # created_at順でソート（古いものが先）
+        matching_episodes.sort(key=lambda x: x.get('created_at', ''))
+        
         # 全エピソードを表示
         all_details = []
+        
+        # 複数エピソードがある場合は冒頭に案内を追加
+        if len(matching_episodes) > 1:
+            header = f"📌 この日には {len(matching_episodes)} 件のエピソードがあります（作成順に表示）\n"
+            header += "=" * 50 + "\n\n"
+            all_details.append(header)
+        
         for idx, item in enumerate(matching_episodes, 1):
             summary = item.get('summary', '')
             created_at = item.get('created_at', '不明')
