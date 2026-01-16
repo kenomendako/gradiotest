@@ -233,8 +233,8 @@ class EpisodicMemoryManager:
 【要約のルール】
 1.  **三人称視点（だ・である調）**で記述してください。
 2.  主語には「ユーザー」「AI」という抽象的な言葉ではなく、**ログ内で使われている固有名詞（名前）**をそのまま使用し、誰が何をしたか明確にしてください。
-3.  単なる箇条書きではなく、**3〜5行程度の自然な文章**にまとめてください。
-4.  特に「{user_name}の興味・関心」「決定事項」「約束」「感情的な交流」を重点的に記録してください。
+3.  単なる箇条書きではなく、**5〜8行程度の詳細な文章**にまとめてください。
+4.  特に「{user_name}の興味・関心」「具体的な会話の内容」「決定事項」「約束」「感情的な交流」を重点的に記録してください。
 
 【出力（要約のみ）】
 """
@@ -421,16 +421,16 @@ class EpisodicMemoryManager:
                 processed_times.append(session_time)
                 continue
             
-            # Arousal連動で文字数指示を決定
+            # Arousal連動で文字数指示を決定 (2026-01-17: 予算緩和)
             if session_arousal >= 0.6:
-                char_limit = "300文字程度で詳細に"
-                target_chars = 300
+                target_chars = constants.EPISODIC_BUDGET_HIGH
+                char_limit = f"{target_chars}文字程度で詳細に"
             elif session_arousal >= 0.3:
-                char_limit = "150文字程度で簡潔に"
-                target_chars = 150
+                target_chars = constants.EPISODIC_BUDGET_MEDIUM
+                char_limit = f"{target_chars}文字程度で、可能な限り詳細を維持しつつ簡潔に"
             else:
-                char_limit = "50文字以内で1行に"
-                target_chars = 50
+                target_chars = constants.EPISODIC_BUDGET_LOW
+                char_limit = f"{target_chars}文字程度で要点のみを"
             
             print(f"  - {session_time} (Arousal: {session_arousal:.2f}) の要約を作成中...")
             
@@ -449,8 +449,8 @@ class EpisodicMemoryManager:
 【要約のルール】
 1. **三人称視点（だ・である調）**で記述
 2. 固有名詞はそのまま使用
-3. **必ず{target_chars}文字以内**にまとめる
-4. 重要な出来事、感情的な交流を優先
+3. **目安として{target_chars}文字前後**にまとめる（最大{int(target_chars * 1.2)}文字まで）
+4. 重要な出来事、具体的な会話のニュアンス、感情的な交流を優先
 
 【出力（要約のみ）】
 """
@@ -460,9 +460,10 @@ class EpisodicMemoryManager:
                 summary = result.content.strip()
                 
                 if summary:
-                    # 文字数制限を強制
-                    if len(summary) > target_chars * 1.5:
-                        summary = summary[:target_chars] + "..."
+                    # 文字数制限を強制 (2026-01-17: 予算の1.2倍でカット)
+                    max_cutoff = int(target_chars * 1.2)
+                    if len(summary) > max_cutoff:
+                        summary = summary[:max_cutoff] + "..."
                     
                     self._append_single_episode({
                         "date": date_str,

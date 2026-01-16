@@ -145,3 +145,8 @@ TOOLS_SAVE_ANNOUNCEMENT_ONLY = {
     "plan_world_edit",
     "plan_creative_notes_edit",
 }
+
+# --- エピソード記憶予算設定 (2026-01-17) ---
+EPISODIC_BUDGET_HIGH = 600    # 高Arousal (>= 0.6): 詳細な記録
+EPISODIC_BUDGET_MEDIUM = 350  # 中Arousal (>= 0.3): 適度な記録
+EPISODIC_BUDGET_LOW = 150     # 低Arousal (< 0.3): 簡潔な記録
