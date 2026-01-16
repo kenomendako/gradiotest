@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 - **Intent分類APIコスト最適化 (2026-01-16):** retrieval_nodeでクエリ生成と同時にIntent分類を実行。検索あたりのAPI呼び出しを2回→1回に削減。[レポート](docs/reports/2026-01-16_intent_classification_optimization.md)
 - **Intent-Aware Retrieval (2026-01-16):** 記憶検索にクエリ意図分類を導入。感情的質問は古い記憶も優先（時間減衰抑制）、技術的質問は新しい情報優先（時間減衰強め）。3項式複合スコアリング（Similarity + Arousal + TimeDecay×Arousal）を実装。[レポート](docs/reports/2026-01-16_intent_aware_retrieval.md) [研究メモ](docs/plans/research/arousal_aware_time_decay_study.md)
+
+### Removed
+- **絆確認エピソード機能を廃止 (2026-01-16):** 感情変化時に自動生成される「絆確認」エピソード記憶は、具体的な会話内容を伴わない定型文しか生成されないため廃止。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
+
+### Fixed
+- **旧形式Arousalデータ移行問題を修正 (2026-01-16):** `session_arousal.json`の旧形式（scores配列）から新形式（sessions配列）への移行時に`time: "00:00:00"`となる問題に対し、該当セッションをスキップするロジックを追加。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 - **Phase I: UIドライブ表示の改善 (2026-01-15):** 感情モニタリングを「ユーザー感情」から「ペルソナ感情」に変更。LinePlot→ScatterPlotに変更し視認性向上。[レポート](docs/reports/2026-01-15_phase_i_ui_drive_display.md)
 - **セッション単位エピソード記憶 (2026-01-15):** 日単位からセッション単位へエピソード記憶生成を変更。各セッションのArousalに応じて詳細度を調整（高Arousal: 300文字、中: 150文字、低: 50文字）。MAGMA論文のSalience-Based Budgetingを適用。[レポート](docs/reports/2026-01-15_session_based_episodic_memory.md)
 - **Phase H: 記憶共鳴フィードバック機構 (2026-01-15):** エピソード記憶にID自動付与。ペルソナが `<memory_trace>` タグで共鳴度を報告し、Arousalを自己更新する機構を導入。MAGMA論文の知見を適用。[レポート](docs/reports/2026-01-15_phase_h_arousal_self_evolution.md)
