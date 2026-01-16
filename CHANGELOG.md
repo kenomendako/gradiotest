@@ -12,9 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Removed
 - **絆確認エピソード機能を廃止 (2026-01-16):** 感情変化時に自動生成される「絆確認」エピソード記憶は、具体的な会話内容を伴わない定型文しか生成されないため廃止。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
+- **エピソード記憶UIの改善 (2026-01-17):** 同じ日付に複数エピソードがある場合に全て表示するよう修正。作成順ソート、件数案内、ドロップダウン重複排除、自動スクロール無効化を実装。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 
 ### Fixed
 - **旧形式Arousalデータ移行問題を修正 (2026-01-16):** `session_arousal.json`の旧形式（scores配列）から新形式（sessions配列）への移行時に`time: "00:00:00"`となる問題に対し、該当セッションをスキップするロジックを追加。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
+- **特殊タイプエピソードの重複判定修正 (2026-01-17):** 達成エピソード等がある日でも日次要約が生成されるよう判定ロジックを修正。
 - **Phase I: UIドライブ表示の改善 (2026-01-15):** 感情モニタリングを「ユーザー感情」から「ペルソナ感情」に変更。LinePlot→ScatterPlotに変更し視認性向上。[レポート](docs/reports/2026-01-15_phase_i_ui_drive_display.md)
 - **セッション単位エピソード記憶 (2026-01-15):** 日単位からセッション単位へエピソード記憶生成を変更。各セッションのArousalに応じて詳細度を調整（高Arousal: 300文字、中: 150文字、低: 50文字）。MAGMA論文のSalience-Based Budgetingを適用。[レポート](docs/reports/2026-01-15_session_based_episodic_memory.md)
 - **Phase H: 記憶共鳴フィードバック機構 (2026-01-15):** エピソード記憶にID自動付与。ペルソナが `<memory_trace>` タグで共鳴度を報告し、Arousalを自己更新する機構を導入。MAGMA論文の知見を適用。[レポート](docs/reports/2026-01-15_phase_h_arousal_self_evolution.md)

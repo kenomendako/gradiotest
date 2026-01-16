@@ -1,6 +1,6 @@
 # 📊 プロジェクトステータス
 
-> 最終更新: 2026-01-16 (Intent分類APIコスト最適化)
+> 最終更新: 2026-01-17 (エピソード記憶問題の修正完了)
 
 ---
 
@@ -19,7 +19,7 @@
 
 | 日付 | タスク | レポート |
 |------|--------|----------|
-| 2026-01-16 | **エピソード記憶問題の修正**<br>・絆確認エピソード機能を廃止（定型文のみで情報価値なし）<br>・旧形式Arousalデータ移行問題を修正（time: 00:00:00スキップ） | [レポート](reports/2026-01-16_episodic_memory_fixes.md) |
+| 2026-01-17 | **エピソード記憶問題の修正**<br>・絆確認機能を廃止し旧データ移行問題を修正<br>・特殊タイプエピソードとの共存（重複判定）を修正<br>・UIでの複数エピソード表示、ソート、重複排除を実装 | [レポート](reports/2026-01-16_episodic_memory_fixes.md) |
 | 2026-01-16 | **Intent分類APIコスト最適化**<br>・retrieval_nodeでIntent分類を統合<br>・検索あたりAPI呼び出し 2→1に削減 | [レポート](reports/2026-01-16_intent_classification_optimization.md) |
 | 2026-01-16 | **Intent-Aware Retrieval**<br>・クエリ意図を5分類（emotional/factual/technical/temporal/relational）<br>・3項式複合スコアリング（Similarity + Arousal + TimeDecay）<br>・感情的質問は古い記憶も優先、技術的質問は新しい情報優先 | [レポート](reports/2026-01-16_intent_aware_retrieval.md) |
 | 2026-01-15 | **Phase I: UIドライブ表示の改善**<br>・感情モニタリングをペルソナ感情に変更<br>・LinePlot→ScatterPlotで視認性向上 | [レポート](reports/2026-01-15_phase_i_ui_drive_display.md) |
