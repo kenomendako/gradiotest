@@ -1876,6 +1876,7 @@ try:
                                         label="エピソードの内容",
                                         lines=15,
                                         interactive=False,
+                                        autoscroll=False,
                                         placeholder="日付を選択すると、ここに詳細が表示されます。"
                                     )
 
