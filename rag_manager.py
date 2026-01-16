@@ -830,18 +830,27 @@ class RAGManager:
         print(f"--- [RAG] 処理完了: {final_msg} ---")
         return final_msg
 
-    def search(self, query: str, k: int = 10, score_threshold: float = 0.75, enable_intent_aware: bool = True) -> List[Document]:
+    def search(self, query: str, k: int = 10, score_threshold: float = 0.75, enable_intent_aware: bool = True, intent: str = None) -> List[Document]:
         """
         静的・動的インデックスの両方を検索し、複合スコアでリランキングして結果を統合する。
         
         [Phase 1.5+] Intent-Aware Retrieval対応:
         - クエリ意図を分類し、Intent別に重み付けを動的に調整
         - 高Arousal記憶は時間減衰を抑制（感情的記憶の保護）
+        
+        Args:
+            intent: 外部から渡されたIntent（retrieval_nodeで事前分類済みの場合）。
+                    指定時はLLM分類をスキップしてAPIコストを削減。
         """
         results_with_scores = []
         
-        # [Intent-Aware] クエリ意図を分類
-        if enable_intent_aware and self.api_key:
+        # [Intent-Aware] クエリ意図の決定
+        # 1. intentが外部から渡された場合はそれを使用（APIコスト削減）
+        # 2. それ以外はLLMで分類
+        if intent and intent in constants.INTENT_WEIGHTS:
+            weights = constants.INTENT_WEIGHTS[intent]
+            print(f"--- [RAG Search Debug] Query: '{query}' (Intent: {intent} [pre-classified], Threshold: {score_threshold}) ---")
+        elif enable_intent_aware and self.api_key:
             intent_info = self.classify_query_intent(query)
             intent = intent_info["intent"]
             weights = intent_info["weights"]

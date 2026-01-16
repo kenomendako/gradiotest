@@ -348,11 +348,12 @@ def read_memory_context(search_text: str, room_name: str, context_lines: int = 3
         return f"【エラー】記憶コンテキスト取得中にエラーが発生しました: {e}"
 
 @tool
-def search_memory(query: str, room_name: str, api_key: str) -> str:
+def search_memory(query: str, room_name: str, api_key: str, intent: str = None) -> str:
     """
     あなたの長期記憶（日記アーカイブを含む）の中から、指定されたクエリに最も関連する日記の断片を検索します。
     ユーザーとの会話で過去の出来事を思い出す必要がある場合に使用します。
     query: 検索したい事柄に関する自然言語のキーワード。（例：「初めて会った日のこと」）
+    intent: クエリ意図（retrieval_nodeから渡される）。指定時はLLM分類をスキップ。
     """
     if not query or not room_name:
         return "【エラー】検索クエリとルーム名が必要です。"
@@ -360,12 +361,12 @@ def search_memory(query: str, room_name: str, api_key: str) -> str:
     if not api_key:
         return "【エラー】APIキーが必要です。"
 
-    print(f"--- 記憶検索(RAG)開始: クエリ='{query}', ルーム='{room_name}' ---")
+    print(f"--- 記憶検索(RAG)開始: クエリ='{query}', ルーム='{room_name}', Intent='{intent or 'auto'}' ---")
     
     try:
         import rag_manager
         rm = rag_manager.RAGManager(room_name, api_key)
-        results = rm.search(query, k=10, score_threshold=0.80)
+        results = rm.search(query, k=10, score_threshold=0.80, intent=intent)
         
         # 日記タイプのみをフィルタリング
         diary_results = [r for r in results if r.metadata.get("type") == "diary"]

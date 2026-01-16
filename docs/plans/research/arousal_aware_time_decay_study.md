@@ -161,9 +161,9 @@ composite_score = alpha * similarity_score + beta * (1.0 - arousal) + gamma * ti
 ```
 
 **実装タスク**:
-- [ ] `calculate_composite_score()`の引数拡張
-- [ ] 検索フロー内でIntent分類を呼び出し
-- [ ] 重み付けの適用
+- [x] `calculate_composite_score()`の引数拡張
+- [x] 検索フロー内でIntent分類を呼び出し
+- [x] 重み付けの適用
 
 ### Phase 4: 検索フロー統合
 

@@ -451,18 +451,19 @@ def retrieval_node(state: AgentState):
     
     decision_prompt = f"""
     あなたは、検索クエリ生成の専門家です。
-    ユーザーの発言から、2種類の検索キーワードを抽出してください。
+    ユーザーの発言から、検索キーワードとクエリの意図を抽出してください。
 
     【ユーザーの発言】
     {query_source}
 
     【タスク】
     1.  **検索不要な場合**: `NONE` とだけ出力。
-    2.  **検索必要な場合**: 以下の形式で2行出力。
+    2.  **検索必要な場合**: 以下の形式で3行出力。
 
     【出力形式】（必ずこの形式で）
     RAG: [意味検索用キーワード（類義語・関連語を含む広いキーワード群）]
     KEYWORD: [完全一致検索用キーワード（固有名詞・特定フレーズのみ、0-3語）]
+    INTENT: [emotional/factual/technical/temporal/relational]
 
     【RAG行のルール】
     *   「検索対象そのもの」だけを抽出する。
@@ -476,15 +477,25 @@ def retrieval_node(state: AgentState):
     *   最大3語まで。無理に最大数抽出しなくてよい。
     *   一般的な単語（例：話、こと、とき）は含めない。
 
+    【INTENT行のルール】
+    *   クエリの意図を以下の5つから1つ選ぶ:
+        - emotional: 感情・体験・思い出を問う（例：「あの時どう思った？」「嬉しかったこと」）
+        - factual: 事実・属性を問う（例：「猫の名前は？」「誕生日いつ？」）
+        - technical: 技術・手順・設定を問う（例：「設定方法は？」「どうやって動かす？」）
+        - temporal: 時間軸で問う（例：「最近何した？」「昨日の話」）
+        - relational: 関係性を問う（例：「〇〇との関係は？」「誰と仲良い？」）
+
     【出力例1】
     ユーザー：「田中さんのこと覚えてる？」
     RAG: 田中さん 友人 知り合い
     KEYWORD: 田中
+    INTENT: relational
 
     【出力例2】
-    ユーザー：「海に行った時の話なんだけど」
-    RAG: 海 ビーチ 旅行 夏 思い出 砂浜
+    ユーザー：「初めて会った日のこと」
+    RAG: 初めて 会った日 出会い 思い出
     KEYWORD: NONE
+    INTENT: emotional
 
     【出力例3】
     ユーザー：「今日は何してたの？」
@@ -492,7 +503,7 @@ def retrieval_node(state: AgentState):
 
     【制約事項】
     - 思考プロセスや解説は一切出力しないこと。
-    - 必ずRAG: とKEYWORD: の2行形式、またはNONEのみを出力。
+    - 必ずRAG: とKEYWORD: とINTENT: の3行形式、またはNONEのみを出力。
     """
 
     try:
@@ -502,9 +513,10 @@ def retrieval_node(state: AgentState):
             print("  - [Retrieval] 判断: 検索不要 (AI判断)")
             return {"retrieved_context": ""}
         
-        # RAG: とKEYWORD: の2行形式をパース
+        # RAG: とKEYWORD: とINTENT: の3行形式をパース
         rag_query = ""
         keyword_query = ""
+        intent = constants.DEFAULT_INTENT  # デフォルト値
         for line in decision_response.split("\n"):
             line = line.strip()
             if line.upper().startswith("RAG:"):
@@ -513,6 +525,11 @@ def retrieval_node(state: AgentState):
                 kw_part = line[8:].strip()
                 if kw_part.upper() != "NONE":
                     keyword_query = kw_part
+            elif line.upper().startswith("INTENT:"):
+                intent_part = line[7:].strip().lower()
+                # 有効なIntent値のみ受け入れ
+                if intent_part in constants.INTENT_WEIGHTS:
+                    intent = intent_part
         
         # 後方互換: RAG:がない場合は全体をRAGクエリとして扱う
         if not rag_query and decision_response.upper() != "NONE":
@@ -523,6 +540,7 @@ def retrieval_node(state: AgentState):
             print(f"  - [Retrieval] キーワードクエリ: '{keyword_query}'")
         else:
             print(f"  - [Retrieval] キーワードクエリ: なし")
+        print(f"  - [Retrieval] Intent: {intent}")
         
         results = []
 
@@ -558,10 +576,10 @@ def retrieval_node(state: AgentState):
         # AIが能動的に検索したい場合は search_past_conversations ツールを使用可能。
         # ▲▲▲ 過去ログ検索除外ここまで ▲▲▲
 
-        # 3b. 日記 (Memory) - RAGクエリで検索
+        # 3b. 日記 (Memory) - RAGクエリで検索（Intent渡し）
         from tools.memory_tools import search_memory
         if rag_query:
-            mem_result = search_memory.func(query=rag_query, room_name=room_name, api_key=api_key)
+            mem_result = search_memory.func(query=rag_query, room_name=room_name, api_key=api_key, intent=intent)
             # 日記検索のヘッダーチェック
             if mem_result and "【記憶検索の結果：" in mem_result:
                 print(f"    -> 日記: ヒット ({len(mem_result)} chars)")
