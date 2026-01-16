@@ -3884,20 +3884,43 @@ def handle_episodic_selection_from_dropdown(room_name: str, selected_date: str):
         manager = EpisodicMemoryManager(room_name)
         data = manager._load_memory()
         
+        # 同じ日付の全エピソードを収集
+        matching_episodes = []
         for item in data:
             if item.get('date', '').strip() == selected_date.strip():
-                summary = item.get('summary', '')
-                created_at = item.get('created_at', '不明')
+                matching_episodes.append(item)
+        
+        if not matching_episodes:
+            return "選択されたエピソードが見つかりませんでした。"
+        
+        # 全エピソードを表示
+        all_details = []
+        for idx, item in enumerate(matching_episodes, 1):
+            summary = item.get('summary', '')
+            created_at = item.get('created_at', '不明')
+            episode_type = item.get('type', '日次要約')
+            
+            # タイプのラベル変換
+            type_labels = {
+                'achievement': '🏆 目標達成',
+                'bonding': '💕 絆確認',
+                'discovery': '💡 発見'
+            }
+            type_label = type_labels.get(episode_type, '📝 日次要約')
+            
+            details = f"【{type_label}】\n"
+            details += f"【日付】 {selected_date}\n"
+            details += f"【記録日時】 {created_at}\n"
+            if item.get('compressed'):
+                details += f"【種別】 統合済みエピソード（元ログ数: {item.get('original_count', '?')}）\n"
+            details += "-" * 30 + "\n\n"
+            details += summary
+            all_details.append(details)
+        
+        # 複数ある場合は区切り線で分離
+        separator = "\n\n" + "=" * 50 + "\n\n"
+        return separator.join(all_details)
                 
-                details = f"【日付】 {selected_date}\n"
-                details += f"【記録日時】 {created_at}\n"
-                if item.get('compressed'):
-                    details += f"【種別】 統合済みエピソード（元ログ数: {item.get('original_count', '?')}）\n"
-                details += "-" * 30 + "\n\n"
-                details += summary
-                return details
-                
-        return "選択されたエピソードが見つかりませんでした。"
     except Exception as e:
         return f"エピソード表示エラー: {e}"
 
