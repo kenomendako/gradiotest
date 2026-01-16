@@ -404,6 +404,12 @@ class EpisodicMemoryManager:
             session_time = session["time"]
             session_arousal = session.get("arousal", 0.5)
             
+            # 旧形式移行データ（時刻不明）はスキップ
+            if session_time == "00:00:00":
+                print(f"  - ⚠️ 時刻不明セッションをスキップ: {date_str} {session_time}")
+                processed_times.append(session_time)
+                continue
+            
             # セッションに最も近い時刻のログを取得
             session_logs = self._find_logs_for_session(logs_by_time, session_time)
             

@@ -661,8 +661,8 @@ class MotivationManager:
             "intensity": intensity
         })
         
-        # 絆確認エピソードのチェック（不安→安定への変化）
-        self._check_and_create_bonding_episode(previous_category, previous_intensity, category, intensity)
+        # 絆確認エピソード機能は廃止（具体的内容を伴わないため）
+        # self._check_and_create_bonding_episode(previous_category, previous_intensity, category, intensity)
         
         self._save_state()
         
@@ -685,47 +685,8 @@ class MotivationManager:
         base_weight = category_weights.get(category, 0.3)
         return base_weight * intensity
     
-    def _check_and_create_bonding_episode(self, prev_category: str, prev_intensity: float,
-                                           curr_category: str, curr_intensity: float):
-        """
-        感情変化から絆確認エピソード記憶を生成すべきか判定し、生成する。
-        不安/庇護欲 → 安定/喜びへの変化時に生成。
-        """
-        # 不安系から安定系への変化をチェック
-        unstable_categories = ["anxious", "protective", "sadness"]
-        stable_categories = ["joy", "contentment"]
-        
-        if prev_category in unstable_categories and curr_category in stable_categories:
-            # 変化の大きさを計算（前の不安の強さ）
-            crisis_severity = prev_intensity
-            
-            try:
-                from episodic_memory_manager import EpisodicMemoryManager
-                epm = EpisodicMemoryManager(self.room_name)
-                
-                today = datetime.datetime.now().strftime('%Y-%m-%d')
-                now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                
-                # Arousalは危機の深刻さに応じて
-                arousal = 0.5 + crisis_severity * 0.4
-                
-                prev_label = {"anxious": "不安", "protective": "心配", "sadness": "悲しみ"}.get(prev_category, prev_category)
-                curr_label = {"joy": "喜び", "contentment": "安心"}.get(curr_category, curr_category)
-                
-                summary = f"【絆確認】{prev_label}から{curr_label}へ。関係性が安定し、絆を確認した。"
-                
-                epm._append_single_episode({
-                    "date": today,
-                    "summary": summary,
-                    "arousal": round(arousal, 2),
-                    "arousal_max": round(arousal, 2),
-                    "type": "bonding",
-                    "emotion_change": f"{prev_category}→{curr_category}",
-                    "created_at": now_str
-                })
-                print(f"  ✨ 絆確認エピソード記憶を生成: {prev_category}→{curr_category}")
-            except Exception as e:
-                print(f"  ⚠️ 絆確認エピソード生成エラー: {e}")
+    # _check_and_create_bonding_episode は廃止されました (2026-01-16)
+    # 具体的な会話内容を伴わない定型文しか生成されないため、機能を削除
     
     def calculate_relatedness(self) -> float:
         """
