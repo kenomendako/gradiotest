@@ -527,10 +527,16 @@ class EpisodicMemoryManager:
             current_data = self._load_memory()
             
             # 重複判定（単一一致 or 範囲内）
+            # 特殊タイプ（achievement, bonding, discovery）は日次要約とは別物なので、
+            # これらのタイプのエピソードがあっても重複とはみなさない
+            special_types = {"achievement", "bonding", "discovery"}
             is_duplicate = False
+            new_date = new_episode.get('date', '').strip()
+            new_type = new_episode.get('type', None)  # 新規エピソードのタイプ
+            
             for item in current_data:
                 d_str = item.get('date', '').strip()
-                new_date = new_episode.get('date', '').strip()
+                existing_type = item.get('type', None)  # 既存エピソードのタイプ
                 
                 if '~' in d_str or '～' in d_str:
                     sep = '~' if '~' in d_str else '～'
@@ -541,6 +547,13 @@ class EpisodicMemoryManager:
                             is_duplicate = True
                             break
                 elif d_str == new_date:
+                    # 既存が特殊タイプで、新規が日次要約（typeなし）の場合は重複とみなさない
+                    if existing_type in special_types and new_type not in special_types:
+                        continue  # この既存エピソードはスキップして次を確認
+                    # 新規が特殊タイプで、既存が日次要約の場合も重複とみなさない
+                    if new_type in special_types and existing_type not in special_types:
+                        continue
+                    # 両方とも同じタイプ（両方日次要約、または両方同じ特殊タイプ）の場合のみ重複
                     is_duplicate = True
                     break
             
