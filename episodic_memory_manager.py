@@ -139,11 +139,14 @@ class EpisodicMemoryManager:
         # 既にある日付をセット（単独日の高速検索用）
         # 全角チルダにも対応し、前後の空白も除去
         # 「エラーにより要約できませんでした」という文字が含まれるエントリは、再処理対象にするため「既知」から除外する
+        # 特殊タイプ（achievement, bonding, discovery）は日次要約とは別物なので除外
+        special_types = {"achievement", "bonding", "discovery"}
         existing_dates_single = {
             item['date'].strip() for item in existing_memory 
             if isinstance(item, dict) and 'date' in item 
             and '~' not in item['date'] and '～' not in item['date']
             and "エラーにより要約できませんでした" not in item.get('summary', '')
+            and item.get('type') not in special_types
         }
         print(f"  - 解析された単独エントリ数: {len(existing_dates_single)}")
         
