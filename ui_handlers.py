@@ -3814,8 +3814,8 @@ def handle_refresh_episodic_entries(room_name: str):
         if not data:
             return gr.update(choices=[], value=None), gr.update(value="エピソード記憶がまだ作成されていません。"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて")
             
-        # 日付リスト（最新順）
-        entries = []
+        # 日付リスト（最新順）- 重複を排除
+        entries_set = set()
         years = set()
         months = set()
         
@@ -3823,7 +3823,7 @@ def handle_refresh_episodic_entries(room_name: str):
             d = item.get('date', '').strip()
             if not d: continue
             
-            entries.append(d)
+            entries_set.add(d)
             
             # 年・月抽出 (YYYY-MM-DD or YYYY-MM-DD~YYYY-MM-DD)
             # 範囲の場合は開始日を使う
@@ -3832,7 +3832,7 @@ def handle_refresh_episodic_entries(room_name: str):
                 years.add(base_date[:4])
                 months.add(base_date[5:7])
         
-        entries.sort(reverse=True)
+        entries = sorted(list(entries_set), reverse=True)
         year_choices = ["すべて"] + sorted(list(years), reverse=True)
         month_choices = ["すべて"] + sorted(list(months))
         
@@ -3855,7 +3855,7 @@ def handle_episodic_filter_change(room_name: str, year: str, month: str):
         manager = EpisodicMemoryManager(room_name)
         data = manager._load_memory()
         
-        filtered_entries = []
+        filtered_entries_set = set()
         for item in data:
             d = item.get('date', '').strip()
             if not d: continue
@@ -3867,9 +3867,9 @@ def handle_episodic_filter_change(room_name: str, year: str, month: str):
             match_month = (month == "すべて" or (len(base_date) >= 7 and base_date[5:7] == month))
             
             if match_year and match_month:
-                filtered_entries.append(d)
+                filtered_entries_set.add(d)
                 
-        filtered_entries.sort(reverse=True)
+        filtered_entries = sorted(list(filtered_entries_set), reverse=True)
         return gr.update(choices=filtered_entries, value=None)
     except Exception as e:
         print(f"Error filtering episodic entries: {e}")
