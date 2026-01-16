@@ -4,8 +4,8 @@
 
 - [x] **Arousal-Aware Time Decay & Intent-Aware Retrieval** ✅ (2026-01-16 完了)
   - Phase 1-3: Intent分類器、時間減衰計算、3項式スコアリング実装完了
-  - Phase 4-5: チューニング（今後のタスク）
-  - 関連: [arousal_aware_time_decay_study.md](research/arousal_aware_time_decay_study.md) | [レポート](../reports/2026-01-16_intent_aware_retrieval.md)
+  - Phase 5: Intent分類のAPIコスト最適化（retrieval_nodeに統合）
+  - 関連: [arousal_aware_time_decay_study.md](research/arousal_aware_time_decay_study.md) | [レポート1](../reports/2026-01-16_intent_aware_retrieval.md) | [レポート2](../reports/2026-01-16_intent_classification_optimization.md)
 
 - [x] **セッション単位エピソード記憶 (Arousal連動)** ✅ (2026-01-15 完了)
   - 日単位からセッション単位へのエピソード記憶生成

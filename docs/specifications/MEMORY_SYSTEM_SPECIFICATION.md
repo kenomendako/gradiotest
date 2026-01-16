@@ -676,15 +676,27 @@ graph TB
 | **relational** | 0.4 | 0.4 | 0.2 | 「〇〇との関係は？」|
 
 **動作**:
-- **Intent分類**: LLM (`INTERNAL_PROCESSING_MODEL`) でクエリ意図を5分類
+- **Intent分類**: `retrieval_node`でクエリ生成と同時に分類（LLM呼び出し1回に統合）
 - **時間減衰**: `TIME_DECAY_RATE = 0.05`（約14日で半減）
 - **Arousal保護**: 高Arousal記憶は `(1 - arousal)` で時間減衰が無効化
 - 高Arousal（>0.6）は★、新しい記憶（Decay>0.9）は🆕マーク
 
+**処理フロー（2026-01-16 最適化）**:
+```
+retrieval_node (graph.py)
+    └─ LLM呼び出し1回 → RAG/KEYWORD/INTENT を同時生成
+         ↓
+    └─ intent を search_memory() に渡す
+         ↓
+RAGManager.search() (rag_manager.py)
+    └─ intent が渡されていれば LLM分類をスキップ [pre-classified]
+    └─ 3項式複合スコアリングでリランキング
+```
+
 **ログ出力例**:
 ```
---- [RAG Search Debug] Query: '娘 歯磨き' (Intent: emotional, Threshold: 0.80) ---
-  - [Intent] Query: '娘 歯磨き...' -> emotional (α=0.3, β=0.6, γ=0.1)
+  - [Retrieval] Intent: emotional              ← retrieval_nodeで分類
+--- [RAG Search Debug] Query: '...' (Intent: emotional [pre-classified], ...) ---
   - ✅ Sim: 0.408 | Arousal: 0.80 | Decay: 0.45 | Comp: 0.320 ★ | [記憶内容]...
 ```
 
