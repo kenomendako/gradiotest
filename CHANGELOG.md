@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Arousal正規化プロセス (2026-01-17):** 記憶システムのArousalインフレを防止するため、週次/月次省察時にエピソード全体のArousalを正規化（0.9倍減衰）する機能を導入。[レポート](docs/reports/2026-01-17_arousal_normalization.md)
 - **ファイル競合対策（Race Condition防止） (2026-01-17):** `filelock`ライブラリを導入。自律行動とユーザー対話の同時実行による記憶ファイル破損を防ぐため、主要JSONファイル（エピソード記憶、内的状態、目標等）の読み書きにロックを適用。[レポート](docs/reports/2026-01-17_file_lock_race_condition_fix.md)
 - **エピソード記憶の月次ファイル分割 (2026-01-17):** `episodic_memory.json`を`memory/episodic/YYYY-MM.json`形式の月次ファイルに分割。書き込みエラー時の全データロストリスクを軽減し、ファイル管理を効率化。移行スクリプト`tools/migrate_monthly_episodes.py`を追加。[レポート](docs/reports/2026-01-17_monthly_episodic_file_split.md)
+- **チェス フリームーブモード完全実装 (2026-01-18):** 盤面の自由配置機能における同期不全・永続化バグを完全に修正。ペルソナによる操作のリアルタイム反映と、ユーザー操作（ドラッグ中）との競合回避を実装。JS-Python通信のDOM可視化による根本解決を含む。[レポート](docs/reports/2026-01-18_chess_free_move.md)
 
 
 ### Changed
