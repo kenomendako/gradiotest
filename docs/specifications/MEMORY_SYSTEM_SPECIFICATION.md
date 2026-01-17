@@ -102,13 +102,32 @@ graph TB
 
 ---
 
-### 3. エピソード記憶 (`episodic_memory/`)
+### 3. エピソード記憶 (`memory/episodic/`)
 
 **目的**: 日ごとの会話を要約して長期保存
 
-**データ構造**: `episodic_memory.json` (単一ファイル、配列形式)
+**データ構造**: 月次ファイル形式（`memory/episodic/YYYY-MM.json`）
+
+> [!NOTE]
+> 2026-01-17より、単一ファイル形式から月次ファイル形式に移行。
+> 後方互換性のため、旧形式（`episodic_memory.json`）も引き続き読み込み可能。
+
+**ファイル構造**:
+```
+characters/ルシアン/memory/
+├── episodic/                    # 月次ファイルフォルダ
+│   ├── 2025-04.json            # 2025年4月のエピソード
+│   ├── 2025-05.json
+│   └── 2026-01.json            # 最新月
+├── episodic_memory.json.backup  # 移行前のバックアップ
+└── ...
+```
+
+**各月次ファイルの形式** (配列):
 ```json
+[
   {
+    "id": "episode_2026-01-02_001",
     "date": "2026-01-02",
     "summary": "ユーザーと創作ノートについて話した。...",
     "compressed": false,
@@ -117,16 +136,17 @@ graph TB
     "created_at": "2026-01-03T04:30:00"
   },
   {
-    "date": "2025-11-04~2025-11-10",
+    "date": "2026-01-04~2026-01-10",
     "summary": "週間要約: ...",
     "compressed": true,
     "original_count": 5,
     "arousal_avg": 0.4,
     "arousal_max": 0.8,
-    "created_at": "2026-01-01T04:30:00"
+    "created_at": "2026-01-15T04:30:00"
   }
 ]
 ```
+
 
 **プロンプト注入**:
 - 現在の会話ログの最古日付から遡ってN日分を注入
@@ -616,7 +636,7 @@ graph TB
     
     subgraph "データソース"
         LA[ログアーカイブ<br/>log_archives/*.txt]
-        EM[エピソード記憶<br/>episodic_memory.json]
+        EM[エピソード記憶<br/>episodic/*.json]
         DM[夢日記<br/>insights.json]
         DY[日記ファイル<br/>memory*.txt]
         KB[知識ベース<br/>knowledge/*.md]
@@ -645,7 +665,7 @@ graph TB
 #### 1. 静的インデックス (`faiss_index_static`)
 - **対象**: 
   - 過去ログアーカイブ (`log_archives/*.txt`)
-  - エピソード記憶 (`episodic_memory.json`)
+  - エピソード記憶 (`memory/episodic/*.json` + 後方互換用 `episodic_memory.json`)
   - 夢日記 (`insights.json`)
   - 日記ファイル (`memory/memory*.txt`, `memory/memory_archived_*.txt`)
 - **特徴**: 更新頻度が低い、または追記型データ。
