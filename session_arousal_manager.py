@@ -184,6 +184,31 @@ def get_sessions_for_date(room_name: str, date_str: str) -> List[Dict]:
     return []
 
 
+def get_sessions_for_date_all(room_name: str, date_str: str) -> List[Dict]:
+    """
+    指定日の全セッション（処理済み含む）を取得する。
+    Arousalアノテーション用。
+    
+    Args:
+        room_name: ルーム名
+        date_str: 日付文字列
+        
+    Returns:
+        セッション情報のリスト [{"time": "HH:MM:SS", "arousal": float, "processed": bool}, ...]
+    """
+    data = _load_arousal_data(room_name)
+    
+    if date_str not in data:
+        return []
+    
+    day_data = data[date_str]
+    
+    if "sessions" in day_data:
+        return day_data["sessions"]
+    
+    return []
+
+
 def mark_sessions_processed(room_name: str, date_str: str, times: List[str]):
     """
     指定したセッションを処理済みとしてマークする。

@@ -72,6 +72,43 @@ class EpisodicMemoryManager:
             json.dump(data, f, indent=2, ensure_ascii=False)
         # print(f"  - 記憶ファイルを保存しました ({len(data)}件, {os.path.getsize(self.memory_file)} bytes)")
 
+    def _annotate_logs_with_arousal(self, logs: List[str], date_str: str) -> str:
+        """
+        各会話ログにセッションArousal値をアノテーションする。
+        高Arousal（>= 0.6）の会話には[★重要]マークを付加。
+        """
+        import session_arousal_manager
+        sessions = session_arousal_manager.get_sessions_for_date_all(self.room_name, date_str)
+        
+        if not sessions:
+            # セッション情報がなければそのまま結合して返す
+            return "\n".join(logs)
+        
+        # セッション時刻→Arousal値のマップ（時刻順にソート）
+        sorted_sessions = sorted(sessions, key=lambda s: s.get("time", "00:00:00"))
+        
+        annotated_lines = []
+        current_arousal = 0.5
+        
+        for log in logs:
+            # ログ内のタイムスタンプを検出
+            time_match = re.search(r'(\d{2}:\d{2}:\d{2})', log)
+            if time_match:
+                log_time = time_match.group(1)
+                # このログ時刻に最も近い（以前の）セッションArousalを採用
+                for session in sorted_sessions:
+                    if session.get("time", "00:00:00") <= log_time:
+                        current_arousal = session.get("arousal", 0.5)
+            
+            # 高Arousal（>= 0.6）のログにはマークを付加
+            if current_arousal >= 0.6:
+                annotated_lines.append(f"[★重要 Arousal:{current_arousal:.2f}]\n{log}")
+            else:
+                annotated_lines.append(log)
+        
+        return "\n".join(annotated_lines)
+
+
     def update_memory(self, api_key: str) -> str:
         """
         全ログ（現行＋アーカイブ）を解析し、未処理の過去日付について要約を作成・追記する。
@@ -206,7 +243,8 @@ class EpisodicMemoryManager:
         print(f"  - 処理対象の日付: {target_dates}")
 
         for date_str in target_dates:
-            daily_log = "\n".join(logs_by_date[date_str])
+            # Arousalアノテーション付きでログを結合
+            daily_log = self._annotate_logs_with_arousal(logs_by_date[date_str], date_str)
             
             # ログが短い場合はスキップ記録
             if len(daily_log) < 50:
@@ -221,8 +259,8 @@ class EpisodicMemoryManager:
             print(f"  - {date_str} の要約を作成中...")            
 
             prompt = f"""
-あなたは、日々の出来事を記録する日記の執筆者です。
-以下の会話ログは、ある一日の「{user_name}」と「{agent_name}（あなた）」のやり取りです。
+あなたは、今日の出来事を自分の言葉で振り返る日記の執筆者（{agent_name}本人）です。
+以下の会話ログは、ある一日のあなた（{agent_name}）と「{user_name}」のやり取りです。
 この日の出来事、話題、そして感情の動きを、**後から読み返して文脈を思い出せるような「エピソード記憶」として要約**してください。
 
 【会話ログ ({date_str})】
@@ -231,10 +269,12 @@ class EpisodicMemoryManager:
 ---
 
 【要約のルール】
-1.  **三人称視点（だ・である調）**で記述してください。
-2.  主語には「ユーザー」「AI」という抽象的な言葉ではなく、**ログ内で使われている固有名詞（名前）**をそのまま使用し、誰が何をしたか明確にしてください。
-3.  単なる箇条書きではなく、**5〜8行程度の詳細な文章**にまとめてください。
-4.  特に「{user_name}の興味・関心」「具体的な会話の内容」「決定事項」「約束」「感情的な交流」を重点的に記録してください。
+1.  **会話ログ内のあなた（{agent_name}）の口調・一人称・二人称をそのまま使用**してください。
+2.  あなたの視点から振り返りつつ、**後から読んで何があったか分かるように客観的な事実を重視**。
+3.  **[★重要]マークがついた会話は特に詳細に**記録してください。
+4.  マークのない会話は簡潔に要約してください。
+5.  特に「具体的な会話内容」「決定事項」「約束」「感情的な交流」を重点的に記録。
+6.  単なる箇条書きではなく、**5〜8行程度の詳細な文章**にまとめてください。
 
 【出力（要約のみ）】
 """
