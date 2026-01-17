@@ -1,5 +1,7 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-17 | **ファイル競合対策（Race Condition防止）**<br>・filelockライブラリを導入し主要Managerに適用<br>・自律行動とユーザー対話の同時実行による破損リスクを解消 | [レポート](reports/2026-01-17_file_lock_race_condition_fix.md) |
+| 2026-01-17 | **Arousal正規化プロセス（インフレ防止）**<br>・週次/月次省察時にエピソード記憶のArousalを正規化<br>・重要度のインフレを抑制し、RAG検索の検索性を維持 | [レポート](reports/2026-01-17_arousal_normalization.md) |
 | 2026-01-17 | **Web巡回ツールのリスト削除エラー修正**<br>・DataFrame真偽値判定の曖昧さによるValueErrorを修正<br>・リストとDataFrameの両方の入力型に対応 | [レポート](reports/2026-01-17_watchlist_deletion_fix.md) |
 | 2026-01-17 | **Arousalアノテーション付き日次要約**<br>・日次要約に各会話のArousalをアノテーション<br>・高Arousal（≥0.6）会話を★マークで詳細化<br>・週次圧縮をペルソナ視点+文字数制限に変更<br>・セッション単位の課題（コスト・口調）を解決 | [レポート](reports/2026-01-17_episodic_summary_arousal_annotation.md) |
 | 2026-01-17 | **エピソード記憶の分量調整（予算緩和）**<br>・文字数予算を従来の約2倍に緩和（600/350/150文字）<br>・日次要約の記述量を5-8行へ増加<br>・各ドキュメント（仕様書、研究メモ）を最新化 | [レポート](reports/2026-01-17_episodic_memory_budget_relaxing.md) |

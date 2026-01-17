@@ -70,6 +70,14 @@
   - 修正内容: 絆確認機能の廃止、旧形式データ移行問題、特殊タイプ重複判定、UIでの表示不整合（複数表示・ソート・重複排除）を修正
   - [レポート](../reports/2026-01-16_episodic_memory_fixes.md)
 
+- [x] **Arousal正規化プロセスの実装** 🆕 (外部AI助言)
+  - ✅ 完了 (2026-01-17): 睡眠時省察（週次/月次）でのArousalインフレ防止
+  - レポート: [2026-01-17_arousal_normalization.md](../reports/2026-01-17_arousal_normalization.md)
+
+- [x] **ファイル競合対策（Race Condition防止）** 🆕 (外部AI助言)
+  - ✅ 完了 (2026-01-17): filelock導入による主要Managerの保護
+  - レポート: [2026-01-17_file_lock_race_condition_fix.md](../reports/2026-01-17_file_lock_race_condition_fix.md)
+
 - [x] **「安全装置 (`_ensure_output_count`)」の全域適用**
   - ✅ 完了 (2026-01-10)
   - `handle_delete_room` での引数渡し漏れを修正し、主要ハンドラの保護を確認
