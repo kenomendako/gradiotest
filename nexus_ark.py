@@ -3402,13 +3402,24 @@ try:
                 import gradio as gr
                 gr.Warning("削除するエントリを選択してください")
                 return gr.update(), "エントリを選択してください"
+            
             # 選択されたIDを含む行を探す
             selected_row = None
-            if df_data:
-                for row in df_data:
-                    if row[0] == selected_id:
-                        selected_row = row
-                        break
+            if df_data is not None:
+                # df_dataがDataFrameの場合とリストの場合の両方に対応
+                import pandas as pd
+                if isinstance(df_data, pd.DataFrame):
+                    for _, row in df_data.iterrows():
+                        if str(row.iloc[0]) == selected_id:
+                            # 後の処理(handle_watchlist_delete)がリストを期待しているため変換
+                            selected_row = row.tolist()
+                            break
+                elif isinstance(df_data, list):
+                    for row in df_data:
+                        if str(row[0]) == selected_id:
+                            selected_row = row
+                            break
+            
             return ui_handlers.handle_watchlist_delete(room_name, selected_row)
         
         watchlist_delete_button.click(
