@@ -9,19 +9,23 @@ def read_board_state() -> str:
     """
     チェス盤の現在の状態をFEN形式で取得する。
     盤面を「見る」にはこのツールを使用する。
-    ユーザーが不正な手を試みた履歴も表示される。
     """
     fen = game_instance.get_fen()
     outcome = game_instance.get_outcome()
+    free_mode = game_instance.is_free_move_mode()
     
-    # Include illegal move attempts if any
-    illegal_attempts = game_instance.get_illegal_attempts()
+    # Mode indicator
+    mode_str = "\nMode: フリームーブ（自由配置）" if free_mode else "\nMode: 通常"
+    
+    # Only show illegal move attempts in normal mode (not in free move mode)
     attempts_str = ""
-    if illegal_attempts:
-        attempts_list = [f"- {a['from']} → {a['to']} (理由: {a['reason']})" for a in illegal_attempts]
-        attempts_str = "\n\n【ユーザーが試みた不正な手】\n" + "\n".join(attempts_list)
+    if not free_mode:
+        illegal_attempts = game_instance.get_illegal_attempts()
+        if illegal_attempts:
+            attempts_list = [f"- {a['from']}→{a['to']}" for a in illegal_attempts[-3:]]  # Last 3 only, concise
+            attempts_str = "\n不正な手: " + ", ".join(attempts_list)
     
-    return f"FEN: {fen}\nStatus: {outcome}{attempts_str}"
+    return f"FEN: {fen}\nStatus: {outcome}{mode_str}{attempts_str}"
 
 @tool
 def perform_move(move: str) -> str:

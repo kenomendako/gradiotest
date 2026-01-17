@@ -1674,19 +1674,29 @@ try:
 
                                     with gr.Column(scale=1):
                                         reset_game_button = gr.Button("リセット", variant="secondary", size="sm")
+                                        free_move_mode_cb = gr.Checkbox(
+                                            label="フリームーブモード",
+                                            value=False,
+                                            info="有効にすると、ルールに関係なく自由に駒を配置できます"
+                                        )
+                                        toggle_turn_button = gr.Button("手番を切替", variant="secondary", size="sm", visible=False)
+                                        force_sync_button = gr.Button("盤面を強制同期", variant="secondary", size="sm", visible=False)
                                         game_status_output = gr.Textbox(label="ステータス", interactive=False, value="チェス盤をセットしてください", lines=1)
                                         # Hidden components for JS<->Python communication
-                                        # NOTE: visible=True for debugging - set to False once working
-                                        user_move_input = gr.Textbox(label="Debug (Move Data)", visible=True, elem_id="user_move_input", lines=1) 
+                                        user_move_input = gr.Textbox(visible=True, elem_id="user_move_input", lines=1, label="Debug Input (Do Not Edit)")
                                         board_fen_state = gr.Textbox(visible=False, elem_id="board_fen_state")
 
                                 # --- Python function to initialize with room-based persistence ---
-                                def init_chess_board(room_name):
+                                def init_chess_board(room_name, free_mode):
                                     """Initialize chess board with room-specific saved state."""
                                     if room_name:
-                                        game_instance.set_room(room_name)
+                                        # Force reload from disk to ensure we have the latest state
+                                        game_instance.set_room(room_name, force_reload=True)
+                                    
                                     fen = game_instance.get_fen()
-                                    return fen, f"Loaded: {fen[:25]}..."
+                                    turn = "白番" if fen.split(' ')[1] == 'w' else "黒番"
+                                    msg = f"フリームーブ ON ({turn})" if free_mode else f"Loaded: {fen[:15]}... ({turn})"
+                                    return fen, msg
 
                                 # --- JavaScript Definition ---
                                 init_chess_js = """
@@ -1718,29 +1728,80 @@ try:
                                         const container = document.getElementById("chess_board_container");
                                         if(!container) throw new Error("Container not found");
                                         
+                                        // If fen is null/empty (free move mode), preserve current board if it exists
+                                        let currentPosition = null;
+                                        if(window.chess_board_obj && (!fen || fen === "")) {
+                                            try { currentPosition = window.chess_board_obj.position('fen'); } catch(e) {}
+                                        }
+                                        
                                         if(window.chess_board_obj) {
                                             try { window.chess_board_obj.destroy(); } catch(e) {}
                                         }
                                         container.innerHTML = "";
 
-                                        // Use FEN from Python if provided, otherwise 'start'
-                                        const position = (fen && fen.length > 10) ? fen : 'start';
+                                        // Prioritize FEN from Python if it's a valid position string.
+                                        // This ensures that clicking "Set/Resume" actually loads the server state.
+                                        const position = ((fen && fen.length > 10) ? fen : (currentPosition || 'start'));
+                                        console.log("Initializing chess board with position:", position);
                                         
                                         window.chess_board_obj = Chessboard(container, {
                                             position: position,
                                             draggable: true,
                                             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
-                                            onDrop: function(source, target) {
-                                                const move = {from: source, to: target};
-                                                if(ta) {
-                                                    ta.value = JSON.stringify(move);
+                                            onDragStart: function(source, piece, position, orientation) {
+                                                window.isDragging = true;
+                                            },
+                                            onDrop: function(source, target, piece, newPos, oldPos, orient) {
+                                                window.isDragging = false;
+                                                if(source === target) return;
+                                                // We will sync ONLY onSnapEnd to ensure animations are finished
+                                                // and avoid dual-message race conditions.
+                                                window.lastMove = {from: source, to: target};
+                                            },
+                                            onSnapEnd: function() {
+                                                if(window.chess_board_obj && ta) {
+                                                    const fen = window.chess_board_obj.position('fen');
+                                                    const msg = {sync_fen: fen};
+                                                    if(window.lastMove) {
+                                                        msg.from = window.lastMove.from;
+                                                        msg.to = window.lastMove.to;
+                                                        window.lastMove = null;
+                                                    }
+                                                    ta.value = JSON.stringify(msg);
                                                     ta.dispatchEvent(new Event("input", { bubbles: true }));
                                                 }
                                             }
                                         });
                                         
                                         window.updateBoardFromFen = (fen) => {
-                                            if (window.chess_board_obj && fen) window.chess_board_obj.position(fen);
+                                            if(!window.chess_board_obj) return;
+                                            
+                                            // Skip update if user is dragging a piece
+                                            if(window.isDragging) {
+                                                console.log("Skipping update since dragging");
+                                                return;
+                                            }
+
+                                            const currentFen = window.chess_board_obj.position('fen');
+                                            // Only update if FEN actually changed (ignoring move counts/en passant parts for visual board)
+                                            // chess.Board.fen() includes full state, chessboardjs uses only placement
+                                            // So we check if placement part is different
+                                            const placement = fen.split(' ')[0];
+                                            const currentPlacement = currentFen; // chessboardjs returns placement or object
+                                            
+                                            // Simple check: update position
+                                            if (currentFen !== placement) {
+                                                console.log("Updating board from server:", placement);
+                                                window.chess_board_obj.position(placement);
+                                            }
+                                        };
+                                        
+                                        window.forceSyncBoard = () => {
+                                             if(ta) {
+                                                const fen = window.chess_board_obj.position('fen');
+                                                ta.value = JSON.stringify({force: true, sync_fen: fen});
+                                                ta.dispatchEvent(new Event("input", { bubbles: true }));
+                                             }
                                         };
                                         
                                         updateDebug("Ready!");
@@ -1754,7 +1815,7 @@ try:
                                 # Event Wiring for Chess - Python first (sets room & loads state), then JS
                                 init_board_button.click(
                                     fn=init_chess_board,
-                                    inputs=[current_room_name],
+                                    inputs=[current_room_name, free_move_mode_cb],
                                     outputs=[board_fen_state, game_status_output]
                                 ).then(
                                     fn=None,
@@ -1763,27 +1824,90 @@ try:
                                     js=init_chess_js
                                 )
 
-                                def handle_debug_or_move(data_json):
+                                def handle_debug_or_move(data_json, free_mode):
                                     if not data_json: return game_instance.get_fen(), "No Data"
                                     try:
+                                        print(f"  - [Chess DEBUG] Received: {data_json}")
                                         data = json.loads(data_json)
                                         if "error" in data:
                                             return game_instance.get_fen(), data['error']
-                                        return handle_user_chess_move(data_json)
+                                        
+                                        # Handle Sync (either standalone or combined with move)
+                                        sync_successful = False
+                                        if "sync_fen" in data:
+                                            sync_fen = data["sync_fen"]
+                                            if free_mode and sync_fen:
+                                                current_full_fen = game_instance.get_fen()
+                                                fen_parts = current_full_fen.split(' ')
+                                                # Use incoming placement, keep other markers (turn, castling, etc)
+                                                new_full_fen = f"{sync_fen} {' '.join(fen_parts[1:])}"
+                                                game_instance.set_position_free(new_full_fen)
+                                                sync_successful = True
+                                                print(f"  - [Chess DEBUG] Sync successful: {sync_fen}")
+                                        
+                                        # Handle Move in Free Mode (Informational only, persistence is handled by sync_fen)
+                                        if free_mode and "from" in data:
+                                            start_sq = data.get("from")
+                                            end_sq = data.get("to")
+                                            turn = get_turn_text()
+                                            status = f"Free: {start_sq} → {end_sq} ({turn})"
+                                            # Return current backend FEN to ensure UI is in sync with persistence
+                                            return game_instance.get_fen(), status
+                                        
+                                        # Handle Force Sync status
+                                        if data.get("force"):
+                                            return None, f"盤面を強制同期しました ({get_turn_text()})"
+                                        
+                                        # Normal Mode Move
+                                        if not free_mode and "from" in data:
+                                            return handle_user_chess_move(data_json)
+                                            
+                                        return None, gr.skip()
                                     except Exception as e:
+                                        print(f"  - [Chess DEBUG] Error: {e}")
                                         return game_instance.get_fen(), f"Error: {e}"
 
-                                user_move_input.change(fn=handle_debug_or_move, inputs=[user_move_input], outputs=[board_fen_state, game_status_output])
-                                board_fen_state.change(fn=None, inputs=[board_fen_state], js="(fen) => { if(window.updateBoardFromFen) window.updateBoardFromFen(fen); }")
+                                user_move_input.change(fn=handle_debug_or_move, inputs=[user_move_input, free_move_mode_cb], outputs=[board_fen_state, game_status_output])
+                                
+                                # Only update UI board when fen is not None (skip in free move mode)
+                                board_fen_state.change(fn=None, inputs=[board_fen_state], js="(fen) => { if(fen && window.updateBoardFromFen) window.updateBoardFromFen(fen); }")
+                                
+                                def get_turn_text():
+                                    """Get current turn as readable text."""
+                                    fen = game_instance.get_fen()
+                                    turn = fen.split(' ')[1] if ' ' in fen else 'w'
+                                    return "白番" if turn == 'w' else "黒番"
                                 
                                 def reset_chess_game_fn():
                                     game_instance.reset_board()
-                                    return game_instance.get_fen(), "Game Reset"
+                                    return game_instance.get_fen(), f"リセット完了 ({get_turn_text()})"
                                 reset_game_button.click(fn=reset_chess_game_fn, outputs=[board_fen_state, game_status_output])
                                 
-                                # Polling timer to sync board state
+                                def toggle_free_move_mode(enabled):
+                                    game_instance.set_free_move_mode(enabled)
+                                    turn = get_turn_text()
+                                    mode_text = f"フリームーブ ON ({turn})" if enabled else f"通常モード ({turn})"
+                                    # Show/hide toggle turn/force sync buttons based on free move mode
+                                    return mode_text, gr.update(visible=enabled), gr.update(visible=enabled)
+                                free_move_mode_cb.input(fn=toggle_free_move_mode, inputs=[free_move_mode_cb], outputs=[game_status_output, toggle_turn_button, force_sync_button])
+                                
+                                def handle_toggle_turn():
+                                    result = game_instance.toggle_turn()
+                                    if result:
+                                        turn_text = "黒番" if result == 'b' else "白番"
+                                        return f"手番切替: {turn_text}"
+                                    return "Error"
+                                toggle_turn_button.click(fn=handle_toggle_turn, outputs=[game_status_output])
+                                
+                                force_sync_button.click(fn=None, inputs=[], outputs=[], js="() => { if(window.forceSyncBoard) window.forceSyncBoard(); }")
+                                
+                                # Polling timer to sync board state (only in normal mode)
                                 board_sync_timer = gr.Timer(1.0)
-                                board_sync_timer.tick(fn=lambda: game_instance.get_fen(), outputs=[board_fen_state])
+                                def sync_board_if_normal(free_mode):
+                                    # Always return FEN.
+                                    # JS side will decide whether to apply it (e.g., skip if dragging).
+                                    return game_instance.get_fen()
+                                board_sync_timer.tick(fn=sync_board_if_normal, inputs=[free_move_mode_cb], outputs=[board_fen_state])
 
                     with gr.TabItem("📝 RAWログエディタ") as chat_raw_editor_tab:
                         gr.Markdown(

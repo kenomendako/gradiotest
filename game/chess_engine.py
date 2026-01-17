@@ -17,10 +17,12 @@ class ChessGame:
         self.room_name = None  # Current room for persistence
         # Track illegal move attempts so the persona can teach the user
         self.illegal_attempts = []  # List of {"from": "a1", "to": "a8", "reason": "..."}
+        # Free move mode: allows any piece placement without rule validation
+        self.free_move_mode = False
 
-    def set_room(self, room_name: str):
-        """Set the current room and load saved game state if exists."""
-        if self.room_name == room_name:
+    def set_room(self, room_name: str, force_reload: bool = True):
+        """Set the current room and load saved game state."""
+        if not force_reload and self.room_name == room_name:
             return  # Already set to this room
         self.room_name = room_name
         self.load_state()
@@ -43,12 +45,12 @@ class ChessGame:
                 "fen": self.board.fen(),
                 "illegal_attempts": self.illegal_attempts[-5:] if self.illegal_attempts else []
             }
-            with open(state_path, 'w', encoding='utf-8') as f:
+            with open(str(state_path), 'w', encoding='utf-8') as f:
                 json.dump(state, f, ensure_ascii=False, indent=2)
-            print(f"  - [Chess] State saved to {state_path}")
+            print(f"  - [Chess DEBUG] State saved successfully to: {state_path}")
             return True
         except Exception as e:
-            print(f"  - [Chess] Failed to save state: {e}")
+            print(f"  - [Chess ERROR] Failed to save state to {state_path}: {e}")
             return False
     
     def load_state(self):
@@ -154,6 +156,68 @@ class ChessGame:
         self.illegal_attempts = []
         self.save_state()
 
+    # --- Free move mode methods ---
+    def set_free_move_mode(self, enabled: bool):
+        """Enable or disable free move mode."""
+        self.free_move_mode = enabled
+        print(f"  - [Chess] Free move mode: {'enabled' if enabled else 'disabled'}")
+    
+    def is_free_move_mode(self) -> bool:
+        """Check if free move mode is enabled."""
+        return self.free_move_mode
+    
+    def set_position_free(self, fen: str) -> bool:
+        """
+        Set board position from FEN without validation.
+        Used in free move mode to allow any piece placement from UI.
+        Returns True if successful, False if FEN is invalid.
+        """
+        try:
+            print(f"  - [Chess DEBUG] Setting position: {fen}")
+            # chess.Board.set_fen will raise ValueError for completely invalid FEN
+            self.board.set_fen(fen)
+            self.save_state()
+            print(f"  - [Chess DEBUG] Position set and saved.")
+            return True
+        except ValueError as e:
+            print(f"  - [Chess DEBUG] Invalid FEN: {e}")
+            return False
+    
+    def reset_turn_to_white(self):
+        """Reset turn to white. Useful in free move mode after correcting moves."""
+        fen = self.board.fen()
+        parts = fen.split(' ')
+        if len(parts) >= 2:
+            parts[1] = 'w'  # Set turn to white
+            new_fen = ' '.join(parts)
+            try:
+                self.board.set_fen(new_fen)
+                self.save_state()
+                print(f"  - [Chess] Turn reset to white")
+                return True
+            except ValueError:
+                return False
+        return False
+    
+    def toggle_turn(self):
+        """Toggle whose turn it is. Useful in free move mode."""
+        fen = self.board.fen()
+        parts = fen.split(' ')
+        if len(parts) >= 2:
+            parts[1] = 'b' if parts[1] == 'w' else 'w'
+            new_fen = ' '.join(parts)
+            try:
+                self.board.set_fen(new_fen)
+                self.save_state()
+                turn = "黒" if parts[1] == 'b' else "白"
+                print(f"  - [Chess] Turn set to {turn}")
+                return parts[1]  # Return 'w' or 'b'
+            except ValueError:
+                return None
+        return None
+
 # Singleton instance for simple state management in this demo context
 # In a multi-user environment, this would need to be session-scoped.
 game_instance = ChessGame()
+
+
