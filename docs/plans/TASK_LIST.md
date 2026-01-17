@@ -183,12 +183,13 @@
   - ✅ 完了 (2026-01-11): 警告抑制と5件の配線エラー修正
   - [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-11_fix_gradio_wiring_and_warnings.md)
 
-- [/] **Arousal正規化プロセスの実装** 🆕 (外部AI助言)
+- [x] **Arousal正規化プロセスの実装** 🆕 (外部AI助言) ✅ (2026-01-17 完了)
   - 長期運用でArousalインフレが発生するリスク対策
-  - 睡眠時処理に全体平均が高い場合の減衰（×0.9など）を追加
-  - 関連: [記憶システムへの助言](../specifications/記憶システムへの助言)
+  - 睡眠時処理に全体平均が高い場合の減衰（×0.9）を追加
+  - 実装: `EpisodicMemoryManager.normalize_arousal()` 、週次省察時に自動実行
+  - [レポート準備中]
 
-- [ ] **ファイル競合対策（Race Condition防止）** 🆕 (外部AI助言)
+- [/] **ファイル競合対策（Race Condition防止）** 🆕 (外部AI助言)
   - 睡眠時処理中にユーザーが話しかけた場合の排他制御
   - `episodic_memory.json`等への同時書き込みによる破損リスク対策
   - 関連: [記憶システムへの助言](../specifications/記憶システムへの助言)
