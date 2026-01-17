@@ -393,11 +393,20 @@ class RAGManager:
                             pending_items.append((record_id, doc))
                     except Exception: pass
 
-        # 2. エピソード記憶収集
-        episodic_memory_path = self.room_dir / "memory" / "episodic_memory.json"
-        if episodic_memory_path.exists():
+        # 2. エピソード記憶収集（月次ファイル + レガシーファイル）
+        episodic_dir = self.room_dir / "memory" / "episodic"
+        legacy_episodic_path = self.room_dir / "memory" / "episodic_memory.json"
+        
+        # エピソードファイルのリストを収集
+        episodic_files = []
+        if legacy_episodic_path.exists():
+            episodic_files.append(legacy_episodic_path)
+        if episodic_dir.exists():
+            episodic_files.extend(sorted(episodic_dir.glob("*.json")))
+        
+        for episodic_path in episodic_files:
             try:
-                with open(episodic_memory_path, 'r', encoding='utf-8') as f:
+                with open(episodic_path, 'r', encoding='utf-8') as f:
                     episodes = json.load(f)
                 if isinstance(episodes, list):
                     for ep in episodes:
@@ -407,9 +416,10 @@ class RAGManager:
                             summary = ep.get('summary', '')
                             if summary:
                                 content = f"日付: {date_str}\n内容: {summary}"
-                                doc = Document(page_content=content, metadata={"source": "episodic_memory.json", "type": "episodic_memory", "date": date_str})
+                                doc = Document(page_content=content, metadata={"source": episodic_path.name, "type": "episodic_memory", "date": date_str})
                                 pending_items.append((record_id, doc))
             except Exception: pass
+
 
         # 3. 夢日記収集
         insights_path = self.room_dir / "memory" / "insights.json"
@@ -546,11 +556,20 @@ class RAGManager:
                             pending_items.append((record_id, doc))
                     except Exception: pass
 
-        # 2. エピソード記憶収集
-        episodic_memory_path = self.room_dir / "memory" / "episodic_memory.json"
-        if episodic_memory_path.exists():
+        # 2. エピソード記憶収集（月次ファイル + レガシーファイル）
+        episodic_dir = self.room_dir / "memory" / "episodic"
+        legacy_episodic_path = self.room_dir / "memory" / "episodic_memory.json"
+        
+        # エピソードファイルのリストを収集
+        episodic_files = []
+        if legacy_episodic_path.exists():
+            episodic_files.append(legacy_episodic_path)
+        if episodic_dir.exists():
+            episodic_files.extend(sorted(episodic_dir.glob("*.json")))
+        
+        for episodic_path in episodic_files:
             try:
-                with open(episodic_memory_path, 'r', encoding='utf-8') as f:
+                with open(episodic_path, 'r', encoding='utf-8') as f:
                     episodes = json.load(f)
                 if isinstance(episodes, list):
                     for ep in episodes:
@@ -560,9 +579,10 @@ class RAGManager:
                             summary = ep.get('summary', '')
                             if summary:
                                 content = f"日付: {date_str}\n内容: {summary}"
-                                doc = Document(page_content=content, metadata={"source": "episodic_memory.json", "type": "episodic_memory", "date": date_str})
+                                doc = Document(page_content=content, metadata={"source": episodic_path.name, "type": "episodic_memory", "date": date_str})
                                 pending_items.append((record_id, doc))
             except Exception: pass
+
 
         # 3. 夢日記収集
         insights_path = self.room_dir / "memory" / "insights.json"

@@ -19,10 +19,35 @@ class EpisodicMemoryManager:
         self.room_name = room_name
         self.room_dir = Path(constants.ROOMS_DIR) / room_name
         self.memory_dir = self.room_dir / "memory"
-        self.memory_file = self.memory_dir / "episodic_memory.json"
+        self.episodic_dir = self.memory_dir / "episodic"  # [NEW] 専用フォルダ
+        self.legacy_memory_file = self.memory_dir / "episodic_memory.json"  # 後方互換用
         
         # ディレクトリの保証
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.episodic_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _get_monthly_file_path(self, date_str: str) -> Path:
+        """
+        日付文字列から対応する月次ファイルのパスを返す。
+        例: "2026-01-15" -> memory/episodic/2026-01.json
+        """
+        try:
+            # 範囲日付の場合は開始日を使用
+            if '~' in date_str:
+                date_str = date_str.split('~')[0].strip()
+            elif '～' in date_str:
+                date_str = date_str.split('～')[0].strip()
+            
+            # YYYY-MM形式を抽出
+            match = re.match(r'^(\d{4}-\d{2})', date_str.strip())
+            if match:
+                month_str = match.group(1)
+                return self.episodic_dir / f"{month_str}.json"
+        except Exception:
+            pass
+        
+        # パース失敗時はunknownファイルに
+        return self.episodic_dir / "unknown.json"
     
     def _generate_episode_id(self, date_str: str) -> str:
         """
@@ -47,33 +72,66 @@ class EpisodicMemoryManager:
         return f"{date_prefix}{max_seq + 1:03d}"
 
     def _load_memory(self) -> List[Dict]:
-        """JSONファイルからエピソード記憶を読み込む（ロック付き）"""
+        """
+        全ての月次ファイル + レガシーファイルからエピソード記憶を読み込む（ロック付き）。
+        後方互換性: episodic_memory.json が存在する場合も読み込む。
+        """
         from file_lock_utils import safe_json_read
         
-        if self.memory_file.exists():
+        all_episodes = []
+        
+        # 1. レガシーファイル（episodic_memory.json）を読み込み
+        if self.legacy_memory_file.exists():
             try:
-                data = safe_json_read(str(self.memory_file), default=[])
-                return data if isinstance(data, list) else []
+                data = safe_json_read(str(self.legacy_memory_file), default=[])
+                if isinstance(data, list):
+                    all_episodes.extend(data)
             except Exception as e:
-                print(f"Warning: Episodic memory file error: {e}")
-                return []
-        return []
+                print(f"Warning: Legacy episodic memory file error: {e}")
+        
+        # 2. 月次ファイル（episodic/*.json）を読み込み
+        if self.episodic_dir.exists():
+            for monthly_file in sorted(self.episodic_dir.glob("*.json")):
+                try:
+                    data = safe_json_read(str(monthly_file), default=[])
+                    if isinstance(data, list):
+                        all_episodes.extend(data)
+                except Exception as e:
+                    print(f"Warning: Monthly episodic file error ({monthly_file.name}): {e}")
+        
+        return all_episodes
 
     def _save_memory(self, data: List[Dict]):
-        """エピソード記憶をJSONファイルに保存する（ロック付き）"""
+        """
+        エピソード記憶を月次ファイルに振り分けて保存する（ロック付き）。
+        各エピソードの日付に応じて適切な月次ファイルに保存。
+        """
         from file_lock_utils import safe_json_write
         
-        # 日付順にソートして保存
+        # 日付順にソート
         def get_sort_key_for_save(item):
             d = item.get('date', '').strip()
-            # 範囲なら開始日でソートして自然な並びにする
             if '~' in d: return d.split('~')[0].strip()
             if '～' in d: return d.split('～')[0].strip()
             return d
-            
+        
         data.sort(key=get_sort_key_for_save)
-        safe_json_write(str(self.memory_file), data)
-        # print(f"  - 記憶ファイルを保存しました ({len(data)}件)")
+        
+        # 月ごとにグループ化
+        monthly_groups: Dict[Path, List[Dict]] = {}
+        for episode in data:
+            date_str = episode.get('date', '')
+            monthly_path = self._get_monthly_file_path(date_str)
+            if monthly_path not in monthly_groups:
+                monthly_groups[monthly_path] = []
+            monthly_groups[monthly_path].append(episode)
+        
+        # 各月次ファイルに保存
+        for monthly_path, episodes in monthly_groups.items():
+            safe_json_write(str(monthly_path), episodes)
+        
+        # print(f"  - 記憶を {len(monthly_groups)} 個の月次ファイルに保存しました（計 {len(data)} 件）")
+
 
     def _annotate_logs_with_arousal(self, logs: List[str], date_str: str) -> str:
         """

@@ -3680,19 +3680,12 @@ def handle_show_latest_episodic(room_name: str):
         return gr.update(choices=[]), "", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
     
     try:
-        import json
-        from pathlib import Path
-        
-        episodic_path = Path(constants.ROOMS_DIR) / room_name / "memory" / "episodic_memory.json"
-        
-        if not episodic_path.exists():
-            gr.Info("エピソード記憶がありません。")
-            return gr.update(choices=[]), "エピソード記憶がまだありません。", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
-        
-        with open(episodic_path, 'r', encoding='utf-8') as f:
-            episodes = json.load(f)
+        # EpisodicMemoryManagerを使用（月次ファイル対応）
+        manager = EpisodicMemoryManager(room_name)
+        episodes = manager._load_memory()
         
         if not episodes:
+            gr.Info("エピソード記憶がありません。")
             return gr.update(choices=[]), "エピソード記憶がまだありません。", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
         
         # 最新順にソート
@@ -3735,6 +3728,7 @@ def handle_show_latest_episodic(room_name: str):
         print(f"エピソード記憶最新表示エラー: {e}")
         traceback.print_exc()
         return gr.update(choices=[]), f"エラー: {e}", gr.update(choices=["すべて"]), gr.update(choices=["すべて"])
+
 
 
 # --- 📌 エンティティ記憶 (Entity Memory) ハンドラ ---

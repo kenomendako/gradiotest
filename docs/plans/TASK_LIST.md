@@ -195,12 +195,12 @@
   - 長期運用でArousalインフレが発生するリスク対策
   - 睡眠時処理に全体平均が高い場合の減衰（×0.9）を追加
   - 実装: `EpisodicMemoryManager.normalize_arousal()` 、週次省察時に自動実行
-  - [レポート準備中]
+  - [レポート](../reports/2026-01-17_arousal_normalization.md)
 
-- [/] **ファイル競合対策（Race Condition防止）** 🆕 (外部AI助言)
+- [x] **ファイル競合対策（Race Condition防止）** 🆕 (外部AI助言) ✅ (2026-01-17 完了)
   - 睡眠時処理中にユーザーが話しかけた場合の排他制御
   - `episodic_memory.json`等への同時書き込みによる破損リスク対策
-  - 関連: [記憶システムへの助言](../specifications/記憶システムへの助言)
+  - [レポート](../reports/2026-01-17_file_lock_race_condition_fix.md)
 
 - [ ] **英語対応** 🆕
   - メニューの日本語表示と英語表示を切り替えられるようにする。 (INBOXより)
@@ -423,10 +423,11 @@
 
 ### 機能改善
 
-- [ ] **エピソード記憶の月次ファイル分割** 🆕 (外部AI助言)
+- [/] **エピソード記憶の月次ファイル分割** 🆕 (外部AI助言)
   - `episodic_memory.json`が肥大化する前に月ごと分割（`episodic_2026-01.json`形式）
   - RAG検索はFAISSインデックス経由なので元データ分割は問題なし
   - 関連: [記憶システムへの助言](../specifications/記憶システムへの助言)
+
 
 - [ ] **コンテキスト注入の自然言語化（Context Smoothing）** 🆕 (外部AI助言)
   - `goals.json`等を生JSONではなく自然言語ナラティブに変換して注入
