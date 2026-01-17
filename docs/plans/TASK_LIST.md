@@ -7,10 +7,17 @@
   - Phase 5: Intent分類のAPIコスト最適化（retrieval_nodeに統合）
   - 関連: [arousal_aware_time_decay_study.md](research/arousal_aware_time_decay_study.md) | [レポート1](../reports/2026-01-16_intent_aware_retrieval.md) | [レポート2](../reports/2026-01-16_intent_classification_optimization.md)
 
-- [x] **セッション単位エピソード記憶 (Arousal連動)** ✅ (2026-01-15 完了)
-  - 日単位からセッション単位へのエピソード記憶生成
-  - 高Arousalセッションは詳細に、低Arousalは簡潔に
-  - MAGMA論文のSalience-Based Budgetingを適用
+- [x] **Arousalアノテーション付き日次要約** ✅ (2026-01-17 完了)
+  - 日次要約に各会話のArousalをアノテーション
+  - 高Arousal（≥0.6）会話を★マークで詳細化、低Arousalは簡潔に
+  - 週次圧縮プロンプトをペルソナ視点+文字数制限に変更
+  - セッション単位の課題（コスト・口調不安定）を解決
+  - [レポート](../reports/2026-01-17_episodic_summary_arousal_annotation.md)
+
+- [x] **セッション単位エピソード記憶 (Arousal連動)** ⚠️ (2026-01-15 → 2026-01-17 日次に回帰)
+  - 日単位からセッション単位へのエピソード記憶生成を試行
+  - 課題発覚: APIコスト増大、短い会話で口調不安定
+  - **2026-01-17**: Arousalアノテーション付き日次要約へ回帰
   - 関連: [episodic_memory_memrl_study.md](research/episodic_memory_memrl_study.md)
   - [レポート](../reports/2026-01-15_session_based_episodic_memory.md)
 
