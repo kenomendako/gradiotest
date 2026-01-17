@@ -30,23 +30,30 @@ class DreamingManager:
         self.memory_dir.mkdir(parents=True, exist_ok=True)
 
     def _load_insights(self) -> List[Dict]:
+        """洞察データを読み込む（ロック付き）"""
+        from file_lock_utils import safe_json_read
+        
         if self.insights_file.exists():
             try:
-                with open(self.insights_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
+                data = safe_json_read(str(self.insights_file), default=[])
+                return data if isinstance(data, list) else []
+            except Exception:
                 return []
         return []
 
     def _save_insight(self, insight_data: Dict):
-        current_data = self._load_insights()
-        # 最新のものが先頭に来るように追加
-        current_data.insert(0, insight_data)
-        # 肥大化を防ぐため、最新50件程度に保つ（必要に応じて調整）
-        current_data = current_data[:50]
+        """洞察データを保存する（ロック付き）"""
+        from file_lock_utils import safe_json_update
         
-        with open(self.insights_file, 'w', encoding='utf-8') as f:
-            json.dump(current_data, f, indent=2, ensure_ascii=False)
+        def update_func(data):
+            if not isinstance(data, list):
+                data = []
+            # 最新のものが先頭に来るように追加
+            data.insert(0, insight_data)
+            # 肥大化を防ぐため、最新50件程度に保つ
+            return data[:50]
+        
+        safe_json_update(str(self.insights_file), update_func, default=[])
 
     def get_recent_insights_text(self, limit: int = 1) -> str:
         """プロンプト注入用：最新の「指針」のみをテキスト化して返す（コスト最適化）"""
