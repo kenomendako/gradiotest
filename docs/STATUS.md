@@ -1,6 +1,8 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-17 | **エピソード記憶の月次ファイル分割**<br>・`memory/episodic/YYYY-MM.json`形式で月ごとに分割<br>・移行スクリプト`tools/migrate_monthly_episodes.py`を追加<br>・書き込みエラー時の全データロストリスクを軽減 | [レポート](reports/2026-01-17_monthly_episodic_file_split.md) |
 | 2026-01-17 | **ファイル競合対策（Race Condition防止）**<br>・filelockライブラリを導入し主要Managerに適用<br>・自律行動とユーザー対話の同時実行による破損リスクを解消 | [レポート](reports/2026-01-17_file_lock_race_condition_fix.md) |
+
 | 2026-01-17 | **Arousal正規化プロセス（インフレ防止）**<br>・週次/月次省察時にエピソード記憶のArousalを正規化<br>・重要度のインフレを抑制し、RAG検索の検索性を維持 | [レポート](reports/2026-01-17_arousal_normalization.md) |
 | 2026-01-17 | **Web巡回ツールのリスト削除エラー修正**<br>・DataFrame真偽値判定の曖昧さによるValueErrorを修正<br>・リストとDataFrameの両方の入力型に対応 | [レポート](reports/2026-01-17_watchlist_deletion_fix.md) |
 | 2026-01-17 | **Arousalアノテーション付き日次要約**<br>・日次要約に各会話のArousalをアノテーション<br>・高Arousal（≥0.6）会話を★マークで詳細化<br>・週次圧縮をペルソナ視点+文字数制限に変更<br>・セッション単位の課題（コスト・口調）を解決 | [レポート](reports/2026-01-17_episodic_summary_arousal_annotation.md) |

@@ -423,10 +423,11 @@
 
 ### 機能改善
 
-- [/] **エピソード記憶の月次ファイル分割** 🆕 (外部AI助言)
-  - `episodic_memory.json`が肥大化する前に月ごと分割（`episodic_2026-01.json`形式）
-  - RAG検索はFAISSインデックス経由なので元データ分割は問題なし
-  - 関連: [記憶システムへの助言](../specifications/記憶システムへの助言)
+- [x] **エピソード記憶の月次ファイル分割** 🆕 (外部AI助言) ✅ (2026-01-17 完了)
+  - `memory/episodic/YYYY-MM.json` 形式で月ごと分割
+  - 後方互換性を維持（既存の`episodic_memory.json`も読み込み可能）
+  - レポート: [2026-01-17_monthly_episodic_file_split.md](../reports/2026-01-17_monthly_episodic_file_split.md)
+
 
 
 - [ ] **コンテキスト注入の自然言語化（Context Smoothing）** 🆕 (外部AI助言)

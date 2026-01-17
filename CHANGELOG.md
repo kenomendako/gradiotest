@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Arousalアノテーション付き日次要約 (2026-01-17):** 日次エピソード記憶生成時に各会話ログのArousal値をアノテーション。高Arousal（≥0.6）会話を★マークで優先詳細化し、低Arousal会話は簡潔に要約。セッション単位の課題（コスト・口調）を解決。[レポート](docs/reports/2026-01-17_episodic_summary_arousal_annotation.md)
 - **Arousal正規化プロセス (2026-01-17):** 記憶システムのArousalインフレを防止するため、週次/月次省察時にエピソード全体のArousalを正規化（0.9倍減衰）する機能を導入。[レポート](docs/reports/2026-01-17_arousal_normalization.md)
 - **ファイル競合対策（Race Condition防止） (2026-01-17):** `filelock`ライブラリを導入。自律行動とユーザー対話の同時実行による記憶ファイル破損を防ぐため、主要JSONファイル（エピソード記憶、内的状態、目標等）の読み書きにロックを適用。[レポート](docs/reports/2026-01-17_file_lock_race_condition_fix.md)
+- **エピソード記憶の月次ファイル分割 (2026-01-17):** `episodic_memory.json`を`memory/episodic/YYYY-MM.json`形式の月次ファイルに分割。書き込みエラー時の全データロストリスクを軽減し、ファイル管理を効率化。移行スクリプト`tools/migrate_monthly_episodes.py`を追加。[レポート](docs/reports/2026-01-17_monthly_episodic_file_split.md)
+
 
 ### Changed
 - **エピソード記憶の分量調整（予算緩和） (2026-01-17):** 記憶の「圧縮しすぎ」を解消するため、文字数予算を従来の約2倍に緩和（High: 600, Medium: 350, Low: 150文字）。日次要約の記述量も5-8行へ増加させ、会話のニュアンス保持を強化。[レポート](docs/reports/2026-01-17_episodic_memory_budget_relaxing.md)
