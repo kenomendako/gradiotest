@@ -19,28 +19,30 @@ def get_arousal_file_path(room_name: str) -> Path:
 
 
 def _load_arousal_data(room_name: str) -> Dict:
-    """Arousal蓄積データを読み込む"""
+    """Arousal蓄積データを読み込む（ロック付き）"""
+    from file_lock_utils import safe_json_read
+    
     path = get_arousal_file_path(room_name)
     if not path.exists():
         return {}
     
     try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
+        data = safe_json_read(str(path), default={})
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        print(f"[SessionArousal] 読み込みエラー: {e}")
         return {}
 
 
 def _save_arousal_data(room_name: str, data: Dict):
-    """Arousal蓄積データを保存する"""
+    """Arousal蓄積データを保存する（ロック付き）"""
+    from file_lock_utils import safe_json_write
+    
     path = get_arousal_file_path(room_name)
     path.parent.mkdir(parents=True, exist_ok=True)
     
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except IOError as e:
-        print(f"[SessionArousal] 保存エラー: {e}")
+    if not safe_json_write(str(path), data):
+        print(f"[SessionArousal] 保存タイムアウト - 他のプロセスが使用中")
 
 
 def add_arousal_score(room_name: str, arousal_score: float):

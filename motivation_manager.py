@@ -249,26 +249,28 @@ class MotivationManager:
 
     
     def _load_state(self) -> Dict:
-        """内部状態をファイルからロード"""
+        """内部状態をファイルからロード（ロック付き）"""
+        from file_lock_utils import safe_json_read
+        
         if self.state_file.exists():
             try:
-                with open(self.state_file, 'r', encoding='utf-8') as f:
-                    state = json.load(f)
-                    # 古い形式の場合はマイグレーション
-                    if "drives" not in state:
-                        return self._get_empty_state()
-                    return state
-            except (json.JSONDecodeError, IOError):
+                state = safe_json_read(str(self.state_file), default=None)
+                if state is None:
+                    return self._get_empty_state()
+                # 古い形式の場合はマイグレーション
+                if "drives" not in state:
+                    return self._get_empty_state()
+                return state
+            except Exception:
                 return self._get_empty_state()
         return self._get_empty_state()
     
     def _save_state(self):
-        """内部状態をファイルに保存"""
-        try:
-            with open(self.state_file, 'w', encoding='utf-8') as f:
-                json.dump(self._state, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            print(f"[MotivationManager] 状態保存エラー: {e}")
+        """内部状態をファイルに保存（ロック付き）"""
+        from file_lock_utils import safe_json_write
+        
+        if not safe_json_write(str(self.state_file), self._state):
+            print(f"[MotivationManager] 状態保存タイムアウト")
     
     # ========================================
     # 各動機の計算

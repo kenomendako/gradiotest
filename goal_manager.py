@@ -48,18 +48,23 @@ class GoalManager:
         }
     
     def _load_goals(self) -> Dict:
-        """目標データを読み込む"""
+        """目標データを読み込む（ロック付き）"""
+        from file_lock_utils import safe_json_read
+        
         try:
-            with open(self.goals_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
+            data = safe_json_read(str(self.goals_file), default=None)
+            if data is None:
+                return self._get_empty_goals()
+            return data if isinstance(data, dict) else self._get_empty_goals()
+        except Exception:
             return self._get_empty_goals()
     
     def _save_goals(self, goals: Dict):
-        """目標データを保存する"""
+        """目標データを保存する（ロック付き）"""
+        from file_lock_utils import safe_json_write
+        
         goals["meta"]["last_updated"] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        with open(self.goals_file, "w", encoding="utf-8") as f:
-            json.dump(goals, f, indent=2, ensure_ascii=False)
+        safe_json_write(str(self.goals_file), goals)
     
     # ==========================================
     # CRUD Operations

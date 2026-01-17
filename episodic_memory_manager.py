@@ -47,18 +47,22 @@ class EpisodicMemoryManager:
         return f"{date_prefix}{max_seq + 1:03d}"
 
     def _load_memory(self) -> List[Dict]:
-        """JSONファイルからエピソード記憶を読み込む"""
+        """JSONファイルからエピソード記憶を読み込む（ロック付き）"""
+        from file_lock_utils import safe_json_read
+        
         if self.memory_file.exists():
             try:
-                with open(self.memory_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
-                print(f"Warning: Episodic memory file is corrupted. {self.memory_file}")
+                data = safe_json_read(str(self.memory_file), default=[])
+                return data if isinstance(data, list) else []
+            except Exception as e:
+                print(f"Warning: Episodic memory file error: {e}")
                 return []
         return []
 
     def _save_memory(self, data: List[Dict]):
-        """エピソード記憶をJSONファイルに保存する"""
+        """エピソード記憶をJSONファイルに保存する（ロック付き）"""
+        from file_lock_utils import safe_json_write
+        
         # 日付順にソートして保存
         def get_sort_key_for_save(item):
             d = item.get('date', '').strip()
@@ -68,9 +72,8 @@ class EpisodicMemoryManager:
             return d
             
         data.sort(key=get_sort_key_for_save)
-        with open(self.memory_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        # print(f"  - 記憶ファイルを保存しました ({len(data)}件, {os.path.getsize(self.memory_file)} bytes)")
+        safe_json_write(str(self.memory_file), data)
+        # print(f"  - 記憶ファイルを保存しました ({len(data)}件)")
 
     def _annotate_logs_with_arousal(self, logs: List[str], date_str: str) -> str:
         """

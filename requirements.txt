@@ -31,6 +31,7 @@ pywin32==311; sys_platform == 'win32'
 
 # --- File & System Utilities ---
 filetype==1.2.0
+filelock>=3.20.0
 python-dateutil==2.9.0.post0
 pytz==2025.2
 ijson==3.4.0

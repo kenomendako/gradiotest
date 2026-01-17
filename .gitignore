@@ -32,6 +32,7 @@ redaction_rules.json
 importer_errors.log
 retry_success.log
 *.log
+*.lock
 
 # Build artifacts
 /dist/
