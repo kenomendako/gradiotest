@@ -169,6 +169,16 @@ graph TB
     - `0.4` - 間接的共鳴: 思考の背景として微かに響いた
     - `0.0` - 不協和音: 提示されたが反応しなかった
 
+**Arousal正規化（インフレ防止）[NEW 2026-01-17]**:
+- 長期運用でArousalが加算され続け「すべての記憶が重要」になる問題（Arousalインフレ）を防止
+- **発動条件**: 全エピソードの平均Arousalが閾値（0.6）を超えた場合
+- **処理**: 全エピソードのArousalに減衰係数（0.9）を乗算
+- **実行タイミング**: 週次/月次省察時（`reflection_level >= 2`）
+- **定数**: `constants.py`
+    - `AROUSAL_NORMALIZATION_THRESHOLD = 0.6`
+    - `AROUSAL_NORMALIZATION_FACTOR = 0.9`
+- **関連メソッド**: `EpisodicMemoryManager.normalize_arousal()`
+
 > [!NOTE]
 > **セッション単位エピソード記憶（2026-01-15〜17）の経緯**:
 > - 日単位からセッション単位へ変更を試みたが、以下の課題が発生:

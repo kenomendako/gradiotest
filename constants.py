@@ -150,3 +150,8 @@ TOOLS_SAVE_ANNOUNCEMENT_ONLY = {
 EPISODIC_BUDGET_HIGH = 600    # 高Arousal (>= 0.6): 詳細な記録
 EPISODIC_BUDGET_MEDIUM = 350  # 中Arousal (>= 0.3): 適度な記録
 EPISODIC_BUDGET_LOW = 150     # 低Arousal (< 0.3): 簡潔な記録
+
+# --- Arousal正規化設定 (2026-01-17) ---
+# 長期運用でのArousalインフレ防止
+AROUSAL_NORMALIZATION_THRESHOLD = 0.6  # 平均がこれを超えたら正規化発動
+AROUSAL_NORMALIZATION_FACTOR = 0.9     # 減衰係数（10%減衰）

@@ -319,6 +319,19 @@ class DreamingManager:
             except Exception as ce:
                 print(f"  - [Dreaming] 目標自動整理エラー: {ce}")
             
+            # --- [Arousal Normalization] Arousalインフレ防止 ---
+            # 週次/月次省察時に、全エピソードの平均Arousalが閾値を超えていたら減衰を適用
+            if reflection_level >= 2:
+                try:
+                    epm = EpisodicMemoryManager(self.room_name)
+                    norm_result = epm.normalize_arousal()
+                    if norm_result["normalized"]:
+                        print(f"  - [Arousal正規化] 平均: {norm_result['before_avg']:.2f} → {norm_result['after_avg']:.2f} ({norm_result['episode_count']}件)")
+                    else:
+                        print(f"  - [Arousal正規化] 閾値以下のため実行スキップ (平均: {norm_result['before_avg']:.2f})")
+                except Exception as ne:
+                    print(f"  - [Arousal正規化] エラー: {ne}")
+            
             # --- [Motivation] 未解決の問いを保存 ---
             should_extract_questions = effective_settings.get("sleep_consolidation", {}).get("extract_open_questions", True)
             open_questions = dream_data.get("open_questions", [])

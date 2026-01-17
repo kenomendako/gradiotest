@@ -978,3 +978,83 @@ class EpisodicMemoryManager:
             if ep.get("id") == episode_id:
                 return ep
         return None
+
+    def normalize_arousal(self) -> Dict:
+        """
+        全エピソードのArousalを正規化する。
+        平均Arousalが閾値を超えている場合、全体に減衰係数を適用。
+        Arousalインフレ（長期運用で全ての記憶が重要になる問題）を防止する。
+        
+        Returns:
+            {
+                "normalized": bool,        # 正規化が実行されたか
+                "before_avg": float,       # 正規化前の平均Arousal
+                "after_avg": float,        # 正規化後の平均Arousal
+                "episode_count": int       # 処理対象エピソード数
+            }
+        """
+        episodes = self._load_memory()
+        
+        if not episodes:
+            return {
+                "normalized": False,
+                "before_avg": 0.0,
+                "after_avg": 0.0,
+                "episode_count": 0
+            }
+        
+        # Arousal値を持つエピソードのみ対象
+        arousal_episodes = [
+            ep for ep in episodes 
+            if isinstance(ep, dict) and ("arousal" in ep or "arousal_avg" in ep)
+        ]
+        
+        if not arousal_episodes:
+            return {
+                "normalized": False,
+                "before_avg": 0.0,
+                "after_avg": 0.0,
+                "episode_count": 0
+            }
+        
+        # 現在の平均Arousalを計算
+        def get_arousal(ep):
+            """arousal または arousal_avg（圧縮済み用）を取得"""
+            return ep.get("arousal", ep.get("arousal_avg", 0.5))
+        
+        before_values = [get_arousal(ep) for ep in arousal_episodes]
+        before_avg = sum(before_values) / len(before_values)
+        
+        # 閾値チェック
+        if before_avg <= constants.AROUSAL_NORMALIZATION_THRESHOLD:
+            # 閾値以下なら正規化不要
+            return {
+                "normalized": False,
+                "before_avg": round(before_avg, 3),
+                "after_avg": round(before_avg, 3),
+                "episode_count": len(arousal_episodes)
+            }
+        
+        # 正規化実行: 全エピソードに減衰係数を適用
+        factor = constants.AROUSAL_NORMALIZATION_FACTOR
+        
+        for ep in episodes:
+            if "arousal" in ep:
+                ep["arousal"] = round(ep["arousal"] * factor, 3)
+            if "arousal_avg" in ep:  # 圧縮済みエピソード用
+                ep["arousal_avg"] = round(ep["arousal_avg"] * factor, 3)
+            # arousal_max は原値を保持（参照用）
+        
+        # 保存
+        self._save_memory(episodes)
+        
+        # 正規化後の平均を計算
+        after_values = [get_arousal(ep) for ep in arousal_episodes]
+        after_avg = sum(after_values) / len(after_values)
+        
+        return {
+            "normalized": True,
+            "before_avg": round(before_avg, 3),
+            "after_avg": round(after_avg, 3),
+            "episode_count": len(arousal_episodes)
+        }
