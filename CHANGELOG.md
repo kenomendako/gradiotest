@@ -10,6 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Intent分類APIコスト最適化 (2026-01-16):** retrieval_nodeでクエリ生成と同時にIntent分類を実行。検索あたりのAPI呼び出しを2回→1回に削減。[レポート](docs/reports/2026-01-16_intent_classification_optimization.md)
 - **Intent-Aware Retrieval (2026-01-16):** 記憶検索にクエリ意図分類を導入。感情的質問は古い記憶も優先（時間減衰抑制）、技術的質問は新しい情報優先（時間減衰強め）。3項式複合スコアリング（Similarity + Arousal + TimeDecay×Arousal）を実装。[レポート](docs/reports/2026-01-16_intent_aware_retrieval.md) [研究メモ](docs/plans/research/arousal_aware_time_decay_study.md)
 
+### Changed
+- **エピソード記憶の分量調整（予算緩和） (2026-01-17):** 記憶の「圧縮しすぎ」を解消するため、文字数予算を従来の約2倍に緩和（High: 600, Medium: 350, Low: 150文字）。日次要約の記述量も5-8行へ増加させ、会話のニュアンス保持を強化。[レポート](docs/reports/2026-01-17_episodic_memory_budget_relaxing.md)
+
 ### Removed
 - **絆確認エピソード機能を廃止 (2026-01-16):** 感情変化時に自動生成される「絆確認」エピソード記憶は、具体的な会話内容を伴わない定型文しか生成されないため廃止。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 - **エピソード記憶UIの改善 (2026-01-17):** 同じ日付に複数エピソードがある場合に全て表示するよう修正。作成順ソート、件数案内、ドロップダウン重複排除、自動スクロール無効化を実装。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
