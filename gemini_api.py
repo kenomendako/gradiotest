@@ -150,37 +150,54 @@ def _get_effective_today_cutoff(room_name: str) -> str:
     today = datetime.datetime.now()
     today_str = today.strftime('%Y-%m-%d')
     yesterday_str = (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    yesterday_month = (today - datetime.timedelta(days=1)).strftime('%Y-%m')
     
     # エピソード記憶ファイルを確認
-    # パス: characters/[room_name]/memory/episodic_memory.json
-    episodic_dir = os.path.join(ROOMS_DIR, room_name, "memory")
-    episode_file = os.path.join(episodic_dir, "episodic_memory.json")
+    # 新形式: characters/[room_name]/memory/episodic/YYYY-MM.json
+    # 旧形式: characters/[room_name]/memory/episodic_memory.json (フォールバック)
+    memory_dir = os.path.join(ROOMS_DIR, room_name, "memory")
+    new_format_file = os.path.join(memory_dir, "episodic", f"{yesterday_month}.json")
+    old_format_file = os.path.join(memory_dir, "episodic_memory.json")
     
     has_yesterday_memory = False
     
-    if os.path.exists(episode_file):
+    def check_episodes_for_date(episodes: list, target_date: str) -> bool:
+        """エピソードリストに指定日付のエピソードが存在するかチェック"""
+        for ep in episodes:
+            if not isinstance(ep, dict):
+                continue
+            date_str = ep.get('date', '').strip()
+            
+            if date_str == target_date:
+                return True
+            elif '~' in date_str or '～' in date_str:
+                sep = '~' if '~' in date_str else '～'
+                parts = date_str.split(sep)
+                if len(parts) == 2:
+                    start, end = parts[0].strip(), parts[1].strip()
+                    if start <= target_date <= end:
+                        return True
+        return False
+    
+    # 1. まず新形式（月別ファイル）をチェック
+    if os.path.exists(new_format_file):
         try:
-            with open(episode_file, 'r', encoding='utf-8') as f:
+            with open(new_format_file, 'r', encoding='utf-8') as f:
                 episodes = json.load(f)
-                
             if isinstance(episodes, list):
-                for ep in episodes:
-                    if not isinstance(ep, dict): continue
-                    date_str = ep.get('date', '').strip()
-                    
-                    if date_str == yesterday_str:
-                        has_yesterday_memory = True
-                        break
-                    elif '~' in date_str or '～' in date_str:
-                        sep = '~' if '~' in date_str else '～'
-                        parts = date_str.split(sep)
-                        if len(parts) == 2:
-                            start, end = parts[0].strip(), parts[1].strip()
-                            if start <= yesterday_str <= end:
-                                has_yesterday_memory = True
-                                break
+                has_yesterday_memory = check_episodes_for_date(episodes, yesterday_str)
         except Exception as e:
-            print(f"Warning: Failed to check episodic memory for {yesterday_str}: {e}")
+            print(f"Warning: Failed to check episodic memory (new format) for {yesterday_str}: {e}")
+    
+    # 2. 新形式で見つからなければ旧形式にフォールバック
+    if not has_yesterday_memory and os.path.exists(old_format_file):
+        try:
+            with open(old_format_file, 'r', encoding='utf-8') as f:
+                episodes = json.load(f)
+            if isinstance(episodes, list):
+                has_yesterday_memory = check_episodes_for_date(episodes, yesterday_str)
+        except Exception as e:
+            print(f"Warning: Failed to check episodic memory (old format) for {yesterday_str}: {e}")
 
     if has_yesterday_memory:
         return today_str  # 昨日分は記憶化済み → 今日以降のみ
