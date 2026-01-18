@@ -867,9 +867,8 @@ def check_autonomous_actions():
                             try:
                                 from episodic_memory_manager import EpisodicMemoryManager
                                 em = EpisodicMemoryManager(room_folder)
-                                # セッション単位でエピソード記憶を生成
-                                yesterday = (now - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-                                em_result = em.update_memory_by_session(api_key_val, yesterday)
+                                # 日次要約でエピソード記憶を生成
+                                em_result = em.update_memory(api_key_val)
                                 print(f"  ✅ {room_folder}: {em_result}")
                                 # 更新日時をroom_config.jsonに保存
                                 status_text = f"最終更新: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
