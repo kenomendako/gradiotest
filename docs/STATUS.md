@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-18 | **階層的エピソード記憶圧縮**<br>・日次→週次→月次の3層圧縮を導入<br>・週次閾値60日→3日、月次圧縮を新規追加<br>・過去1ヶ月選択時: 約7,000文字（従来比1/6） | [レポート](reports/2026-01-18_hierarchical_episodic_compression.md) |
 | 2026-01-18 | **チェス フリームーブモード完全実装**<br>・盤面同期不全と永続化バグを修正<br>・ペルソナ操作のリアルタイム反映とドラッグ操作回避制御<br>・JS-Python通信DOM可視化による基本動作修復 | [レポート](reports/2026-01-18_chess_free_move.md) |
 | 2026-01-17 | **エピソード記憶の月次ファイル分割**<br>・`memory/episodic/YYYY-MM.json`形式で月ごとに分割<br>・移行スクリプト`tools/migrate_monthly_episodes.py`を追加<br>・書き込みエラー時の全データロストリスクを軽減 | [レポート](reports/2026-01-17_monthly_episodic_file_split.md) |
 | 2026-01-17 | **ファイル競合対策（Race Condition防止）**<br>・filelockライブラリを導入し主要Managerに適用<br>・自律行動とユーザー対話の同時実行による破損リスクを解消 | [レポート](reports/2026-01-17_file_lock_race_condition_fix.md) |
