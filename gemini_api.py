@@ -373,9 +373,17 @@ def _apply_auto_summary(
         # ただしトークン計算用 (allow_generation=False) で should_summarize が真の場合、
         # 実際に要約は生成しないが、古いメッセージはリストから除外して削減効果をシミュレートする
         if not allow_generation and should_summarize:
-            placeholder_summary = HumanMessage(
-                content="【本日のこれまでの会話の要約】\n（要約シミュレーション中...）\n\n---\n（以下は、要約以降および直近の会話です）"
-            )
+            # 【2026-01-18 FIX】既存の要約があればそれを使用し、より正確なトークン推定を行う
+            if existing_summary:
+                placeholder_summary = HumanMessage(
+                    content=f"【本日のこれまでの会話の要約】\n{existing_summary}\n\n---\n（以下は、要約以降および直近の会話です）"
+                )
+            else:
+                # 既存の要約がない場合は、推定文字数でプレースホルダーを生成
+                estimated_summary_chars = min(total_chars // 3, 3000)  # 元の文字数の約1/3程度と推定
+                placeholder_summary = HumanMessage(
+                    content=f"【本日のこれまでの会話の要約】\n（要約生成待ち... 推定{estimated_summary_chars}文字）\n{'x' * estimated_summary_chars}\n\n---\n（以下は、要約以降および直近の会話です）"
+                )
             result_messages.append(placeholder_summary)
             # pending_messages が空でない場合は追加（古いメッセージは older_messages として除外済み）
             result_messages.extend(pending_messages)
@@ -970,31 +978,119 @@ def count_input_tokens(**kwargs):
                     notepad_content = content if content else "（メモ帳は空です）"
                     notepad_section = f"\n### 短期記憶（メモ帳）\n{notepad_content}\n"
 
-        research_notes_section = "" # 実際には目次等が送られるがここでは簡略化
-        action_plan_context = ""
-        retrieved_info_placeholder = "\n### 想起された関連情報\n" + "（ここに検索・想起された過去の記憶や知識が入ります）" * 5 if effective_settings.get("enable_auto_retrieval", True) else ""
+        # --- [2026-01-18 FIX] より正確なコンテキスト見積もり ---
+        # context_generator_node で実際に生成される内容に近いプレースホルダーを使用
         
+        # 研究ノートの目次を実際に読み込む
+        research_notes_section = ""
+        try:
+            _, _, _, _, _, research_notes_path = room_manager.get_room_files_paths(room_name)
+            if research_notes_path and os.path.exists(research_notes_path):
+                with open(research_notes_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                headlines = [line.strip() for line in lines if line.strip().startswith("## ")]
+                if headlines:
+                    latest_headlines = headlines[-10:]
+                    headlines_str = "\n".join(latest_headlines)
+                    research_notes_section = (
+                        "\n### 研究・分析ノート（目次）\n"
+                        "以下は最近の研究・分析トピックの目次です。\n\n"
+                        f"{headlines_str}\n"
+                    )
+        except Exception:
+            pass
+        
+        # エンティティ一覧を実際に読み込む
+        entity_list_section = ""
+        try:
+            from entity_memory_manager import EntityMemoryManager
+            em_manager = EntityMemoryManager(room_name)
+            entities = em_manager.list_entries()
+            if entities:
+                entity_list_str = "\n".join([f"- {name}" for name in sorted(entities)])
+                entity_list_section = (
+                    f"\n### 記憶しているエンティティ一覧\n"
+                    f"以下は記憶している人物・事物の名前です。\n\n"
+                    f"{entity_list_str}\n"
+                )
+        except Exception:
+            pass
+        
+        # 情景プロンプトの見積もり（場所リスト含む）
+        situation_prompt_estimate = ""
+        if effective_settings.get("send_scenery", True):
+            # 移動可能な場所リストを取得
+            try:
+                from utils import parse_world_file
+                world_settings_path = room_manager.get_world_settings_path(room_name)
+                world_data = parse_world_file(world_settings_path) if world_settings_path else {}
+                locations = []
+                if isinstance(world_data, dict):
+                    for area, places in world_data.items():
+                        if isinstance(places, dict):
+                            locations.extend([p for p in places.keys() if not p.startswith("__")])
+                location_list_str = "\n".join([f"- {loc}" for loc in sorted(set(locations))]) if locations else "（移動先なし）"
+            except Exception:
+                location_list_str = "（移動先の取得エラー）"
+            
+            situation_prompt_estimate = (
+                "【現在の状況】\n"
+                "- 現在時刻: 2026-01-18(土) 20:00:00\n"
+                "- 季節: 冬\n"
+                "- 時間帯: 夜\n\n"
+                "【現在の場所と情景】\n"
+                "- 場所: [サンプルエリア] サンプル場所\n"
+                "- 今の情景: 冬の夜、静かな空間に月明かりが差し込んでいる。\n"
+                "- 場所の設定（自由記述）:\n"
+                "ここは想像上の場所です。様々な設定が書かれています。\n\n"
+                "【移動可能な場所】\n"
+                f"{location_list_str}"
+            )
+        else:
+            situation_prompt_estimate = "【現在の状況】\n- 現在時刻: （非表示）\n【現在の場所と情景】\n（無効化）"
+        
+        # 記憶想起のプレースホルダー（RAG検索結果）
+        retrieved_info_placeholder = ""
+        if effective_settings.get("enable_auto_retrieval", True):
+            # 実際のRAG検索結果は約2000〜5000文字程度になることが多い
+            retrieved_info_placeholder = (
+                "\n### 想起された関連情報\n"
+                "【記憶検索の結果：日記・エピソード記憶から3件】\n"
+                "--- エピソード記憶 (2026-01-15) ---\n"
+                "サンプルの記憶内容がここに表示されます。過去の会話や出来事の要約が含まれ、\n"
+                "通常は数百文字から千文字程度の内容になります。\n\n"
+                "--- 日記 (2026-01-10) ---\n"
+                "日記からの検索結果もここに表示されます。関連するトピックについての\n"
+                "過去の記録が含まれます。\n\n"
+                "【過去の会話ログからの検索結果】\n"
+                "--- [log.txt(2026-01-17頃)] ---\n"
+                "過去の会話ログからキーワード検索でヒットした内容がここに表示されます。\n"
+                "通常は500文字程度に切り詰められます。\n"
+            )
+        
+        # 自己意識コンテキストの見積もり
         dream_insights_text = ""
         if effective_settings.get("enable_self_awareness", True):
-            # 自己意識機能がONの場合、動機・感情・目標などのセクション（約500文字程度）
-            dream_insights_text = "\n### 自己意識・内省の状態\n" + "（AIの現在の動機、感情、夢の指針、短期・長期目標の要約が含まれます）" * 5
-
-        # ツール一覧の出し分け
-        tool_use_enabled = effective_settings.get("tool_use_enabled", True)
-        if tool_use_enabled:
-            # 共通ツールプロンプト設定がOFFの場合、ここでもツールリストを絞るべきだが一旦全表示で計算
-            # 実際の graph.py でも use_common_prompt で出し入れしている
-            tools_list_str = "\n".join([f"- `{tool.name}({', '.join(tool.args.keys())})`: {tool.description}" for tool in all_tools])
-        else:
-            tools_list_str = "（現在、利用可能なツールはありません）"
+            # 実際の context_generator_node で注入される内容を模倣
+            dream_insights_text = (
+                "\n### 深層意識（今日の指針）\n"
+                "今日の指針として、AIペルソナが持つ深層意識からの洞察が含まれます。\n"
+                "通常は1〜3行程度の短いテキストです。\n\n"
+                "### あなたの目標\n"
+                "**短期目標:**\n"
+                "- サンプル目標1: 進行中\n"
+                "- サンプル目標2: 進行中\n\n"
+                "**長期目標:**\n"
+                "- サンプル長期目標: 進行中\n\n"
+                "### 今のあなたの気持ち\n"
+                "- 最も強い動機: 好奇心（強さ: 0.6）\n"
+                "- サンプルの動機説明文がここに入ります。\n\n"
+                "### あなたが今気になっていること\n"
+                "- サンプルの未解決の問い\n"
+                "  （背景: この問いの背景情報）\n"
+            )
         
-        # 共通ツールプロンプトが無効かつ一人きりの場合、tools_list は空になる仕様を反映
-        # ui_handlers では use_common_prompt 引数で渡ってくる
-        if kwargs.get("use_common_prompt", True) == False: # Assuming use_common_prompt is passed in kwargs
-             # 個別プロンプトのみになるが、計算上は一旦 0 に近づける
-             tools_list_str = "（共通ツールプロンプトは送信されません）"
-
-        from agent.graph import AgentState
+        # 思考ログマニュアル
         display_thoughts = effective_settings.get("display_thoughts", True)
         thought_manual_enabled_text = """## 【原則2】思考プロセスの明示
         あなたは、相手への発答（会話テキスト）を生成する前に、必ず、あなた自身が内側で感じたこと、考えたこと、過去の記憶との照合、感情の動き、そして次に取るべき行動（ツール使用の要否など）を、`[THOUGHT]` と `[/THOUGHT]` というタグで囲んで**詳細に**書き出してください。
@@ -1007,17 +1103,37 @@ def count_input_tokens(**kwargs):
         thought_manual_disabled_text = """## 【原則2】思考ログの非表示
         現在、思考ログは非表示に設定されています。**`[THOUGHT]`ブロックを生成せず**、最終的な会話テキストのみを出力してください。"""
 
-        thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else ""
+        thought_generation_manual_text = thought_manual_enabled_text if display_thoughts else thought_manual_disabled_text
+        
+        # ツール一覧
+        # 【2026-01-18 FIX】LangChainがツールをバインドする際に追加するJSONスキーマのオーバーヘッドを考慮
+        # 各ツールは名前、説明、引数スキーマを含むJSONとして送信される（約300〜500トークン/ツール）
+        tool_use_enabled = effective_settings.get("tool_use_enabled", True)
+        tool_schema_overhead = 0
+        if tool_use_enabled:
+            tools_list_str = "\n".join([f"- `{tool.name}`: {tool.description[:50]}..." for tool in all_tools])
+            # ツールスキーマのオーバーヘッドを推定（各ツール約400トークン）
+            tool_schema_overhead = len(all_tools) * 400
+        else:
+            tools_list_str = "（現在、利用可能なツールはありません）"
+        
+        if kwargs.get("use_common_prompt", True) == False:
+            tools_list_str = "（共通ツールプロンプトは送信されません）"
+            tool_schema_overhead = 0  # 共通プロンプト無効時はツールもなし
+        
+        # 行動計画（空のプレースホルダー）
+        action_plan_context = ""
 
         class SafeDict(dict):
             def __missing__(self, key): return f'{{{key}}}'
         
         prompt_vars = {
-            'situation_prompt': "（トークン計算ではAPIコールを避けるため、実際の情景は含めず、存在することを示すプレースホルダのみ考慮）",
+            'situation_prompt': situation_prompt_estimate,
             'character_prompt': character_prompt,
             'core_memory': core_memory,
             'notepad_section': notepad_section,
             'research_notes_section': research_notes_section,
+            'entity_list_section': entity_list_section,
             'episodic_memory': episodic_memory_section,
             'thought_generation_manual': thought_generation_manual_text,
             'image_generation_manual': '',
@@ -1027,29 +1143,31 @@ def count_input_tokens(**kwargs):
             'dream_insights': dream_insights_text
         }
         system_prompt_text = CORE_PROMPT_TEMPLATE.format_map(SafeDict(prompt_vars))
-
-        if effective_settings.get("send_scenery", True):
-            system_prompt_text += "\n\n---\n【現在の場所と情景】\n（トークン計算用プレースホルダ）\n- 場所の名前: サンプル\n- 場所の定義: サンプル\n- 今の情景: サンプル\n---"
         
         messages.append(SystemMessage(content=system_prompt_text))
 
         # --- [Step 4: 履歴メッセージの追加] ---
+        # 【2026-01-18 FIX】invoke_nexus_agent_stream と同じロジックを使用してトークン推定の精度を向上
+        # 以前は直接ループしていたため、思考ログ除去やメッセージ統合が適用されず、
+        # 実送信時と推定時でトークン数に乖離が発生していた。
         send_thoughts_final = display_thoughts and effective_settings.get("send_thoughts", True)
+        add_timestamp = effective_settings.get("add_timestamp", False)
         
-        for h_item in raw_history:
-            content = h_item.get('content', '').strip()
-            if not content: continue
-            
-            if h_item.get('responder', 'model') != 'user':
-                content_for_api = content
-                if not send_thoughts_final:
-                    content_for_api = utils.remove_thoughts_from_text(content)
-                if content_for_api:
-                    messages.append(AIMessage(content=content_for_api))
-            else:
-                 messages.append(HumanMessage(content=content))
+        # 【OpenAI互換対応】プロバイダを取得
+        current_provider = config_manager.get_active_provider(room_name)
+        
+        # convert_raw_log_to_lc_messages を使用して一貫した履歴構築
+        history_messages = convert_raw_log_to_lc_messages(
+            raw_history, room_name, add_timestamp, send_thoughts_final, provider=current_provider
+        )
+        
+        # メッセージ統合を適用（invoke_nexus_agent_stream と同様）
+        history_messages = merge_consecutive_messages(history_messages, add_timestamp=add_timestamp)
+        
+        messages.extend(history_messages)
 
         # 【自動会話要約】閾値を超えていたら要約処理
+        # 既存の要約テキストがあればそれを使用し、シミュレーションの精度を向上
         auto_summary_enabled = effective_settings.get("auto_summary_enabled", False)
         if api_history_limit == "today" and auto_summary_enabled:
             messages = _apply_auto_summary(
@@ -1085,6 +1203,11 @@ def count_input_tokens(**kwargs):
 
         # トークン計算実行
         total_tokens = count_tokens_from_lc_messages(messages, model_name, api_key)
+        
+        # 【2026-01-18 FIX】LangChainがツールをバインドする際のオーバーヘッドを追加
+        # 各ツールのJSONスキーマ（名前、説明、引数の型・説明）が送信される分
+        total_tokens += tool_schema_overhead
+        
         return total_tokens
 
     except httpx.ReadError as e:

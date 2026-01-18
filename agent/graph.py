@@ -1459,19 +1459,23 @@ def agent_node(state: AgentState):
             actual_usage = response.usage_metadata
         
         # 辞書形式ならそのまま、そうでなければ属性から
+        # 【2026-01-18 FIX】input_tokens キーも対応（Gemini API の新形式）
         token_data = {}
         if actual_usage:
             if isinstance(actual_usage, dict):
+                # Gemini新形式: input_tokens, output_tokens, total_tokens
+                # Gemini旧形式: prompt_token_count, candidates_token_count, total_token_count
+                # OpenAI形式: prompt_tokens, completion_tokens, total_tokens
                 token_data = {
-                    "prompt_tokens": actual_usage.get("prompt_tokens", actual_usage.get("prompt_token_count", 0)),
-                    "completion_tokens": actual_usage.get("completion_tokens", actual_usage.get("candidates_token_count", 0)),
-                    "total_tokens": actual_usage.get("total_tokens", actual_usage.get("total_token_count", 0))
+                    "prompt_tokens": actual_usage.get("prompt_tokens") or actual_usage.get("prompt_token_count") or actual_usage.get("input_tokens", 0),
+                    "completion_tokens": actual_usage.get("completion_tokens") or actual_usage.get("candidates_token_count") or actual_usage.get("output_tokens", 0),
+                    "total_tokens": actual_usage.get("total_tokens") or actual_usage.get("total_token_count", 0)
                 }
             else:
                 token_data = {
-                    "prompt_tokens": getattr(actual_usage, "prompt_tokens", getattr(actual_usage, "prompt_token_count", 0)),
-                    "completion_tokens": getattr(actual_usage, "completion_tokens", getattr(actual_usage, "candidates_token_count", 0)),
-                    "total_tokens": getattr(actual_usage, "total_tokens", getattr(actual_usage, "total_token_count", 0))
+                    "prompt_tokens": getattr(actual_usage, "prompt_tokens", None) or getattr(actual_usage, "prompt_token_count", None) or getattr(actual_usage, "input_tokens", 0),
+                    "completion_tokens": getattr(actual_usage, "completion_tokens", None) or getattr(actual_usage, "candidates_token_count", None) or getattr(actual_usage, "output_tokens", 0),
+                    "total_tokens": getattr(actual_usage, "total_tokens", None) or getattr(actual_usage, "total_token_count", 0)
                 }
 
         loop_count += 1

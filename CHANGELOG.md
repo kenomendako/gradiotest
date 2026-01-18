@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **特殊タイプエピソードの重複判定修正 (2026-01-17):** 達成エピソード等がある日でも日次要約が生成されるよう判定ロジックを修正。
 - **Web巡回ツールのリスト削除エラー修正 (2026-01-17):** 巡回リストからの削除時に発生していた `ValueError: The truth value of a DataFrame is ambiguous` を修正。入力データがリストとDataFrameのいずれの場合でも安全に処理できるようロジックを改善。[レポート](docs/reports/2026-01-17_watchlist_deletion_fix.md)
 - **本日分ログフィルタの月別エピソード記憶対応 (2026-01-18):** 月次ファイル形式への移行後、`_get_effective_today_cutoff`関数が旧形式のみを参照していたため、「本日分」設定でも昨日のログが表示される問題を修正。新形式`episodic/YYYY-MM.json`を優先参照するよう変更。[レポート](docs/reports/2026-01-18_today_log_monthly_episodic.md)
+- **推定トークン数と実送信トークン数の乖離修正 (2026-01-18):** `count_input_tokens`関数が実送信時と異なる履歴構築ロジックを使用していた問題を修正。① `convert_raw_log_to_lc_messages()`と`merge_consecutive_messages()`を使用して履歴構築を統一。② 自動要約シミュレーション時に既存の要約テキストを使用。③ 記憶想起（RAG）、自己意識（目標・動機・未解決の問い）、エンティティ一覧、研究ノート目次、移動可能な場所リストなど、実際に注入されるコンテキストの見積もりを追加。④ トークン表示を「入力(推定) / 実入力 / 実合計」の3項目に変更し、入力のみの推定値と入力＋出力の合計値を区別して表示。
 - **Phase I: UIドライブ表示の改善 (2026-01-15):** 感情モニタリングを「ユーザー感情」から「ペルソナ感情」に変更。LinePlot→ScatterPlotに変更し視認性向上。[レポート](docs/reports/2026-01-15_phase_i_ui_drive_display.md)
 - **セッション単位エピソード記憶 (2026-01-15):** 日単位からセッション単位へエピソード記憶生成を変更。各セッションのArousalに応じて詳細度を調整（高Arousal: 300文字、中: 150文字、低: 50文字）。MAGMA論文のSalience-Based Budgetingを適用。[レポート](docs/reports/2026-01-15_session_based_episodic_memory.md)
 - **Phase H: 記憶共鳴フィードバック機構 (2026-01-15):** エピソード記憶にID自動付与。ペルソナが `<memory_trace>` タグで共鳴度を報告し、Arousalを自己更新する機構を導入。MAGMA論文の知見を適用。[レポート](docs/reports/2026-01-15_phase_h_arousal_self_evolution.md)

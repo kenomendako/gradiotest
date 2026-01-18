@@ -70,15 +70,18 @@ _LAST_ACTUAL_TOKENS = {} # room_name -> {"prompt": int, "completion": int, "tota
 def _format_token_display(room_name: str, estimated_count: int) -> str:
     """トークン数表示をフォーマットする。"""
     last_actual = _LAST_ACTUAL_TOKENS.get(room_name, {})
-    actual_total = last_actual.get("total_tokens", 0)  # agent/graph.pyが返すキー名
+    actual_prompt = last_actual.get("prompt_tokens", 0)  # 入力トークンのみ
+    actual_total = last_actual.get("total_tokens", 0)    # 入力＋出力の合計
     
     # 見積もり値のフォーマット
     est_str = f"{estimated_count / 1000:.1f}k" if estimated_count >= 1000 else str(estimated_count)
     
     # 実績値のフォーマット
-    if actual_total > 0:
-        act_str = f"{actual_total / 1000:.1f}k" if actual_total >= 1000 else str(actual_total)
-        return f"入力トークン数(推定): {est_str} / 実送信(前回): {act_str}"
+    if actual_prompt > 0 or actual_total > 0:
+        prompt_str = f"{actual_prompt / 1000:.1f}k" if actual_prompt >= 1000 else str(actual_prompt)
+        total_str = f"{actual_total / 1000:.1f}k" if actual_total >= 1000 else str(actual_total)
+        # 入力推定 / 実入力 / 実合計(入力+出力) の3つを表示
+        return f"入力(推定): {est_str} / 実入力: {prompt_str} / 実合計: {total_str}"
     else:
         return f"入力トークン数(推定): {est_str}"
 
