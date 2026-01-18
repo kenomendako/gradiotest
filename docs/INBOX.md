@@ -29,6 +29,11 @@ Antigravityが定期的に確認し、優先順位をつけてタスクリスト
   - 研究メモ: [episodic_memory_memrl_study.md](plans/research/episodic_memory_memrl_study.md)
   - 優先度: 🔴高
 
+- [ ] [スーパーツール化によるトークン削減]
+  - 詳細: LangChainがツールをモデルにバインドする際、各ツールのJSONスキーマ（約400トークン/ツール、合計約12kトークン）が送信される。関連する複数のツールを1つの「スーパーツール」に統合し、operationパラメータで機能を切り替えることで、ツール数を削減しトークン消費を抑える。
+  - 候補: 記憶系ツール（read/write/search/list）、ノート系ツール（日記/創作/研究）、タイマー系ツール
+  - 優先度: 🟡中
+
 
 ---
 
