@@ -155,3 +155,10 @@ EPISODIC_BUDGET_LOW = 150     # 低Arousal (< 0.3): 簡潔な記録
 # 長期運用でのArousalインフレ防止
 AROUSAL_NORMALIZATION_THRESHOLD = 0.6  # 平均がこれを超えたら正規化発動
 AROUSAL_NORMALIZATION_FACTOR = 0.9     # 減衰係数（10%減衰）
+
+# --- 階層的圧縮設定 (2026-01-18) ---
+# 日次→週次→月次の階層的圧縮で長期記憶を低コスト化
+EPISODIC_WEEKLY_COMPRESSION_DAYS = 3    # 3日経過後に週次圧縮
+EPISODIC_MONTHLY_COMPRESSION_WEEKS = 4  # 4週経過後に月次圧縮
+EPISODIC_WEEKLY_BUDGET = 600            # 週次圧縮の目標文字数
+EPISODIC_MONTHLY_BUDGET = 800           # 月次圧縮の目標文字数
