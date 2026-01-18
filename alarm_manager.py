@@ -921,10 +921,16 @@ def check_autonomous_actions():
                             try:
                                 from episodic_memory_manager import EpisodicMemoryManager
                                 emm = EpisodicMemoryManager(room_folder)
+                                # 週次圧縮
                                 compress_result = emm.compress_old_episodes(api_key_val)
                                 print(f"  ✅ {room_folder}: {compress_result}")
+                                # 月次圧縮
+                                monthly_result = emm.compress_weekly_to_monthly(api_key_val)
+                                print(f"  ✅ {room_folder}: {monthly_result}")
                                 # 圧縮結果をroom_config.jsonに保存
-                                room_manager.update_room_config(room_folder, {"last_compression_result": compress_result})
+                                room_manager.update_room_config(room_folder, {
+                                    "last_compression_result": f"{compress_result} / {monthly_result}"
+                                })
                             except Exception as e:
                                 print(f"  ❌ {room_folder}: エピソード圧縮エラー - {e}")
                         

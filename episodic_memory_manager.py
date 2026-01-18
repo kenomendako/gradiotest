@@ -763,22 +763,31 @@ class EpisodicMemoryManager:
             traceback.print_exc()
             return "取得エラー"
 
-    def compress_old_episodes(self, api_key: str, threshold_days: int = 60) -> str:
+    def compress_old_episodes(self, api_key: str, threshold_days: int = None) -> str:
         """
         一定期間以上前のエピソード記憶を週単位に統合する。
         元データはアーカイブに保存。
         
         Args:
             api_key: 要約生成に使用するAPIキー
-            threshold_days: 圧縮対象とする日数（デフォルト60日 = 約2ヶ月）
+            threshold_days: 圧縮対象とする日数（デフォルト: constants.EPISODIC_WEEKLY_COMPRESSION_DAYS）
             
         Returns:
             処理結果のメッセージ
         """
         from gemini_api import get_configured_llm
         from collections import defaultdict
+        import room_manager
         
-        print(f"--- [Episodic Memory] 圧縮処理開始: {self.room_name} ---")
+        # デフォルト値を定数から取得
+        if threshold_days is None:
+            threshold_days = constants.EPISODIC_WEEKLY_COMPRESSION_DAYS
+        
+        print(f"--- [Episodic Memory] 週次圧縮開始: {self.room_name} (閾値: {threshold_days}日) ---")
+        
+        # ペルソナ名を取得
+        room_config = room_manager.get_room_config(self.room_name) or {}
+        agent_name = room_config.get("agent_display_name") or room_config.get("room_name", "AI")
         
         episodes = self._load_memory()
         if not episodes:
@@ -885,8 +894,9 @@ class EpisodicMemoryManager:
             combined_text = "\n\n".join(week_summaries)
             
             # 週ごとの統合要約を生成
+            target_chars = constants.EPISODIC_WEEKLY_BUDGET
             prompt = f"""
-あなたは、自分の一週間を振り返る日記の執筆者です。
+あなたは、この一週間を自分の言葉で振り返る日記の執筆者（{agent_name}本人）です。
 以下は、あなた自身が書いた一週間の出来事の記録です。これらを1つにまとめて、週全体の出来事として要約してください。
 
 【元の記録 ({week_start} 〜 {week_end})】
@@ -895,12 +905,12 @@ class EpisodicMemoryManager:
 ---
 
 【要約のルール】
-1. **元の記録内の口調・一人称・二人称をそのまま使用**してください。
+1. **元の記録内のあなた（{agent_name}）の口調・一人称・二人称をそのまま使用**してください。
 2. あなたの視点から振り返りつつ、**後から読んで何があったか分かるように客観的な事実を重視**。
-3. **★マークがついた記録は詳細に**記録してください。
+3. **★マークがついた記録（高Arousal）は詳細に**記録してください。
 4. ★マークのない記録は簡潔にまとめてください。
 5. 特に「決定事項」「約束」「感情的な交流」「技術的な進展」を優先的に記録。
-6. **全体で400〜800文字程度**（5〜8行）に収めてください。
+6. **全体で{target_chars}文字程度**に収めてください。
 7. 個々の日付に言及する必要はありません。週全体の印象をまとめてください。
 
 【出力（週間要約のみ）】
@@ -942,10 +952,12 @@ class EpisodicMemoryManager:
         print(f"  - {msg}")
         return msg
 
-    def get_compression_stats(self, threshold_days: int = 60) -> dict:
+    def get_compression_stats(self, threshold_days: int = None) -> dict:
         """
         現在の記憶ファイルの圧縮状況（圧縮済み最終日、圧縮対象件数）をスキャンして返す。
         """
+        if threshold_days is None:
+            threshold_days = constants.EPISODIC_WEEKLY_COMPRESSION_DAYS
         episodes = self._load_memory()
         if not episodes:
             return {"last_compressed_date": None, "pending_count": 0, "total_count": 0}
@@ -979,6 +991,190 @@ class EpisodicMemoryManager:
             "total_count": len(episodes)
         }
     
+    def compress_weekly_to_monthly(self, api_key: str, threshold_weeks: int = None) -> str:
+        """
+        4週以上経過した週次圧縮エピソードを月単位に統合する。
+        
+        Args:
+            api_key: 要約生成に使用するAPIキー
+            threshold_weeks: 月次圧縮対象とする週数（デフォルト: constants.EPISODIC_MONTHLY_COMPRESSION_WEEKS）
+            
+        Returns:
+            処理結果のメッセージ
+        """
+        from gemini_api import get_configured_llm
+        from collections import defaultdict
+        import room_manager
+        
+        # デフォルト値を定数から取得
+        if threshold_weeks is None:
+            threshold_weeks = constants.EPISODIC_MONTHLY_COMPRESSION_WEEKS
+        
+        threshold_days = threshold_weeks * 7
+        
+        print(f"--- [Episodic Memory] 月次圧縮開始: {self.room_name} (閾値: {threshold_weeks}週) ---")
+        
+        # ペルソナ名を取得
+        room_config = room_manager.get_room_config(self.room_name) or {}
+        agent_name = room_config.get("agent_display_name") or room_config.get("room_name", "AI")
+        
+        episodes = self._load_memory()
+        if not episodes:
+            return "月次圧縮対象のエピソード記憶がありません。"
+        
+        # 閾値日付を計算
+        threshold_date = datetime.datetime.now() - datetime.timedelta(days=threshold_days)
+        threshold_date_str = threshold_date.strftime('%Y-%m-%d')
+        
+        # 週次圧縮済み（既にcompressed=Trueで、かつ月次ではない）を抽出
+        weekly_compressed = []
+        other_episodes = []
+        monthly_compressed = []  # 既存の月次圧縮済み
+        
+        for episode in episodes:
+            date_str = episode.get('date', '').strip()
+            is_compressed = episode.get('compressed', False)
+            is_monthly = episode.get('monthly_compressed', False)
+            
+            if is_monthly:
+                monthly_compressed.append(episode)
+            elif is_compressed and ('~' in date_str or '～' in date_str):
+                # 週次圧縮済みかつ閾値より古い
+                sep = '~' if '~' in date_str else '～'
+                parts = date_str.split(sep)
+                if len(parts) == 2:
+                    end_date = parts[1].strip()
+                    if end_date < threshold_date_str:
+                        weekly_compressed.append(episode)
+                    else:
+                        other_episodes.append(episode)
+                else:
+                    other_episodes.append(episode)
+            else:
+                other_episodes.append(episode)
+        
+        if not weekly_compressed:
+            return f"月次圧縮対象の週次エピソード（{threshold_weeks}週以上前）はありませんでした。"
+        
+        print(f"  - 月次圧縮対象: {len(weekly_compressed)}件")
+        
+        # --- 月ごとにグループ化 ---
+        monthly_groups = defaultdict(list)
+        for episode in weekly_compressed:
+            date_str = episode.get('date', '').strip()
+            sep = '~' if '~' in date_str else '～'
+            parts = date_str.split(sep)
+            # 週の開始日から月を決定
+            start_date_str = parts[0].strip()
+            month_key = start_date_str[:7]  # "YYYY-MM"
+            monthly_groups[month_key].append(episode)
+        
+        if not monthly_groups:
+            return "月次圧縮対象の週次エピソードをグループ化できませんでした。"
+        
+        print(f"  - 月グループ数: {len(monthly_groups)}")
+        
+        # --- 各月の要約を生成 ---
+        effective_settings = config_manager.get_effective_settings(self.room_name)
+        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        
+        new_monthly_episodes = []
+        
+        for month_key, month_episodes in sorted(monthly_groups.items()):
+            # 月の開始日と終了日を計算
+            all_dates = []
+            for ep in month_episodes:
+                date_str = ep.get('date', '')
+                sep = '~' if '~' in date_str else '～'
+                parts = date_str.split(sep)
+                all_dates.extend([p.strip() for p in parts])
+            
+            if not all_dates:
+                continue
+                
+            month_start = min(all_dates)
+            month_end = max(all_dates)
+            
+            # 月内のArousal統計
+            arousal_values = [ep.get("arousal", 0.5) for ep in month_episodes]
+            avg_arousal = sum(arousal_values) / len(arousal_values) if arousal_values else 0.5
+            max_arousal = max(arousal_values) if arousal_values else 0.5
+            
+            # 週次要約を結合（高Arousal順にソート）
+            month_episodes_sorted = sorted(
+                month_episodes,
+                key=lambda e: e.get("arousal", 0.5),
+                reverse=True
+            )
+            
+            month_summaries = []
+            for i, ep in enumerate(month_episodes_sorted):
+                summary = ep.get('summary', '')
+                if summary:
+                    ep_arousal = ep.get("arousal", 0.5)
+                    if i < 2 and ep_arousal >= 0.5:
+                        month_summaries.append(f"★{summary}")
+                    else:
+                        month_summaries.append(summary)
+            
+            if not month_summaries:
+                continue
+            
+            combined_text = "\n\n".join(month_summaries)
+            
+            # 月ごとの統合要約を生成
+            target_chars = constants.EPISODIC_MONTHLY_BUDGET
+            prompt = f"""
+あなたは、この一ヶ月を自分の言葉で振り返る日記の執筆者（{agent_name}本人）です。
+以下は、あなた自身が書いた一ヶ月の出来事の記録です。これらを1つにまとめて、月全体の出来事として要約してください。
+
+【元の記録 ({month_start} 〜 {month_end})】
+---
+{combined_text}
+---
+
+【要約のルール】
+1. **元の記録内のあなた（{agent_name}）の口調・一人称・二人称をそのまま使用**してください。
+2. あなたの視点から振り返りつつ、**後から読んで何があったか分かるように客観的な事実を重視**。
+3. **★マークがついた記録（高Arousal）は詳細に**記録してください。
+4. ★マークのない記録は簡潔にまとめてください。
+5. 特に「決定事項」「約束」「感情的な交流」「技術的な進展」「重要な出来事」を優先的に記録。
+6. **全体で{target_chars}文字程度**に収めてください。
+7. 月全体の印象と主要な出来事をまとめてください。
+
+【出力（月間要約のみ）】
+"""
+            
+            try:
+                result = llm.invoke(prompt)
+                summary = result.content.strip()
+                
+                if summary:
+                    new_monthly_episodes.append({
+                        "date": f"{month_start}~{month_end}",
+                        "summary": summary,
+                        "arousal": round(avg_arousal, 3),
+                        "arousal_max": round(max_arousal, 3),
+                        "compressed": True,
+                        "monthly_compressed": True,
+                        "original_count": len(month_episodes),
+                        "created_at": datetime.datetime.now().isoformat()
+                    })
+                    print(f"    - {month_key}: {len(month_episodes)}週 → 1件 (Arousal avg:{avg_arousal:.2f})")
+                else:
+                    print(f"    - {month_key}: 要約が空のため統合をスキップ")
+                    other_episodes.extend(month_episodes)
+            except Exception as e:
+                print(f"    - {month_key}: 要約エラー ({e})")
+                other_episodes.extend(month_episodes)
+        
+        # --- 圧縮後のデータを保存 ---
+        final_episodes = monthly_compressed + new_monthly_episodes + other_episodes
+        self._save_memory(final_episodes)
+        
+        msg = f"月次圧縮完了: {len(weekly_compressed)}週を{len(new_monthly_episodes)}月に集約しました。"
+        print(f"  - {msg}")
+        return msg
     def update_arousal(self, episode_id: str, resonance: float, alpha: float = 0.2) -> bool:
         """
         共鳴度（resonance）に基づいてエピソードのArousalを更新する。
