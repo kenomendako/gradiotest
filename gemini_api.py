@@ -815,28 +815,57 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
 
     yield ("initial_count", len(messages))
 
-    # --- ストリーム実行とコンテキストの保存 ---
-    # Graphから返ってくるチャンクを監視する
-    for mode, payload in app.stream(initial_state, stream_mode=["messages", "values"]):
-        if mode == "messages":
-             msgs = payload if isinstance(payload, list) else [payload]
-             for msg in msgs:
-                 if isinstance(msg, AIMessage):
-                     # 署名を抽出（Gemini 3形式を優先）
-                     sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
-                     if not sig:
-                         sig = msg.additional_kwargs.get("thought_signature")
-                     if not sig and hasattr(msg, "response_metadata"):
-                         sig = msg.response_metadata.get("thought_signature")
-                     
-                     # ツールコールがあれば抽出
-                     t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
-
-                     # 署名またはツールコールがあれば、ターンコンテキストとして永続化
-                     if sig or t_calls:
-                         signature_manager.save_turn_context(room_to_respond, sig, t_calls)
+    # --- 【2026-01-19 FIX】Gemini 3 Flash デッドロック対策 ---
+    # Gemini 3 Flash Preview + ツール使用 + ストリーミングの組み合わせで
+    # APIがハングアップする問題への対策として、該当モデル使用時はストリーミングを無効化
+    # 参考: docs/plans/research/Gemini 3 Flash API 応答遅延問題調査.md
+    is_gemini_3_flash = "gemini-3-flash" in model_name
+    tool_use_enabled = initial_state.get("tool_use_enabled", True)
+    
+    if is_gemini_3_flash and tool_use_enabled:
+        print(f"  - [Gemini 3 Flash] ストリーミング無効化（ツール使用時のデッドロック対策）")
+        # 非ストリーミングモードで実行
+        final_state = app.invoke(initial_state)
+        
+        # invoke結果から署名を抽出（ストリーミング時と同様の処理）
+        final_messages = final_state.get("messages", [])
+        for msg in final_messages:
+            if isinstance(msg, AIMessage):
+                sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                if not sig:
+                    sig = msg.additional_kwargs.get("thought_signature")
+                if not sig and hasattr(msg, "response_metadata"):
+                    sig = msg.response_metadata.get("thought_signature")
+                t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+                if sig or t_calls:
+                    signature_manager.save_turn_context(room_to_respond, sig, t_calls)
+        
+        # invoke結果をyield形式に変換（既存のインターフェースを維持）
+        yield ("values", final_state)
+    else:
+        # --- 通常のストリーム実行とコンテキストの保存 ---
+        # Graphから返ってくるチャンクを監視する
+        for mode, payload in app.stream(initial_state, stream_mode=["messages", "values"]):
+            if mode == "messages":
+                 msgs = payload if isinstance(payload, list) else [payload]
+                 for msg in msgs:
+                     if isinstance(msg, AIMessage):
+                         # 署名を抽出（Gemini 3形式を優先）
+                         sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                         if not sig:
+                             sig = msg.additional_kwargs.get("thought_signature")
+                         if not sig and hasattr(msg, "response_metadata"):
+                             sig = msg.response_metadata.get("thought_signature")
                          
-        yield (mode, payload)
+                         # ツールコールがあれば抽出
+                         t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+
+                         # 署名またはツールコールがあれば、ターンコンテキストとして永続化
+                         if sig or t_calls:
+                             signature_manager.save_turn_context(room_to_respond, sig, t_calls)
+                             
+            yield (mode, payload)
+
 
 def count_input_tokens(**kwargs):
     room_name = kwargs.get("room_name")

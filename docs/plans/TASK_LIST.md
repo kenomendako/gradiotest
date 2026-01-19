@@ -175,6 +175,7 @@
   - ツール使用のみ成功して応答テキストが空になるケースあり
   - `[THOUGHT]`タグを開始するが閉じタグがなく全文が思考ログ化
   - ℹ️ **2025-12-23 調査結果**: API不安定性が原因。対処法は [gemini3_flash_setup.md](../guides/gemini3_flash_setup.md) 参照
+  - ⚠️ **2026-01-19 対策**: ストリーミング+ツール使用時の無効化を実装（[レポート](../reports/2026-01-19_gemini3_flash_streaming_fix.md)）
   - レポート: [2025-12-21_gemini3_debug_log_addition.md](../reports/2025-12-21_gemini3_debug_log_addition.md)
 
 - [x] **新規ルーム作成時、自動情景画像生成をオフにする** ✅
