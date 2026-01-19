@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **日記・ノートUI大幅改善 (2026-01-19):** 創作ノート/研究ノート/日記を「索引+詳細表示」形式に変更。年・月フィルタ機能、RAW編集機能を追加。全削除ボタンを廃止しデータ安全性向上。AIツールを追記専用モードに変更し書き込み動作を安定化。ノートクリーンアップスクリプト（`scripts/cleanup_notes.py`）を追加。[レポート](docs/reports/2026-01-19_notes-ui-improvement.md)
 - **Intent分類APIコスト最適化 (2026-01-16):** retrieval_nodeでクエリ生成と同時にIntent分類を実行。検索あたりのAPI呼び出しを2回→1回に削減。[レポート](docs/reports/2026-01-16_intent_classification_optimization.md)
 - **Intent-Aware Retrieval (2026-01-16):** 記憶検索にクエリ意図分類を導入。感情的質問は古い記憶も優先（時間減衰抑制）、技術的質問は新しい情報優先（時間減衰強め）。3項式複合スコアリング（Similarity + Arousal + TimeDecay×Arousal）を実装。[レポート](docs/reports/2026-01-16_intent_aware_retrieval.md) [研究メモ](docs/plans/research/arousal_aware_time_decay_study.md)
 - **Arousalアノテーション付き日次要約 (2026-01-17):** 日次エピソード記憶生成時に各会話ログのArousal値をアノテーション。高Arousal（≥0.6）会話を★マークで優先詳細化し、低Arousal会話は簡潔に要約。セッション単位の課題（コスト・口調）を解決。[レポート](docs/reports/2026-01-17_episodic_summary_arousal_annotation.md)
