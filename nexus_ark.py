@@ -1989,6 +1989,7 @@ try:
                                     interactive=True,
                                     lines=15,
                                     max_lines=25,
+                                    autoscroll=True,
                                     placeholder="ファイル全体を直接編集できます"
                                 )
                                 with gr.Row():
@@ -2339,6 +2340,7 @@ try:
                                     interactive=True,
                                     lines=15,
                                     max_lines=25,
+                                    autoscroll=True,
                                     placeholder="ファイル全体を直接編集できます"
                                 )
                                 with gr.Row():
@@ -2383,6 +2385,7 @@ try:
                                     interactive=True,
                                     lines=15,
                                     max_lines=25,
+                                    autoscroll=True,
                                     placeholder="ファイル全体を直接編集できます"
                                 )
                                 with gr.Row():
