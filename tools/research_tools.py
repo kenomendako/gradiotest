@@ -32,69 +32,58 @@ def plan_research_notes_edit(modification_request: str, room_name: str) -> str:
     return f"システムへの研究ノート編集計画を受け付けました。意図:「{modification_request}」"
 
 def _apply_research_notes_edits(instructions: List[Dict[str, Any]], room_name: str) -> str:
-    """【内部専用】AIが生成した行番号ベースの差分編集指示リストを解釈し、research_notes.mdに適用する。"""
+    """
+    【追記専用モード】研究ノートに新しいエントリを追加する。
+    
+    行番号ベースの編集は廃止し、常にファイル末尾にタイムスタンプ付きセクションを追加する。
+    これにより、AIが「どこに書くか」を迷う問題を解消し、安定した追記動作を保証する。
+    """
     if not room_name:
         return "【エラー】ルーム名が指定されていません。"
-    if not isinstance(instructions, list):
-        return "【エラー】編集指示がリスト形式ではありません。"
+    if not isinstance(instructions, list) or not instructions:
+        return "【エラー】編集指示がリスト形式ではないか、空です。"
 
     _, _, _, _, _, research_notes_path = get_room_files_paths(room_name)
-    if not research_notes_path or not os.path.exists(research_notes_path):
+    if not research_notes_path:
         return f"【エラー】ルーム'{room_name}'の研究ノートファイルパスが見つかりません。"
+    
+    # ファイルが存在しない場合は空のファイルを作成
+    if not os.path.exists(research_notes_path):
+        os.makedirs(os.path.dirname(research_notes_path), exist_ok=True)
+        with open(research_notes_path, 'w', encoding='utf-8') as f:
+            f.write("")
 
     try:
-        with open(research_notes_path, 'r', encoding='utf-8') as f:
-            lines = f.read().split('\n')
-
-        line_plan = {}
-        insertions = {}
-        timestamp = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}]"
-        
-        # セッション単位で一度だけタイムスタンプを付与するためのフラグ
-        timestamp_added = False
-        
+        # 追加するコンテンツを収集
+        contents_to_add = []
         for inst in instructions:
-            op = inst.get("operation", "").lower()
-            line_num = inst.get("line")
-            if line_num is None: continue
-            target_index = line_num - 1
-            if not (0 <= target_index < len(lines)): continue
-
-            final_content = inst.get("content", "")
-            # opが'replace'または'insert_after'で、かつcontentに実質的な内容がある場合のみ処理
-            if op in ["replace", "insert_after"] and str(final_content).strip():
-                # 【修正】セッション単位で一度だけタイムスタンプを付与
-                # 最初のコンテンツ追加時のみタイムスタンプヘッダーを付与
-                if not timestamp_added and not str(final_content).strip().startswith("--- ["):
-                    final_content = f"\n---\n{timestamp} 研究記録\n{final_content}\n"
-                    timestamp_added = True
-
-            if op == "delete":
-                line_plan[target_index] = {"operation": "delete"}
-            elif op == "replace":
-                line_plan[target_index] = {"operation": "replace", "content": final_content}
-            elif op == "insert_after":
-                if target_index not in insertions:
-                    insertions[target_index] = []
-                insertions[target_index].extend(str(final_content).split('\n'))
-
-        new_lines = []
-        for i, line_content in enumerate(lines):
-            plan = line_plan.get(i)
-            if plan is None:
-                new_lines.append(line_content)
-            elif plan["operation"] == "replace":
-                new_lines.append(plan["content"])
-            elif plan["operation"] == "delete":
-                pass
-
-            if i in insertions:
-                new_lines.extend(insertions[i])
-
+            content = inst.get("content", "")
+            if content and str(content).strip():
+                contents_to_add.append(str(content).strip())
+        
+        if not contents_to_add:
+            return "【情報】追加するコンテンツがありませんでした。"
+        
+        # 既存コンテンツを読み込み
+        with open(research_notes_path, 'r', encoding='utf-8') as f:
+            existing_content = f.read()
+        
+        # タイムスタンプ付きセクションを作成
+        timestamp = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}]"
+        section_header = f"\n---\n{timestamp} 研究記録\n"
+        new_section = section_header + "\n".join(contents_to_add)
+        
+        # 既存コンテンツがある場合は区切りを追加
+        if existing_content.strip():
+            updated_content = existing_content.rstrip() + "\n" + new_section
+        else:
+            # 空ファイルの場合はヘッダーなしで開始
+            updated_content = new_section.lstrip("\n")
+        
         with open(research_notes_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(new_lines))
+            f.write(updated_content)
 
-        return f"成功: {len(instructions)}件の指示に基づき、研究ノート(research_notes.md)を更新しました。"
+        return f"成功: 研究ノート(research_notes.md)に新しいエントリを追加しました。"
     except Exception as e:
         traceback.print_exc()
         return f"【エラー】研究ノートの編集中に予期せぬエラーが発生しました: {e}"

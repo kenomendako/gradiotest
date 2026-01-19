@@ -2274,20 +2274,90 @@ try:
                         # --- 創作ノートアコーディオン ---
                         with gr.Accordion("🎨 創作ノート", open=False):
                             gr.Markdown("ペルソナの創作活動専用スペースです。詩、物語、アイデアスケッチなど。")
-                            creative_notes_editor = gr.Textbox(label="創作ノートの内容", interactive=True, elem_id="creative_notes_editor_code", lines=15, max_lines=15, autoscroll=True)
                             with gr.Row():
-                                save_creative_notes_button = gr.Button("保存", variant="secondary")
+                                refresh_creative_notes_button = gr.Button("📚 エントリを読み込む", variant="primary")
+                            
+                            with gr.Row():
+                                creative_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                                creative_month_filter = gr.Dropdown(label="月で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                            
+                            with gr.Row():
+                                with gr.Column(scale=1):
+                                    creative_entry_dropdown = gr.Dropdown(
+                                        label="エントリを選択",
+                                        choices=[],
+                                        interactive=True,
+                                        info="最新のエントリが上に表示されます"
+                                    )
+                                with gr.Column(scale=2):
+                                    creative_notes_editor = gr.Textbox(
+                                        label="エントリの内容",
+                                        interactive=True,
+                                        elem_id="creative_notes_editor_code",
+                                        lines=15,
+                                        max_lines=20,
+                                        placeholder="エントリを選択するか、「RAW編集」で直接編集してください"
+                                    )
+                            
+                            with gr.Row():
+                                save_creative_notes_button = gr.Button("選択エントリを保存", variant="secondary")
                                 reload_creative_notes_button = gr.Button("再読込", variant="secondary")
-                                clear_creative_notes_button = gr.Button("全削除", variant="stop")
+                            
+                            with gr.Accordion("📝 RAW編集（全文）", open=False):
+                                creative_notes_raw_editor = gr.Textbox(
+                                    label="creative_notes.md 全文",
+                                    interactive=True,
+                                    lines=15,
+                                    max_lines=25,
+                                    placeholder="ファイル全体を直接編集できます"
+                                )
+                                with gr.Row():
+                                    save_creative_raw_button = gr.Button("RAW全文を保存", variant="primary")
+                                    reload_creative_raw_button = gr.Button("RAW再読込", variant="secondary")
                         
                         # --- 研究・分析ノートアコーディオン ---
                         with gr.Accordion("🔬 研究・分析ノート", open=False):
-                            gr.Markdown("Web巡回ツールによる分析結果や洞察が蓄積されるスペースです。 AIが自律的に更新します。")
-                            research_notes_editor = gr.Textbox(label="研究ノートの内容", interactive=True, elem_id="research_notes_editor_code", lines=15, max_lines=15, autoscroll=True)
+                            gr.Markdown("Web巡回ツールによる分析結果や洞察が蓄積されるスペースです。AIが自律的に更新します。")
                             with gr.Row():
-                                save_research_notes_button = gr.Button("保存", variant="secondary")
+                                refresh_research_notes_button = gr.Button("📚 エントリを読み込む", variant="primary")
+                            
+                            with gr.Row():
+                                research_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                                research_month_filter = gr.Dropdown(label="月で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                            
+                            with gr.Row():
+                                with gr.Column(scale=1):
+                                    research_entry_dropdown = gr.Dropdown(
+                                        label="エントリを選択",
+                                        choices=[],
+                                        interactive=True,
+                                        info="最新のエントリが上に表示されます"
+                                    )
+                                with gr.Column(scale=2):
+                                    research_notes_editor = gr.Textbox(
+                                        label="エントリの内容",
+                                        interactive=True,
+                                        elem_id="research_notes_editor_code",
+                                        lines=15,
+                                        max_lines=20,
+                                        placeholder="エントリを選択するか、「RAW編集」で直接編集してください"
+                                    )
+                            
+                            with gr.Row():
+                                save_research_notes_button = gr.Button("選択エントリを保存", variant="secondary")
                                 reload_research_notes_button = gr.Button("再読込", variant="secondary")
-                                clear_research_notes_button = gr.Button("全削除", variant="stop")
+                            
+                            with gr.Accordion("📝 RAW編集（全文）", open=False):
+                                research_notes_raw_editor = gr.Textbox(
+                                    label="research_notes.md 全文",
+                                    interactive=True,
+                                    lines=15,
+                                    max_lines=25,
+                                    placeholder="ファイル全体を直接編集できます"
+                                )
+                                with gr.Row():
+                                    save_research_raw_button = gr.Button("RAW全文を保存", variant="primary")
+                                    reload_research_raw_button = gr.Button("RAW再読込", variant="secondary")
 
                     # ▼▼▼【ここから下のブロックを「メモ帳」タブの直後に追加】▼▼▼
                     with gr.TabItem("知識") as knowledge_tab:
@@ -3240,13 +3310,61 @@ try:
         reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_room_name], outputs=[notepad_editor])
         clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_room_name], outputs=[notepad_editor])
         # --- 創作ノートのイベントハンドラ ---
-        save_creative_notes_button.click(fn=ui_handlers.handle_save_creative_notes, inputs=[current_room_name, creative_notes_editor], outputs=[creative_notes_editor])
-        reload_creative_notes_button.click(fn=ui_handlers.handle_reload_creative_notes, inputs=[current_room_name], outputs=[creative_notes_editor])
-        clear_creative_notes_button.click(fn=ui_handlers.handle_clear_creative_notes, inputs=[current_room_name], outputs=[creative_notes_editor])
+        # エントリ読み込み → 年・月フィルタと日付リストを更新
+        refresh_creative_notes_button.click(
+            fn=ui_handlers.handle_load_creative_entries,
+            inputs=[current_room_name],
+            outputs=[creative_year_filter, creative_month_filter, creative_entry_dropdown, creative_notes_raw_editor]
+        )
+        # フィルタ変更時 → ドロップダウン選択肢を更新
+        creative_year_filter.change(
+            fn=ui_handlers.handle_creative_filter_change,
+            inputs=[current_room_name, creative_year_filter, creative_month_filter],
+            outputs=[creative_entry_dropdown]
+        )
+        creative_month_filter.change(
+            fn=ui_handlers.handle_creative_filter_change,
+            inputs=[current_room_name, creative_year_filter, creative_month_filter],
+            outputs=[creative_entry_dropdown]
+        )
+        # エントリ選択時 → 詳細表示
+        creative_entry_dropdown.change(
+            fn=ui_handlers.handle_creative_selection,
+            inputs=[current_room_name, creative_entry_dropdown],
+            outputs=[creative_notes_editor]
+        )
+        # 保存・再読込
+        save_creative_notes_button.click(fn=ui_handlers.handle_save_creative_entry, inputs=[current_room_name, creative_entry_dropdown, creative_notes_editor], outputs=[creative_notes_editor])
+        reload_creative_notes_button.click(fn=ui_handlers.handle_creative_selection, inputs=[current_room_name, creative_entry_dropdown], outputs=[creative_notes_editor])
+        # RAW編集
+        save_creative_raw_button.click(fn=ui_handlers.handle_save_creative_notes, inputs=[current_room_name, creative_notes_raw_editor], outputs=[creative_notes_raw_editor])
+        reload_creative_raw_button.click(fn=ui_handlers.handle_reload_creative_notes, inputs=[current_room_name], outputs=[creative_notes_raw_editor])
+        
         # --- 研究・分析ノートのイベントハンドラ ---
-        save_research_notes_button.click(fn=ui_handlers.handle_save_research_notes, inputs=[current_room_name, research_notes_editor], outputs=[research_notes_editor])
-        reload_research_notes_button.click(fn=ui_handlers.handle_reload_research_notes, inputs=[current_room_name], outputs=[research_notes_editor])
-        clear_research_notes_button.click(fn=ui_handlers.handle_clear_research_notes, inputs=[current_room_name], outputs=[research_notes_editor])
+        refresh_research_notes_button.click(
+            fn=ui_handlers.handle_load_research_entries,
+            inputs=[current_room_name],
+            outputs=[research_year_filter, research_month_filter, research_entry_dropdown, research_notes_raw_editor]
+        )
+        research_year_filter.change(
+            fn=ui_handlers.handle_research_filter_change,
+            inputs=[current_room_name, research_year_filter, research_month_filter],
+            outputs=[research_entry_dropdown]
+        )
+        research_month_filter.change(
+            fn=ui_handlers.handle_research_filter_change,
+            inputs=[current_room_name, research_year_filter, research_month_filter],
+            outputs=[research_entry_dropdown]
+        )
+        research_entry_dropdown.change(
+            fn=ui_handlers.handle_research_selection,
+            inputs=[current_room_name, research_entry_dropdown],
+            outputs=[research_notes_editor]
+        )
+        save_research_notes_button.click(fn=ui_handlers.handle_save_research_entry, inputs=[current_room_name, research_entry_dropdown, research_notes_editor], outputs=[research_notes_editor])
+        reload_research_notes_button.click(fn=ui_handlers.handle_research_selection, inputs=[current_room_name, research_entry_dropdown], outputs=[research_notes_editor])
+        save_research_raw_button.click(fn=ui_handlers.handle_save_research_notes, inputs=[current_room_name, research_notes_raw_editor], outputs=[research_notes_raw_editor])
+        reload_research_raw_button.click(fn=ui_handlers.handle_reload_research_notes, inputs=[current_room_name], outputs=[research_notes_raw_editor])
         alarm_dataframe.select(
             fn=ui_handlers.handle_alarm_selection_for_all_updates,
             inputs=[alarm_dataframe_original_data],

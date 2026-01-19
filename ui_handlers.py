@@ -4007,6 +4007,190 @@ def handle_clear_creative_notes(room_name: str) -> str:
         gr.Info(f"「{room_name}」の創作ノートを空にしました。"); return ""
     except Exception as e: gr.Error(f"創作ノートクリアエラー: {e}"); return f"エラー: {e}"
 
+
+# --- 創作ノート：エントリベースのハンドラ（新規追加） ---
+
+def _parse_notes_entries(content: str) -> list:
+    """
+    タイムスタンプセクションでノートをパースしてエントリリストを返す。
+    形式: --- で始まり、📝 YYYY-MM-DD HH:MM のヘッダーがあるセクション
+    または --- で始まり、[YYYY-MM-DD HH:MM] のヘッダーがあるセクション
+    """
+    import re
+    entries = []
+    
+    # 区切り線でセクションを分割
+    sections = re.split(r'\n---+\n', content)
+    
+    for section in sections:
+        section = section.strip()
+        if not section:
+            continue
+        
+        # タイムスタンプを探す (📝 YYYY-MM-DD HH:MM 形式)
+        match1 = re.search(r'📝\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', section)
+        # [YYYY-MM-DD HH:MM] 形式
+        match2 = re.search(r'\[(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]', section)
+        
+        if match1:
+            date_str = match1.group(1)
+            time_str = match1.group(2)
+            timestamp = f"{date_str} {time_str}"
+            # ヘッダー行を除いたコンテンツ
+            content_start = match1.end()
+            entry_content = section[content_start:].strip()
+        elif match2:
+            date_str = match2.group(1)
+            time_str = match2.group(2)
+            timestamp = f"{date_str} {time_str}"
+            content_start = match2.end()
+            entry_content = section[content_start:].strip()
+        else:
+            # タイムスタンプがない場合はセクション全体を1つのエントリとして扱う
+            timestamp = "日付なし"
+            date_str = ""
+            entry_content = section
+        
+        if entry_content:
+            entries.append({
+                "timestamp": timestamp,
+                "date": date_str,
+                "content": entry_content,
+                "raw_section": section
+            })
+    
+    return entries
+
+
+def handle_load_creative_entries(room_name: str):
+    """創作ノートのエントリを読み込み、UIを更新"""
+    if not room_name:
+        return gr.update(choices=["すべて"]), gr.update(choices=["すべて"]), gr.update(choices=[]), ""
+    
+    content = load_creative_notes_content(room_name)
+    if not content.strip():
+        gr.Info("創作ノートは空です。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), content
+    
+    entries = _parse_notes_entries(content)
+    
+    # 年・月リストを抽出
+    years = set()
+    months = set()
+    choices = []
+    
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        if len(date_str) >= 7:
+            years.add(date_str[:4])
+            months.add(date_str[5:7])
+        
+        # ラベル作成（タイムスタンプ + 内容のプレビュー）
+        preview = entry["content"][:30].replace("\n", " ")
+        if len(entry["content"]) > 30:
+            preview += "..."
+        label = f"{entry['timestamp']} - {preview}"
+        # 値はインデックス（文字列として）
+        choices.append((label, str(i)))
+    
+    year_choices = ["すべて"] + sorted(list(years), reverse=True)
+    month_choices = ["すべて"] + sorted(list(months))
+    
+    gr.Info(f"{len(entries)}件のエントリを読み込みました。")
+    return (
+        gr.update(choices=year_choices, value="すべて"),
+        gr.update(choices=month_choices, value="すべて"),
+        gr.update(choices=choices, value=None),
+        content  # RAWエディタにも反映
+    )
+
+
+def handle_creative_filter_change(room_name: str, year: str, month: str):
+    """創作ノートのフィルタ変更時にドロップダウン選択肢を更新"""
+    if not room_name:
+        return gr.update(choices=[])
+    
+    content = load_creative_notes_content(room_name)
+    entries = _parse_notes_entries(content)
+    
+    choices = []
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        
+        # フィルタ条件チェック
+        match_year = (year == "すべて" or (len(date_str) >= 4 and date_str[:4] == year))
+        match_month = (month == "すべて" or (len(date_str) >= 7 and date_str[5:7] == month))
+        
+        if match_year and match_month:
+            preview = entry["content"][:30].replace("\n", " ")
+            if len(entry["content"]) > 30:
+                preview += "..."
+            label = f"{entry['timestamp']} - {preview}"
+            choices.append((label, str(i)))
+    
+    return gr.update(choices=choices, value=None)
+
+
+def handle_creative_selection(room_name: str, selected_idx: str):
+    """創作ノートのエントリ選択時に詳細を表示"""
+    if not room_name or selected_idx is None:
+        return ""
+    
+    try:
+        idx = int(selected_idx)
+        content = load_creative_notes_content(room_name)
+        entries = _parse_notes_entries(content)
+        
+        if 0 <= idx < len(entries):
+            entry = entries[idx]
+            return entry["content"]
+        return ""
+    except (ValueError, IndexError) as e:
+        print(f"エントリ選択エラー: {e}")
+        return ""
+
+
+def handle_save_creative_entry(room_name: str, selected_idx: str, new_content: str):
+    """選択された創作ノートエントリを保存（エントリ内容のみ更新）"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return new_content
+    
+    if selected_idx is None:
+        gr.Warning("エントリが選択されていません。RAW編集から全文を編集してください。")
+        return new_content
+    
+    try:
+        idx = int(selected_idx)
+        content = load_creative_notes_content(room_name)
+        entries = _parse_notes_entries(content)
+        
+        if 0 <= idx < len(entries):
+            # 元のセクションを新しい内容で置き換え
+            old_section = entries[idx]["raw_section"]
+            # タイムスタンプヘッダーを保持して内容のみ更新
+            timestamp = entries[idx]["timestamp"]
+            if timestamp != "日付なし":
+                new_section = f"📝 {timestamp}\n{new_content.strip()}"
+            else:
+                new_section = new_content.strip()
+            
+            # 全文の中で置き換え
+            updated_content = content.replace(old_section, new_section, 1)
+            
+            path = _get_creative_notes_path(room_name)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(updated_content)
+            
+            gr.Info(f"エントリを保存しました。")
+            return new_content
+        else:
+            gr.Warning("選択されたエントリが見つかりません。")
+            return new_content
+    except Exception as e:
+        gr.Error(f"保存エラー: {e}")
+        return new_content
+
 # --- 研究・分析ノートのハンドラ ---
 def load_research_notes_content(room_name: str) -> str:
     """研究ノートの内容を読み込む"""
@@ -4063,6 +4247,133 @@ def handle_clear_research_notes(room_name: str) -> str:
     except Exception as e:
         gr.Error(f"研究ノートクリアエラー: {e}")
         return f"エラー: {e}"
+
+
+# --- 研究ノート：エントリベースのハンドラ（新規追加） ---
+
+def handle_load_research_entries(room_name: str):
+    """研究ノートのエントリを読み込み、UIを更新"""
+    if not room_name:
+        return gr.update(choices=["すべて"]), gr.update(choices=["すべて"]), gr.update(choices=[]), ""
+    
+    content = load_research_notes_content(room_name)
+    if not content.strip():
+        gr.Info("研究ノートは空です。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), content
+    
+    entries = _parse_notes_entries(content)
+    
+    # 年・月リストを抽出
+    years = set()
+    months = set()
+    choices = []
+    
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        if len(date_str) >= 7:
+            years.add(date_str[:4])
+            months.add(date_str[5:7])
+        
+        # ラベル作成（タイムスタンプ + 内容のプレビュー）
+        preview = entry["content"][:30].replace("\n", " ")
+        if len(entry["content"]) > 30:
+            preview += "..."
+        label = f"{entry['timestamp']} - {preview}"
+        choices.append((label, str(i)))
+    
+    year_choices = ["すべて"] + sorted(list(years), reverse=True)
+    month_choices = ["すべて"] + sorted(list(months))
+    
+    gr.Info(f"{len(entries)}件のエントリを読み込みました。")
+    return (
+        gr.update(choices=year_choices, value="すべて"),
+        gr.update(choices=month_choices, value="すべて"),
+        gr.update(choices=choices, value=None),
+        content  # RAWエディタにも反映
+    )
+
+
+def handle_research_filter_change(room_name: str, year: str, month: str):
+    """研究ノートのフィルタ変更時にドロップダウン選択肢を更新"""
+    if not room_name:
+        return gr.update(choices=[])
+    
+    content = load_research_notes_content(room_name)
+    entries = _parse_notes_entries(content)
+    
+    choices = []
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        
+        match_year = (year == "すべて" or (len(date_str) >= 4 and date_str[:4] == year))
+        match_month = (month == "すべて" or (len(date_str) >= 7 and date_str[5:7] == month))
+        
+        if match_year and match_month:
+            preview = entry["content"][:30].replace("\n", " ")
+            if len(entry["content"]) > 30:
+                preview += "..."
+            label = f"{entry['timestamp']} - {preview}"
+            choices.append((label, str(i)))
+    
+    return gr.update(choices=choices, value=None)
+
+
+def handle_research_selection(room_name: str, selected_idx: str):
+    """研究ノートのエントリ選択時に詳細を表示"""
+    if not room_name or selected_idx is None:
+        return ""
+    
+    try:
+        idx = int(selected_idx)
+        content = load_research_notes_content(room_name)
+        entries = _parse_notes_entries(content)
+        
+        if 0 <= idx < len(entries):
+            entry = entries[idx]
+            return entry["content"]
+        return ""
+    except (ValueError, IndexError) as e:
+        print(f"エントリ選択エラー: {e}")
+        return ""
+
+
+def handle_save_research_entry(room_name: str, selected_idx: str, new_content: str):
+    """選択された研究ノートエントリを保存（エントリ内容のみ更新）"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return new_content
+    
+    if selected_idx is None:
+        gr.Warning("エントリが選択されていません。RAW編集から全文を編集してください。")
+        return new_content
+    
+    try:
+        idx = int(selected_idx)
+        content = load_research_notes_content(room_name)
+        entries = _parse_notes_entries(content)
+        
+        if 0 <= idx < len(entries):
+            old_section = entries[idx]["raw_section"]
+            timestamp = entries[idx]["timestamp"]
+            if timestamp != "日付なし":
+                new_section = f"[{timestamp}] 研究記録\n{new_content.strip()}"
+            else:
+                new_section = new_content.strip()
+            
+            updated_content = content.replace(old_section, new_section, 1)
+            
+            _, _, _, _, _, research_notes_path = room_manager.get_room_files_paths(room_name)
+            with open(research_notes_path, "w", encoding="utf-8") as f:
+                f.write(updated_content)
+            
+            gr.Info(f"エントリを保存しました。")
+            return new_content
+        else:
+            gr.Warning("選択されたエントリが見つかりません。")
+            return new_content
+    except Exception as e:
+        gr.Error(f"保存エラー: {e}")
+        return new_content
 
 def render_alarms_as_dataframe():
     alarms = sorted(alarm_manager.load_alarms(), key=lambda x: x.get("time", "")); all_rows = []
