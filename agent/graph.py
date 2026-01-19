@@ -1332,6 +1332,15 @@ def agent_node(state: AgentState):
         # --- [リトライ機構] 空応答（ANOMALY）対策 ---
         max_agent_retries = 2
         
+        # --- 【2026-01-19 FIX】Gemini 3 Flash デッドロック対策 ---
+        # Gemini 3 Flash Preview + ツール使用 + ストリーミングの組み合わせで
+        # APIがハングアップする問題への対策として、該当モデル使用時はストリーミングを無効化
+        is_gemini_3_flash = "gemini-3-flash" in state.get('model_name', '').lower()
+        use_streaming = not (is_gemini_3_flash and state.get('tool_use_enabled', True))
+        
+        if not use_streaming:
+            print(f"  - [Gemini 3 Flash] LLM呼び出しをinvokeモードに切り替え（ストリーミング無効化）")
+        
         for attempt in range(max_agent_retries + 1):
             try:
                 if attempt > 0:
@@ -1339,18 +1348,42 @@ def agent_node(state: AgentState):
                     # 少し待機（通信の安定化を期待）
                     time.sleep(1)
 
-                print(f"  - AIモデルにリクエストを送信中 (Streaming)... [試行 {attempt + 1}]")
                 stream_start_time = time.time()
                 
                 chunks = []
-                # ... (ストリーム受信)
-                try:
-                    for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
-                        chunks.append(chunk)
-                except Exception as e:
-                    print(f"--- [警告] ストリーミング中に例外が発生しました: {e} ---")
-                    if not chunks: raise e
+                merged_chunk = None
+                
+                if use_streaming:
+                    # --- 通常のストリーミングモード ---
+                    print(f"  - AIモデルにリクエストを送信中 (Streaming)... [試行 {attempt + 1}]")
+                    try:
+                        for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
+                            chunks.append(chunk)
+                    except Exception as e:
+                        print(f"--- [警告] ストリーミング中に例外が発生しました: {e} ---")
+                        if not chunks: raise e
+                    
+                    if chunks:
+                        total_stream_time = time.time() - stream_start_time
+                        print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
+                        # チャンクの結合
+                        merged_chunk = chunks[0]
+                        for c in chunks[1:]: merged_chunk += c
+                else:
+                    # --- Gemini 3 Flash用 非ストリーミングモード ---
+                    print(f"  - AIモデルにリクエストを送信中 (Invoke)... [試行 {attempt + 1}]")
+                    try:
+                        response_direct = llm_or_llm_with_tools.invoke(messages_for_agent)
+                        # invokeの結果をchunks形式に変換（既存ロジックとの互換性維持）
+                        chunks = [response_direct]
+                        merged_chunk = response_direct
+                        total_invoke_time = time.time() - stream_start_time
+                        print(f"  - Invoke完了: 合計{total_invoke_time:.2f}秒")
+                    except Exception as e:
+                        print(f"--- [警告] Invoke中に例外が発生しました: {e} ---")
+                        raise e
 
+                # --- 空チェック（両モード共通）---
                 if not chunks:
                     if attempt < max_agent_retries:
                         continue # 次の試行へ
@@ -1359,13 +1392,6 @@ def agent_node(state: AgentState):
                     response_metadata = {}
                     additional_kwargs = {}
                 else:
-                    total_stream_time = time.time() - stream_start_time
-                    print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
-
-                    # チャンクの結合
-                    merged_chunk = chunks[0]
-                    for c in chunks[1:]: merged_chunk += c
-                    
                     all_tool_calls_chunks = getattr(merged_chunk, "tool_calls", [])
                     response_metadata = getattr(merged_chunk, "response_metadata", {}) or {}
                     additional_kwargs = getattr(merged_chunk, "additional_kwargs", {}) or {}
