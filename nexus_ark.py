@@ -1952,20 +1952,50 @@ try:
 
                         # --- 日記 (Accordion) ---
                         with gr.Accordion("📝 主観的記憶（日記）", open=False) as memory_main_accordion:
-                            memory_txt_editor = gr.Textbox(
-                                label="memory_main.txt",
-                                interactive=True,
-                                elem_id="memory_txt_editor_code",
-                                lines=20, # 行数を増やして視認性向上
-                                max_lines=30, # max_linesを設定してスクロールバーを誘導
-                                autoscroll=True
-                            )
+                            gr.Markdown("ペルソナの主観的な記録です。感情、思考、重要な出来事を書き留めます。")
                             with gr.Row():
-                                save_memory_button = gr.Button("保存", variant="secondary")
-                                reload_memory_button = gr.Button("再読込", variant="secondary")
-                                core_memory_update_button = gr.Button("コアメモリを更新", variant="primary")
+                                refresh_diary_button = gr.Button("📚 エントリを読み込む", variant="primary")
+                                core_memory_update_button = gr.Button("コアメモリを更新", variant="secondary")
                             
-                            # --- 古い日記のアーカイブ (主観的記憶の中へ移動) ---
+                            with gr.Row():
+                                diary_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                                diary_month_filter = gr.Dropdown(label="月で絞り込む", choices=["すべて"], value="すべて", scale=1)
+                            
+                            with gr.Row():
+                                with gr.Column(scale=1):
+                                    diary_entry_dropdown = gr.Dropdown(
+                                        label="エントリを選択",
+                                        choices=[],
+                                        interactive=True,
+                                        info="最新のエントリが上に表示されます"
+                                    )
+                                with gr.Column(scale=2):
+                                    memory_txt_editor = gr.Textbox(
+                                        label="エントリの内容",
+                                        interactive=True,
+                                        elem_id="memory_txt_editor_code",
+                                        lines=15,
+                                        max_lines=20,
+                                        placeholder="エントリを選択するか、「RAW編集」で直接編集してください"
+                                    )
+                            
+                            with gr.Row():
+                                save_memory_button = gr.Button("選択エントリを保存", variant="secondary")
+                                reload_memory_button = gr.Button("再読込", variant="secondary")
+                            
+                            with gr.Accordion("📝 RAW編集（全文）", open=False):
+                                diary_raw_editor = gr.Textbox(
+                                    label="memory_main.txt 全文",
+                                    interactive=True,
+                                    lines=15,
+                                    max_lines=25,
+                                    placeholder="ファイル全体を直接編集できます"
+                                )
+                                with gr.Row():
+                                    save_diary_raw_button = gr.Button("RAW全文を保存", variant="primary")
+                                    reload_diary_raw_button = gr.Button("RAW再読込", variant="secondary")
+                            
+                            # --- 古い日記のアーカイブ ---
                             with gr.Accordion("📦 古い日記をアーカイブする", open=False) as memory_archive_accordion:
                                 gr.Markdown(
                                     "指定した日付**まで**の日記を要約し、別ファイルに保存して、このメインファイルから削除します。\n"
@@ -3304,8 +3334,36 @@ try:
 
         save_prompt_button.click(fn=ui_handlers.handle_save_system_prompt, inputs=[current_room_name, system_prompt_editor], outputs=None)
         reload_prompt_button.click(fn=ui_handlers.handle_reload_system_prompt, inputs=[current_room_name], outputs=[system_prompt_editor])
-        save_memory_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_room_name, memory_txt_editor], outputs=[memory_txt_editor])
-        reload_memory_button.click(fn=ui_handlers.handle_reload_memory, inputs=[current_room_name], outputs=[memory_txt_editor, archive_date_dropdown])
+        # --- 主観的記憶（日記）のイベントハンドラ ---
+        # エントリ読み込み → 年・月フィルタと日付リストを更新
+        refresh_diary_button.click(
+            fn=ui_handlers.handle_load_diary_entries,
+            inputs=[current_room_name],
+            outputs=[diary_year_filter, diary_month_filter, diary_entry_dropdown, diary_raw_editor]
+        )
+        # フィルタ変更時 → ドロップダウン選択肢を更新
+        diary_year_filter.change(
+            fn=ui_handlers.handle_diary_filter_change,
+            inputs=[current_room_name, diary_year_filter, diary_month_filter],
+            outputs=[diary_entry_dropdown]
+        )
+        diary_month_filter.change(
+            fn=ui_handlers.handle_diary_filter_change,
+            inputs=[current_room_name, diary_year_filter, diary_month_filter],
+            outputs=[diary_entry_dropdown]
+        )
+        # エントリ選択時 → 詳細表示
+        diary_entry_dropdown.change(
+            fn=ui_handlers.handle_diary_selection,
+            inputs=[current_room_name, diary_entry_dropdown],
+            outputs=[memory_txt_editor]
+        )
+        # 保存・再読込
+        save_memory_button.click(fn=ui_handlers.handle_save_diary_entry, inputs=[current_room_name, diary_entry_dropdown, memory_txt_editor], outputs=[memory_txt_editor])
+        reload_memory_button.click(fn=ui_handlers.handle_diary_selection, inputs=[current_room_name, diary_entry_dropdown], outputs=[memory_txt_editor])
+        # RAW編集
+        save_diary_raw_button.click(fn=ui_handlers.handle_save_memory_click, inputs=[current_room_name, diary_raw_editor], outputs=[diary_raw_editor])
+        reload_diary_raw_button.click(fn=ui_handlers.handle_reload_memory_raw, inputs=[current_room_name], outputs=[diary_raw_editor, archive_date_dropdown])
         save_notepad_button.click(fn=ui_handlers.handle_save_notepad_click, inputs=[current_room_name, notepad_editor], outputs=[notepad_editor])
         reload_notepad_button.click(fn=ui_handlers.handle_reload_notepad, inputs=[current_room_name], outputs=[notepad_editor])
         clear_notepad_button.click(fn=ui_handlers.handle_clear_notepad_click, inputs=[current_room_name], outputs=[notepad_editor])

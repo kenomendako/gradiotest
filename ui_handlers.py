@@ -3260,6 +3260,223 @@ def handle_reload_memory(room_name: str) -> Tuple[str, gr.update]:
 
     return memory_content, date_dropdown_update
 
+
+# --- 主観的記憶（日記）のRAW再読込 ---
+def handle_reload_memory_raw(room_name: str) -> Tuple[str, gr.update]:
+    """日記のRAWエディタ用に全文を読み込む"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return "", gr.update(choices=[], value=None)
+
+    gr.Info(f"「{room_name}」の日記を再読み込みしました。")
+
+    memory_content = ""
+    _, _, _, memory_txt_path, _, _ = get_room_files_paths(room_name)
+    if memory_txt_path and os.path.exists(memory_txt_path):
+        with open(memory_txt_path, "r", encoding="utf-8") as f:
+            memory_content = f.read()
+
+    new_dates = _get_date_choices_from_memory(room_name)
+    date_dropdown_update = gr.update(choices=new_dates, value=new_dates[0] if new_dates else None)
+
+    return memory_content, date_dropdown_update
+
+
+# --- 主観的記憶（日記）：エントリベースのハンドラ（新規追加） ---
+
+def _parse_diary_entries(content: str) -> list:
+    """
+    日記からタイムスタンプセクションをパースしてエントリリストを返す。
+    形式: ### YYYY-MM-DD や ** YYYY-MM-DD ** などの見出し
+    """
+    entries = []
+    
+    # 日付パターン（様々な形式に対応）
+    # ### 2026-01-15 形式
+    # ** 2026-01-15 ** 形式
+    # 2026-01-15 のみの行
+    date_pattern = re.compile(r'^(?:###|\*\*|##)?\s*(\d{4}-\d{2}-\d{2})(?:\s*\*\*)?.*$', re.MULTILINE)
+    
+    # 日付でセクションを分割
+    matches = list(date_pattern.finditer(content))
+    
+    for i, match in enumerate(matches):
+        date_str = match.group(1)
+        start_pos = match.start()
+        
+        # 次のマッチまでまたは終端まで
+        if i + 1 < len(matches):
+            end_pos = matches[i + 1].start()
+        else:
+            end_pos = len(content)
+        
+        section = content[start_pos:end_pos].strip()
+        # 見出し行を除いたコンテンツ
+        header_end = match.end() - match.start()
+        entry_content = section[header_end:].strip()
+        
+        if entry_content:
+            entries.append({
+                "timestamp": date_str,
+                "date": date_str,
+                "content": entry_content,
+                "raw_section": section
+            })
+    
+    return entries
+
+
+def handle_load_diary_entries(room_name: str):
+    """日記のエントリを読み込み、UIを更新"""
+    if not room_name:
+        return gr.update(choices=["すべて"]), gr.update(choices=["すべて"]), gr.update(choices=[]), ""
+    
+    _, _, _, memory_txt_path, _, _ = get_room_files_paths(room_name)
+    if not memory_txt_path or not os.path.exists(memory_txt_path):
+        gr.Info("日記はまだありません。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), ""
+    
+    with open(memory_txt_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    
+    if not content.strip():
+        gr.Info("日記は空です。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), content
+    
+    entries = _parse_diary_entries(content)
+    
+    if not entries:
+        # エントリが見つからない場合は全文を1エントリとして扱う
+        gr.Info("日付形式のエントリが見つかりません。RAW編集を使用してください。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), content
+    
+    # 年・月リストを抽出
+    years = set()
+    months = set()
+    choices = []
+    
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        if len(date_str) >= 7:
+            years.add(date_str[:4])
+            months.add(date_str[5:7])
+        
+        # ラベル作成
+        preview = entry["content"][:30].replace("\n", " ")
+        if len(entry["content"]) > 30:
+            preview += "..."
+        label = f"{date_str} - {preview}"
+        choices.append((label, str(i)))
+    
+    year_choices = ["すべて"] + sorted(list(years), reverse=True)
+    month_choices = ["すべて"] + sorted(list(months))
+    
+    gr.Info(f"{len(entries)}件のエントリを読み込みました。")
+    return (
+        gr.update(choices=year_choices, value="すべて"),
+        gr.update(choices=month_choices, value="すべて"),
+        gr.update(choices=choices, value=None),
+        content  # RAWエディタにも反映
+    )
+
+
+def handle_diary_filter_change(room_name: str, year: str, month: str):
+    """日記のフィルタ変更時にドロップダウン選択肢を更新"""
+    if not room_name:
+        return gr.update(choices=[])
+    
+    _, _, _, memory_txt_path, _, _ = get_room_files_paths(room_name)
+    if not memory_txt_path or not os.path.exists(memory_txt_path):
+        return gr.update(choices=[])
+    
+    with open(memory_txt_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    
+    entries = _parse_diary_entries(content)
+    
+    choices = []
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        
+        match_year = (year == "すべて" or (len(date_str) >= 4 and date_str[:4] == year))
+        match_month = (month == "すべて" or (len(date_str) >= 7 and date_str[5:7] == month))
+        
+        if match_year and match_month:
+            preview = entry["content"][:30].replace("\n", " ")
+            if len(entry["content"]) > 30:
+                preview += "..."
+            label = f"{date_str} - {preview}"
+            choices.append((label, str(i)))
+    
+    return gr.update(choices=choices, value=None)
+
+
+def handle_diary_selection(room_name: str, selected_idx: str):
+    """日記のエントリ選択時に詳細を表示"""
+    if not room_name or selected_idx is None:
+        return ""
+    
+    try:
+        idx = int(selected_idx)
+        _, _, _, memory_txt_path, _, _ = get_room_files_paths(room_name)
+        if not memory_txt_path or not os.path.exists(memory_txt_path):
+            return ""
+        
+        with open(memory_txt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        entries = _parse_diary_entries(content)
+        
+        if 0 <= idx < len(entries):
+            entry = entries[idx]
+            return entry["content"]
+        return ""
+    except (ValueError, IndexError) as e:
+        print(f"日記エントリ選択エラー: {e}")
+        return ""
+
+
+def handle_save_diary_entry(room_name: str, selected_idx: str, new_content: str):
+    """選択された日記エントリを保存（エントリ内容のみ更新）"""
+    if not room_name:
+        gr.Warning("ルームが選択されていません。")
+        return new_content
+    
+    if selected_idx is None:
+        gr.Warning("エントリが選択されていません。RAW編集から全文を編集してください。")
+        return new_content
+    
+    try:
+        idx = int(selected_idx)
+        _, _, _, memory_txt_path, _, _ = get_room_files_paths(room_name)
+        if not memory_txt_path or not os.path.exists(memory_txt_path):
+            return new_content
+        
+        with open(memory_txt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        
+        entries = _parse_diary_entries(content)
+        
+        if 0 <= idx < len(entries):
+            old_section = entries[idx]["raw_section"]
+            date_str = entries[idx]["date"]
+            # 日付ヘッダーを保持して内容のみ更新
+            new_section = f"### {date_str}\n{new_content.strip()}"
+            
+            updated_content = content.replace(old_section, new_section, 1)
+            
+            with open(memory_txt_path, "w", encoding="utf-8") as f:
+                f.write(updated_content)
+            
+            gr.Info(f"日記エントリを保存しました。")
+            return new_content
+        else:
+            gr.Warning("選択されたエントリが見つかりません。")
+            return new_content
+    except Exception as e:
+        gr.Error(f"保存エラー: {e}")
+        return new_content
+
 def _get_date_choices_from_memory(room_name: str) -> List[str]:
     """memory_main.txtの日記セクションから日付見出しを抽出する。"""
     if not room_name:
