@@ -1,6 +1,6 @@
 # Gemini 3 Flash 設定ガイド
 
-> **最終更新**: 2025-12-23
+> **最終更新**: 2026-01-20
 > **対象モデル**: `gemini-3-flash-preview`
 
 ## 概要
@@ -64,10 +64,11 @@ thinking_level = "high"      # 深い思考（遅延増加）
 
 `thinking_level` を設定する場合、温度は **1.0** が推奨されます。低い温度（0や0.8など）では遅延や空応答が発生する可能性があります。
 
-### 3. `include_thoughts`（渡さない）
+### 3. `include_thoughts`（2026-01-20 更新：設定必須）
 
-Gemini 3 Flash は `include_thoughts=True` を**サポートしていません**。思考トークンは返されません。
-このパラメータを渡すと不安定な挙動を引き起こす可能性があるため、**渡さないでください**。
+> ⚠️ **重要な変更（2026-01-20）**: 以前は「サポートなし」と記載していましたが、**設定しないと思考のみで終わった場合に完全な空応答になる**ことが判明しました。
+
+`include_thoughts=True` を設定することで、万が一テキスト生成がスキップされた場合でも思考内容を取得できます。
 
 ---
 
@@ -115,25 +116,27 @@ GEMINI3_FLATTEN_MAX = 0   # システムプロンプトに埋め込む件数（0
 
 ---
 
-## 推奨設定
+## 推奨設定（2026-01-20 更新）
 
 ### Nexus Ark での設定
 
 | 設定項目 | 推奨値 | 備考 |
 |---------|--------|------|
-| 思考レベル | `high` | 複雑なペルソナには必須。`auto` は内部で `high` に変換 |
+| 思考レベル | `minimal` | **安定動作のため必須**。`medium`以上だと思考のみで終わる可能性あり |
 | 温度 | 1.0 | 自動設定される |
+| include_thoughts | `True` | 思考内容の救出用 |
 | APIへの履歴送信 | 任意 | 内部で最新2件に制限 |
 
+> ⚠️ **注意**: 以前は `thinking_level="high"` を推奨していましたが、2026-01-20の調査で「思考のみで応答が空になる」問題が判明。`minimal` が正解です。
 
 ### コードでの設定
 
 ```python
 llm = ChatGoogleGenerativeAI(
     model="gemini-3-flash-preview",
-    thinking_level="minimal",  # 必須
-    temperature=1.0,           # 推奨
-    # include_thoughts は渡さない
+    thinking_level="minimal",     # 必須（minimalが安定）
+    include_thoughts=True,         # 思考救出用（必須）
+    temperature=1.0,               # 推奨
 )
 ```
 
@@ -218,4 +221,5 @@ characters/<ルーム名>/private/thought_signatures.json
 
 ## 変更履歴
 
+- **2026-01-20**: `thinking_level` 推奨値を `minimal` に変更。`include_thoughts=True` を必須に変更。「思考のみで応答が空になる」問題への対策を追記。
 - **2025-12-23**: 初版作成。Gemini 3 Flash の必須パラメータと設定を文書化。

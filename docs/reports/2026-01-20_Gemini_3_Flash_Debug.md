@@ -29,8 +29,9 @@ Gemini 3 Flash は Thinking を行うと、`content` を単純な文字列では
 - これにより「沈黙」を回避し、AIの思考プロセスを可視化した。
 
 ### 3. Thinking パラメータの最適化
-- `thinking_level="medium"`: 深い思考と応答速度のバランスを確保。
+- `thinking_level="minimal"`: **最終的にこれが正解**。Medium以上だと思考のみで応答が空になる。
 - `include_thoughts=True`: Gemini 3 Flash でも思考内容をクライアントに送信するように設定（これをしないと救出ロジックが動かない）。
+- `temperature=1.0`: 必須。
 
 ---
 
@@ -53,4 +54,14 @@ Gemini 3 Flash は Thinking を行うと、`content` を単純な文字列では
 ## 結論
 
 Gemini 3 Flash は「Thinking Model」として扱う必要があり、従来のテキスト生成モデルとは異なるアプローチ（思考データの開示と救出）が不可欠である。
-今回の改修により、Nexus Ark はこの新しいパラダイムに対応した。
+
+**最終的な推奨設定:**
+
+| 設定 | 値 | 理由 |
+|------|-----|------|
+| `thinking_level` | `minimal` | Medium以上だと思考のみで終わる |
+| `include_thoughts` | `True` | 思考内容の救出用 |
+| `temperature` | `1.0` | 必須 |
+| AFC | `disable=True` via `llm.bind()` | デッドロック回避 |
+
+この設定で、ツール使用を含めた完全な動作が確認された（6〜10秒で応答）。
