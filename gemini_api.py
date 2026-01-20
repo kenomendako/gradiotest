@@ -1395,16 +1395,19 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         # 【重要】2025-12-23 発見:
         # 複雑なシステムプロンプト（詳細なペルソナ、ツール定義等）を持つルームでは、
         # minimal/low では推論能力が不足し、空の応答が返される。
-        # → デフォルトを 'high' に設定する。ユーザーが明示的に指定した場合はそれを尊重。
+        # 
+        # 【2026-01-20 修正】
+        # high では「思考のみで出力なし」（reasoning tokens only, no text output）が発生。
+        # medium が最もバランスが良い。
+        # - auto/none: 自動的に 'medium' を選択（推奨）
+        # - ユーザーが明示的に指定した場合: その設定を尊重（自己責任）
         if thinking_level == "auto" or thinking_level == "none":
-            # デフォルトは 'high'（複雑なプロンプトへの対応力を優先）
-            extra_params["thinking_level"] = "high"
+            extra_params["thinking_level"] = "medium"  # 推奨デフォルト
         elif thinking_level in ["minimal", "low", "medium", "high"]:
-            extra_params["thinking_level"] = thinking_level
+            extra_params["thinking_level"] = thinking_level  # ユーザー指定を尊重
         else:
-            extra_params["thinking_level"] = "high"
+            extra_params["thinking_level"] = "medium"  # 不正値のフォールバック
 
-        
         # Flash では include_thoughts はサポートされないので渡さない
         # 温度は thinking_level 設定時は 1.0 が推奨
         effective_temp = 1.0

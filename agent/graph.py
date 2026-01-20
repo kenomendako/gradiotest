@@ -1341,6 +1341,20 @@ def agent_node(state: AgentState):
         if not use_streaming:
             print(f"  - [Gemini 3 Flash] LLM呼び出しをinvokeモードに切り替え（ストリーミング無効化）")
         
+        # --- 【デバッグ】リクエストサイズ診断 ---
+        total_content_len = 0
+        for msg in messages_for_agent:
+            if hasattr(msg, 'content'):
+                if isinstance(msg.content, str):
+                    total_content_len += len(msg.content)
+                elif isinstance(msg.content, list):
+                    for part in msg.content:
+                        if isinstance(part, dict) and 'text' in part:
+                            total_content_len += len(part.get('text', ''))
+        num_tools = len(all_tools) if state.get('tool_use_enabled', True) else 0
+        print(f"  - [Request Size] メッセージ数: {len(messages_for_agent)}, 総文字数: {total_content_len:,}, ツール数: {num_tools}")
+
+        
         for attempt in range(max_agent_retries + 1):
             try:
                 if attempt > 0:
@@ -1379,6 +1393,7 @@ def agent_node(state: AgentState):
                         merged_chunk = response_direct
                         total_invoke_time = time.time() - stream_start_time
                         print(f"  - Invoke完了: 合計{total_invoke_time:.2f}秒")
+                        
                     except Exception as e:
                         print(f"--- [警告] Invoke中に例外が発生しました: {e} ---")
                         raise e
