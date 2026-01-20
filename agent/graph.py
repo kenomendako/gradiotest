@@ -1510,6 +1510,7 @@ def agent_node(state: AgentState):
                             print(f"  - [DEBUG-ANOMALY-DUMP] content: {repr(merged_chunk.content)}")
                             print(f"  - [DEBUG-ANOMALY-DUMP] additional_kwargs: {merged_chunk.additional_kwargs}")
                             print(f"  - [DEBUG-ANOMALY-DUMP] response_metadata: {merged_chunk.response_metadata}")
+                            print(f"  - [DEBUG-ANOMALY-DUMP] usage_metadata: {merged_chunk.usage_metadata}")
 
                         if attempt < max_agent_retries:
                             continue # 次の試行へ

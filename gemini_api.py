@@ -1402,11 +1402,13 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         # - auto/none: 自動的に 'medium' を選択（推奨）
         # - ユーザーが明示的に指定した場合: その設定を尊重（自己責任）
         if thinking_level == "auto" or thinking_level == "none":
-            extra_params["thinking_level"] = "medium"  # 推奨デフォルト
+            # extra_params["thinking_level"] = "medium"  # 推奨デフォルト
+            # extra_params["thinking_level"] = "low"  # 空応答対策のためLowに変更
+            extra_params["thinking_level"] = "minimal"  # 思考のみ応答対策のためMinimalに変更
         elif thinking_level in ["minimal", "low", "medium", "high"]:
             extra_params["thinking_level"] = thinking_level  # ユーザー指定を尊重
         else:
-            extra_params["thinking_level"] = "medium"  # 不正値のフォールバック
+            extra_params["thinking_level"] = "minimal"  # 不正値のフォールバック
 
         # Flash でも include_thoughts=True を試す（空応答時に思考内容を取得するため）
         # 温度は thinking_level 設定時は 1.0 が推奨
