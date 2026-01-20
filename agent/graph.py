@@ -1199,9 +1199,19 @@ def agent_node(state: AgentState):
 
     # --- [Dual-State Architecture] 復元ロジック ---
     # Gemini 3の思考署名を復元（LangChainが期待するキー名を使用）
-    turn_context = signature_manager.get_turn_context(current_room)
-    stored_gemini_signatures = turn_context.get("gemini_function_call_thought_signatures")
-    stored_tool_calls = turn_context.get("last_tool_calls")
+    # 【2026-01-20】Gemini 3 Flash では署名復元が空応答の原因となる可能性があるためスキップ
+    is_gemini_3_flash = "gemini-3-flash" in state.get('model_name', '').lower()
+    
+    if is_gemini_3_flash:
+        # Gemini 3 Flash: 署名復元をスキップ（Proとは異なる動作）
+        stored_gemini_signatures = None
+        stored_tool_calls = None
+        if state.get("debug_mode", False):
+            print(f"  - [Gemini 3 Flash] 署名復元をスキップ")
+    else:
+        turn_context = signature_manager.get_turn_context(current_room)
+        stored_gemini_signatures = turn_context.get("gemini_function_call_thought_signatures")
+        stored_tool_calls = turn_context.get("last_tool_calls")
     
     # デバッグ: 署名復元プロセスの確認
     if state.get("debug_mode", False):
@@ -1386,6 +1396,24 @@ def agent_node(state: AgentState):
                 else:
                     # --- Gemini 3 Flash用 非ストリーミングモード ---
                     print(f"  - AIモデルにリクエストを送信中 (Invoke)... [試行 {attempt + 1}]")
+                    
+                    # --- 【DEBUG】ツール実行後のメッセージ構造確認 ---
+                    if is_gemini_3_flash and any(isinstance(m, ToolMessage) for m in messages_for_agent):
+                        print(f"  - [DEBUG TOOL] ツール実行後のメッセージを送信中")
+                        for idx, msg in enumerate(messages_for_agent[-5:]):  # 最後の5メッセージ
+                            real_idx = len(messages_for_agent) - 5 + idx
+                            if real_idx >= 0:
+                                msg_type = type(msg).__name__
+                                content_preview = str(msg.content)[:80] if hasattr(msg, 'content') else 'N/A'
+                                artifact = getattr(msg, 'artifact', None)
+                                tool_calls = getattr(msg, 'tool_calls', None)
+                                print(f"    [{real_idx}] {msg_type}: content={content_preview}...")
+                                if artifact:
+                                    print(f"         artifact={artifact}")
+                                if tool_calls:
+                                    print(f"         tool_calls={[tc.get('name') for tc in tool_calls]}")
+                    # --- DEBUG END ---
+                    
                     try:
                         response_direct = llm_or_llm_with_tools.invoke(messages_for_agent)
                         # invokeの結果をchunks形式に変換（既存ロジックとの互換性維持）
@@ -1913,8 +1941,12 @@ def safe_tool_executor(state: AgentState):
     # --- [Thinkingモデル対応] ToolMessageへの署名注入 ---
     tool_msg = ToolMessage(content=str(output), tool_call_id=tool_call["id"], name=tool_name)
     
-    if current_signature:
+    # 【2026-01-20】Gemini 3 Flash では artifact への署名付与をスキップ
+    is_gemini_3_flash = "gemini-3-flash" in state.get('model_name', '').lower()
+    
+    if current_signature and not is_gemini_3_flash:
         # LangChain Google GenAI の実装によっては artifact を使う可能性がある
+        # ※ Gemini 3 Flash では署名が空応答の原因となる可能性があるためスキップ
         tool_msg.artifact = {"thought_signature": current_signature}
         print(f"  - [Thinking] ツール実行結果に署名を付与しました。")
 
