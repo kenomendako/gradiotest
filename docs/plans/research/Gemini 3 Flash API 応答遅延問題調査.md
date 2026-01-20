@@ -23,3 +23,22 @@ response = agent_executor.invoke(
 # history.append(response) # responseはinvokeの戻り値そのもの
 7.3 ライブラリ依存関係の最適化langchain-google-genai および google-genai SDKのバージョンが古いと、Thought Signatureの自動処理や thinking_level のバリデーションに対応していない。推奨アクション:最新バージョンへのアップデートを行う。特に2025年1月以降のリリース（v4.2.0以上など）が推奨される 14。Bashpip install -U langchain-google-genai google-genai langgraph
 また、thinking_level の設定でエラーが出る場合は、一時的に設定を外すか、警告を無視して thinking_budget（Gemini 2.5用だが互換性がある場合がある）を試すのではなく、デフォルト（High）を受け入れてTemperature修正だけで改善するか確認する。8. 結論と今後の展望Gemini 3 Flashにおける応答遅延とタイムアウト現象は、単なるネットワークの問題ではなく、**「Thinking Modelとしての新しい作法（Temperature >= 1.0, Thought Signature）」と「Preview版APIの実装バグ（Streaming + Tools）」**の複合要因であると結論付けられる。ユーザーへの提言は以下の3点に集約される。Temperature設定の見直し: エージェントの慣習を捨て、temperature=1.0 を厳守する。これが「5分間の遅延」に対する最も直接的な解である可能性が高い。ストリーミングの回避: Gemini 3 Flash Previewのバグが修正されるまで、ツール併用時はストリーミングを無効化（stream=False）し、一括応答方式に切り替える。ライブラリの更新: LangChain関連ライブラリを最新化し、Thought Signatureの欠落による400エラーを防ぐ。Gemini 3 Flashは、適切に設定されれば、Gemini 3 Proに匹敵する推論能力を、より低いコストと（潜在的には）高いスループットで提供する強力なモデルである。本調査で明らかになった「落とし穴」を回避することで、その真価をGradio環境下でも発揮させることが可能となるはずである。
+# 【2026-01-20 追記】Gemini 3 Flash 動作改善の決定打
+
+実装レベルの調査と実験により、Gemini 3 Flash のタイムアウト・空応答問題の完全な原因と解決策が特定された。
+
+## 1. Automatic Function Calling (AFC) の強制無効化
+SDKのデフォルト挙動である Automatic Function Calling (AFC) が、LangGraphのツール実行ループと衝突し、503エラーやデッドロックを引き起こしていた。
+LangChainの `ChatGoogleGenerativeAI` コンストラクタでは `model_kwargs` 経由の設定が効きにくい現象があり、実行時に `llm.bind()` を用いて明示的に `automatic_function_calling=Config(disable=True)` を注入することで解決した。
+
+## 2. Thinking Process のデータ構造正規化
+Gemini 3 Flash は Thinking を行うと、`content` フィールドを単純な文字列ではなく、**思考署名（Thought Signature）を含む辞書のリスト**として返す仕様であることが判明した。
+例：`[{'type': 'text', 'text': '...', 'extras': {'signature': '...'}}]`
+LangChainやNexus Arkの既存ロジックは文字列を期待しているため、このリストを受け取ると「空応答」と誤認して破棄していた。
+解決策として、`invoke` 直後にレスポンスの `content` がリストであれば、そこからテキスト部分を抽出・結合して通常の文字列に書き換える **正規化処理（Normalization）** を実装した。
+
+## 3. Thinking Level の調整
+上記正規化により、`thinking_level='medium'` でも正常に応答が得られるようになった。`low` 設定では逆に思考不足により空テキストが生成されるケースが確認されたため、推奨設定である `medium` + `temperature=1.0` を採用した。
+
+## 結論
+Gemini 3 Flash は「Thinking機能付きの特殊モデル」として扱う必要があり、**レスポンスの正規化** と **AFCの無効化** が必須要件である。これらを実装することで、ツール機能を含めた完全な動作が可能となる。

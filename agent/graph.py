@@ -1283,8 +1283,22 @@ def agent_node(state: AgentState):
         room_name=state['room_name']  # ルーム個別のプロバイダ設定を使用
     )
     
+    # --- 【2026-01-20】Gemini 3 Flash: Automatic Function Calling (AFC) 無効化 ---
+    # llm.bind() を使って invoke 時にパラメータを注入する。
+    # コンストラクタで渡すと model_kwargs に格納されて無視されるため、この方法が必須。
+    if is_gemini_3_flash:
+        try:
+            from google.genai import types as genai_types
+            afc_config = genai_types.AutomaticFunctionCallingConfig(disable=True)
+            llm = llm.bind(automatic_function_calling=afc_config)
+            print("  - [Gemini 3 Flash] Automatic Function Calling (AFC) を無効化 (via llm.bind)")
+        except ImportError:
+            print("  - [警告] AFC無効化設定の作成に失敗 (ImportError)")
+
     # 【ツール不使用モード】ツール使用の有効/無効に応じて分岐
     tool_use_enabled = state.get('tool_use_enabled', True)
+
+
     
     if tool_use_enabled:
         llm_or_llm_with_tools = llm.bind_tools(all_tools)
@@ -1342,44 +1356,38 @@ def agent_node(state: AgentState):
         # --- [リトライ機構] 空応答（ANOMALY）対策 ---
         max_agent_retries = 2
         
-        # --- 【2026-01-19 FIX】Gemini 3 Flash デッドロック対策 ---
-        # Gemini 3 Flash Preview + ツール使用 + ストリーミングの組み合わせで
-        # APIがハングアップする問題への対策として、該当モデル使用時はストリーミングを無効化
-        is_gemini_3_flash = "gemini-3-flash" in state.get('model_name', '').lower()
-        use_streaming = not (is_gemini_3_flash and state.get('tool_use_enabled', True))
+        # システムプロンプトの追加
+        # メッセージリストの先頭にシステムプロンプトを追加
+        messages_for_agent = [SystemMessage(content=final_system_prompt_text)] + messages_for_agent
         
-        if not use_streaming:
-            print(f"  - [Gemini 3 Flash] LLM呼び出しをinvokeモードに切り替え（ストリーミング無効化）")
+        # --- LLM実行 ---
+        # ストリーミング実行（トークンごとの出力）と Invoke実行の分岐
+        # Gemini 3 Flash Preview はストリーミングだとツール使用時に挙動不審になるため、
+        # invokeモードを強制するオプションを用意。
         
-        # --- 【デバッグ】リクエストサイズ診断 ---
-        total_content_len = 0
-        for msg in messages_for_agent:
-            if hasattr(msg, 'content'):
-                if isinstance(msg.content, str):
-                    total_content_len += len(msg.content)
-                elif isinstance(msg.content, list):
-                    for part in msg.content:
-                        if isinstance(part, dict) and 'text' in part:
-                            total_content_len += len(part.get('text', ''))
-        num_tools = len(all_tools) if state.get('tool_use_enabled', True) else 0
-        print(f"  - [Request Size] メッセージ数: {len(messages_for_agent)}, 総文字数: {total_content_len:,}, ツール数: {num_tools}")
+        use_streaming = True
+        # Gemini 3 Flash はストリーミング無効化（ツール使用可否に関わらず）
+        if is_gemini_3_flash:
+            use_streaming = False
+            print("  - [Gemini 3 Flash] LLM呼び出しをinvokeモードに切り替え")
 
+        # リトライループ
+        response_direct = None
+        chunks = []
         
         for attempt in range(max_agent_retries + 1):
             try:
-                if attempt > 0:
-                    print(f"  - [再試行] 応答が空だったため、再実行します... ({attempt}/{max_agent_retries})")
-                    # 少し待機（通信の安定化を期待）
-                    time.sleep(1)
+                # 診断: リクエストサイズの計測
+                # total_input_chars = sum(len(m.content) for m in messages_for_agent if isinstance(m.content, str))
+                # print(f"  - [Request Size] メッセージ数: {len(messages_for_agent)}, 総文字数: {total_input_chars}, ツール数: {len(all_tools) if tool_use_enabled else 0}")
 
                 stream_start_time = time.time()
-                
                 chunks = []
                 merged_chunk = None
                 
                 if use_streaming:
                     # --- 通常のストリーミングモード ---
-                    print(f"  - AIモデルにリクエストを送信中 (Streaming)... [試行 {attempt + 1}]")
+                    # print(f"  - AIモデルにリクエストを送信中 (Streaming)... [試行 {attempt + 1}]")
                     try:
                         for chunk in llm_or_llm_with_tools.stream(messages_for_agent):
                             chunks.append(chunk)
@@ -1389,39 +1397,46 @@ def agent_node(state: AgentState):
                     
                     if chunks:
                         total_stream_time = time.time() - stream_start_time
-                        print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
+                        # print(f"  - ストリーム完了: {len(chunks)}チャンク受信, 合計{total_stream_time:.2f}秒")
                         # チャンクの結合
                         merged_chunk = chunks[0]
                         for c in chunks[1:]: merged_chunk += c
                 else:
                     # --- Gemini 3 Flash用 非ストリーミングモード ---
-                    print(f"  - AIモデルにリクエストを送信中 (Invoke)... [試行 {attempt + 1}]")
-                    
-                    # --- 【DEBUG】ツール実行後のメッセージ構造確認 ---
-                    if is_gemini_3_flash and any(isinstance(m, ToolMessage) for m in messages_for_agent):
-                        print(f"  - [DEBUG TOOL] ツール実行後のメッセージを送信中")
-                        for idx, msg in enumerate(messages_for_agent[-5:]):  # 最後の5メッセージ
-                            real_idx = len(messages_for_agent) - 5 + idx
-                            if real_idx >= 0:
-                                msg_type = type(msg).__name__
-                                content_preview = str(msg.content)[:80] if hasattr(msg, 'content') else 'N/A'
-                                artifact = getattr(msg, 'artifact', None)
-                                tool_calls = getattr(msg, 'tool_calls', None)
-                                print(f"    [{real_idx}] {msg_type}: content={content_preview}...")
-                                if artifact:
-                                    print(f"         artifact={artifact}")
-                                if tool_calls:
-                                    print(f"         tool_calls={[tc.get('name') for tc in tool_calls]}")
-                    # --- DEBUG END ---
+                    # print(f"  - AIモデルにリクエストを送信中 (Invoke)... [試行 {attempt + 1}]")
                     
                     try:
                         response_direct = llm_or_llm_with_tools.invoke(messages_for_agent)
+                        
+                        # 【正規化】Gemini 3 Flash (Thinking Mode) は content をリストで返すことがある。
+                        # これをNexus Arkが期待する文字列形式に変換する。
+                        # リスト内には {'type': 'text', 'text': '...', 'extras': {...}} などが含まれる。
+                        if isinstance(response_direct.content, list):
+                            full_text_buffer = []
+                            thinking_buffer = []
+                            for part in response_direct.content:
+                                if isinstance(part, dict):
+                                    p_type = part.get("type")
+                                    if p_type == "text":
+                                        full_text_buffer.append(part.get("text", ""))
+                                    elif p_type in ("thinking", "thought"):
+                                        thinking_buffer.append(part.get("thinking") or part.get("thought", ""))
+                            
+                            if full_text_buffer:
+                                normalized_text = "".join(full_text_buffer)
+                                response_direct.content = normalized_text
+                            elif thinking_buffer:
+                                print(f"  - [Warning] TextパートがなくThinkingパートのみ検出されました。思考内容をContentに代入します。")
+                                normalized_text = "\n".join([(t if isinstance(t, str) else str(t)) for t in thinking_buffer])
+                                response_direct.content = f"(Thinking Only):\n{normalized_text}"
+
+
                         # invokeの結果をchunks形式に変換（既存ロジックとの互換性維持）
                         chunks = [response_direct]
                         merged_chunk = response_direct
                         total_invoke_time = time.time() - stream_start_time
                         print(f"  - Invoke完了: 合計{total_invoke_time:.2f}秒")
-                        
+                            
                     except Exception as e:
                         print(f"--- [警告] Invoke中に例外が発生しました: {e} ---")
                         raise e
@@ -1491,6 +1506,11 @@ def agent_node(state: AgentState):
                     # 異常検知 check
                     if not combined_text.strip() and not all_tool_calls_chunks:
                         print(f"  - ⚠️ [ANOMALY] 有効な応答が空でした。 (attempt {attempt + 1})")
+                        if is_gemini_3_flash and merged_chunk:
+                            print(f"  - [DEBUG-ANOMALY-DUMP] content: {repr(merged_chunk.content)}")
+                            print(f"  - [DEBUG-ANOMALY-DUMP] additional_kwargs: {merged_chunk.additional_kwargs}")
+                            print(f"  - [DEBUG-ANOMALY-DUMP] response_metadata: {merged_chunk.response_metadata}")
+
                         if attempt < max_agent_retries:
                             continue # 次の試行へ
 

@@ -28,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **エピソード記憶UIの改善 (2026-01-17):** 同じ日付に複数エピソードがある場合に全て表示するよう修正。作成順ソート、件数案内、ドロップダウン重複排除、自動スクロール無効化を実装。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 
 ### Fixed
+- **Gemini 3 Flash API 完全対応 (2026-01-20):** LangGraph環境で頻発していた503エラー、デッドロック、空応答問題を解決。Automatic Function Calling (AFC) の無効化、Thinking内容のレスポンス正規化、および「テキストなしThinkingのみ」のケースにおける思考救出ロジックを実装。これにより高速応答と深い思考の両立を確認。[レポート](docs/reports/2026-01-20_Gemini_3_Flash_Debug.md)
 - **旧形式Arousalデータ移行問題を修正 (2026-01-16):** `session_arousal.json`の旧形式（scores配列）から新形式（sessions配列）への移行時に`time: "00:00:00"`となる問題に対し、該当セッションをスキップするロジックを追加。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 - **特殊タイプエピソードの重複判定修正 (2026-01-17):** 達成エピソード等がある日でも日次要約が生成されるよう判定ロジックを修正。
 - **Web巡回ツールのリスト削除エラー修正 (2026-01-17):** 巡回リストからの削除時に発生していた `ValueError: The truth value of a DataFrame is ambiguous` を修正。入力データがリストとDataFrameのいずれの場合でも安全に処理できるようロジックを改善。[レポート](docs/reports/2026-01-17_watchlist_deletion_fix.md)

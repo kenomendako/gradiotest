@@ -1408,12 +1408,13 @@ def get_configured_llm(model_name: str, api_key: str, generation_config: dict):
         else:
             extra_params["thinking_level"] = "medium"  # 不正値のフォールバック
 
-        # Flash では include_thoughts はサポートされないので渡さない
+        # Flash でも include_thoughts=True を試す（空応答時に思考内容を取得するため）
         # 温度は thinking_level 設定時は 1.0 が推奨
+        extra_params["include_thoughts"] = True
         effective_temp = 1.0
         
         if is_reasoning_model:
-            print(f"  - [Thinking] Gemini 3 Flash: thinking_level='{extra_params.get('thinking_level')}', temp={effective_temp}")
+            print(f"  - [Thinking] Gemini 3 Flash: thinking_level='{extra_params.get('thinking_level')}', include_thoughts={extra_params.get('include_thoughts')}, temp={effective_temp}")
     elif is_pro_reasoning:
         # Gemini 3 Pro: thinking パラメータをサポート
         if thinking_level == "auto" or thinking_level == "high":
