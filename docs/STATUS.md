@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-21 | **日記・ノートに「📄 最新を表示」ボタン追加**<br>・日記/創作ノート/研究ノートに最新表示ボタンを追加<br>・表情ファイルアップロードの配線バグを修正 | [レポート](reports/2026-01-21_show_latest_button.md) |
 | 2026-01-21 | **ノート形式の標準化とUI不具合の修正**<br>・全ノート形式を `📝` アイコンヘッダーに統一<br>・本文内 `---` による誤分割の防止とAI生成抑制<br>・RAWエディタのスクロール対応（CSS改善） | [レポート](reports/2026-01-21_notes_ui_standardization.md) |
 | 2026-01-21 | **チャット支援のログ修正で思考ログ消失問題を修正**<br>・新形式`[THOUGHT]`タグに対応<br>・`handle_log_punctuation_correction`と`handle_chatbot_edit`を拡張<br>・後方互換性維持（旧形式`【Thoughts】`も動作） | [レポート](reports/2026-01-21_thought_log_fix.md) |
 | 2026-01-20 | **Gemini 3 Flash API 完全対応**<br>・LangGraphでの503/空応答問題を解決<br>・AFC無効化、レスポンス正規化、Thinking救出ロジックを実装<br>・「テキストなしThinkingのみ」のケースも救済し、沈黙を回避 | [レポート](reports/2026-01-20_Gemini_3_Flash_Debug.md) |

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **日記・ノートに「📄 最新を表示」ボタン追加 (2026-01-21):** 日記・創作ノート・研究ノートにエピソード記憶/夢日記と同様の「最新を表示」ボタンを追加。表情ファイルアップロード機能の配線バグも修正。[レポート](docs/reports/2026-01-21_show_latest_button.md)
 - **ノート形式の標準化とヘッダー統一 (2026-01-21):** 研究ノートの独自形式を廃止し、すべてのノートで `📝 YYYY-MM-DD HH:MM` 形式を標準化。AIプロンプト（`agent/graph.py`）を強化し、重複ヘッダーの生成を抑制。[レポート](docs/reports/2026-01-21_notes_ui_standardization.md)
 - **日記・ノートUI大幅改善 (2026-01-19):** 創作ノート/研究ノート/日記を「索引+詳細表示」形式に変更。年・月フィルタ機能、RAW編集機能を追加。全削除ボタンを廃止しデータ安全性向上。AIツールを追記専用モードに変更し書き込み動作を安定化。ノートクリーンアップスクリプト（`scripts/cleanup_notes.py`）を追加。[レポート](docs/reports/2026-01-19_notes-ui-improvement.md)
 - **Intent分類APIコスト最適化 (2026-01-16):** retrieval_nodeでクエリ生成と同時にIntent分類を実行。検索あたりのAPI呼び出しを2回→1回に削減。[レポート](docs/reports/2026-01-16_intent_classification_optimization.md)
