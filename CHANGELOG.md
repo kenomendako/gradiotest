@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **エピソード記憶UIの改善 (2026-01-17):** 同じ日付に複数エピソードがある場合に全て表示するよう修正。作成順ソート、件数案内、ドロップダウン重複排除、自動スクロール無効化を実装。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 
 ### Fixed
+- **エピソード記憶注入の週次記憶フィルタリング修正 (2026-01-21):** 短期間（例: 2日）のルックバック設定で週次圧縮記憶（7日分の要約）が注入される問題を修正。`get_episodic_context` にルックバック日数より長い範囲の記憶を除外するロジックを追加。また、重複していた週次記憶データをクリーンアップ。
 - **ノート分割ロジックとRAWエディタの改善 (2026-01-21):** 本文中の `---` による誤分割を防止するため、パース正規表現を改良。RAWエディタにスクロール機能（CSS）を追加し、長文編集時の操作性を向上。[レポート](docs/reports/2026-01-21_notes_ui_standardization.md)
 - **Gemini 3 Flash API 完全対応 (2026-01-20):** LangGraph環境で頻発していた503エラー、デッドロック、空応答問題を解決。Automatic Function Calling (AFC) の無効化、Thinking内容のレスポンス正規化、および「テキストなしThinkingのみ」のケースにおける思考救出ロジックを実装。これにより高速応答と深い思考の両立を確認。[レポート](docs/reports/2026-01-20_Gemini_3_Flash_Debug.md)
 - **旧形式Arousalデータ移行問題を修正 (2026-01-16):** `session_arousal.json`の旧形式（scores配列）から新形式（sessions配列）への移行時に`time: "00:00:00"`となる問題に対し、該当セッションをスキップするロジックを追加。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
