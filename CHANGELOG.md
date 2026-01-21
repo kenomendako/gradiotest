@@ -73,6 +73,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **RAWログエディタの保存バグ修正 (2026-01-11):** 保存時に末尾改行がないと、その後のメッセージ追記時にパースエラーが発生する問題を修正。
 - **研究ノートが更新されない問題を修正 (2026-01-11):** `RESEARCH_ANALYSIS_PROMPT`で誤ったツール名（`edit_research_notes`）が使用されていた問題を修正。正しいツール名`plan_research_notes_edit`に変更。
 - **チャット支援ツールのログ修正時のタイムスタンプ保持 (2026-01-12):** 読点修正機能を使用した際に、メッセージ末尾のタイムスタンプが消失してしまう問題を修正。正規表現の緩和と再結合ロジックの改善により、形式を問わず確実に保持されるようになった。[レポート](docs/reports/2026-01-12_log_timestamp_fix.md)
+- **チャット支援のログ修正で思考ログが消失する問題を修正 (2026-01-21):** 新形式`[THOUGHT]...[/THOUGHT]`タグに対応しておらず、思考ログが消失・修正されない問題を修正。`handle_log_punctuation_correction`と`handle_chatbot_edit`を両形式対応に拡張し、元のタグ形式を維持。[レポート](docs/reports/2026-01-21_thought_log_fix.md)
 - **Linuxでのデスクトップ通知エラー修正 (2026-01-13):** Linuxでplyerがdbus/notify-sendを見つけられずエラーになる問題を解消。Linux環境ではデスクトップ通知を無効化し、Pushover/Discord通知に影響なし。[レポート](docs/reports/2026-01-13_linux_notification_fix.md)
 - **TavilySearch APIキーエラー修正 (2026-01-11):** パラメータ名を`api_key`から`tavily_api_key`に修正。
 

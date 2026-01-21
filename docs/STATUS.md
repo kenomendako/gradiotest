@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-21 | **チャット支援のログ修正で思考ログ消失問題を修正**<br>・新形式`[THOUGHT]`タグに対応<br>・`handle_log_punctuation_correction`と`handle_chatbot_edit`を拡張<br>・後方互換性維持（旧形式`【Thoughts】`も動作） | [レポート](reports/2026-01-21_thought_log_fix.md) |
 | 2026-01-20 | **Gemini 3 Flash API 完全対応**<br>・LangGraphでの503/空応答問題を解決<br>・AFC無効化、レスポンス正規化、Thinking救出ロジックを実装<br>・「テキストなしThinkingのみ」のケースも救済し、沈黙を回避 | [レポート](reports/2026-01-20_Gemini_3_Flash_Debug.md) |
 | 2026-01-19 | **日記・ノートUI大幅改善**<br>・創作/研究ノート/日記を「索引+詳細表示」形式に変更<br>・年・月フィルタ、RAW編集機能を追加<br>・全削除ボタン廃止でデータ安全性向上<br>・AIツールを追記専用化し書き込み安定化 | [レポート](reports/2026-01-19_notes-ui-improvement.md) |
 | 2026-01-19 | **日次要約プロンプトの改善**<br>・序文禁止を明示（メタ語り抑制）<br>・文字数上限を800-1200に厳密化<br>・行数指示を削除し文字数のみに統一 | [レポート](reports/2026-01-19_daily_summary_prompt_fix.md) |

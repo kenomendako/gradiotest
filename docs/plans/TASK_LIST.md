@@ -326,6 +326,7 @@
   - ✅ 完了 (2026-01-21)
   - 詳細: 現行の `[THOUGHT]...[/THOUGHT]` タグ形式に対応していないため、思考ログが消失または修正されない。
   - 修正: `handle_log_punctuation_correction` と `handle_chatbot_edit` を両形式に対応させ、元のタグ形式を維持
+  - [レポート](file:///home/baken/nexus_ark/docs/reports/2026-01-21_thought_log_fix.md)
   - 優先度: 🔴高
 
 - [ ] **ChatGPTインポートの注意書き追加** 🆕
