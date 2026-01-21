@@ -809,38 +809,22 @@ def context_generator_node(state: AgentState):
         try:
             lookback_days = int(lookback_days_str)
             
-            # 2. 生ログの最古日付（境界線）を特定
-            # state['messages'] は既に履歴制限が適用された状態のリスト
-            messages = state.get('messages', [])
-            oldest_log_date_str = None
-            
-            # タイムスタンプが含まれるメッセージを探す（古い順）
-            # フォーマット例: "2025-12-03 (Wed) 10:00:00"
-            date_pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
-            
-            for msg in messages:
-                # HumanMessageかAIMessageで、かつテキストコンテンツがある場合
-                if isinstance(msg, (HumanMessage, AIMessage)) and isinstance(msg.content, str):
-                    match = date_pattern.search(msg.content)
-                    if match:
-                        oldest_log_date_str = match.group(1)
-                        break
-            
-            # 生ログに日付が見つからない場合（会話開始直後など）は、「今日」を境界線とする
-            if not oldest_log_date_str:
-                oldest_log_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+            # 2. 「今日」を基準に、過去N日間のエピソード記憶を取得
+            # 以前は「ログの最古日付」を基準にしていたが、ユーザーの期待は
+            # 「過去2日」= 今日から2日前（例: 1/21なら1/19〜1/20）
+            today_str = datetime.datetime.now().strftime('%Y-%m-%d')
 
             # 3. エピソード記憶マネージャーから要約を取得
             manager = EpisodicMemoryManager(room_name)
-            episodic_text = manager.get_episodic_context(oldest_log_date_str, lookback_days)
+            episodic_text = manager.get_episodic_context(today_str, lookback_days)
             
             if episodic_text:
                 episodic_memory_section = (
-                    f"\n### エピソード記憶（中期記憶: {oldest_log_date_str}以前の{lookback_days}日間）\n"
+                    f"\n### エピソード記憶（中期記憶: 過去{lookback_days}日間）\n"
                     f"以下は、現在の会話ログより前の出来事の要約です。文脈として参照してください。\n"
                     f"{episodic_text}\n"
                 )
-                print(f"  - [Episodic Memory] {oldest_log_date_str} 以前の記憶を注入しました。")
+                print(f"  - [Episodic Memory] 過去{lookback_days}日間の記憶を注入しました。")
             else:
                 print(f"  - [Episodic Memory] 注入対象の期間に記憶がありませんでした。")
 
