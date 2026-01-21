@@ -812,7 +812,7 @@ def context_generator_node(state: AgentState):
             # 2. 「今日」を基準に、過去N日間のエピソード記憶を取得
             # 以前は「ログの最古日付」を基準にしていたが、ユーザーの期待は
             # 「過去2日」= 今日から2日前（例: 1/21なら1/19〜1/20）
-            today_str = datetime.datetime.now().strftime('%Y-%m-%d')
+            today_str = datetime.now().strftime('%Y-%m-%d')
 
             # 3. エピソード記憶マネージャーから要約を取得
             manager = EpisodicMemoryManager(room_name)
