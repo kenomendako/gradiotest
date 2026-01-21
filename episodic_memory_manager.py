@@ -717,6 +717,13 @@ class EpisodicMemoryManager:
                     parts = d_str.split(sep)
                     item_start_date = datetime.datetime.strptime(parts[0].strip(), '%Y-%m-%d').date()
                     item_end_date = datetime.datetime.strptime(parts[1].strip(), '%Y-%m-%d').date()
+                    
+                    # 範囲日付の場合、範囲の長さを計算
+                    range_days = (item_end_date - item_start_date).days + 1
+                    # ルックバック日数より長い範囲の記憶は除外
+                    # （例: 2日のルックバックに1週間の要約は不適切）
+                    if range_days > lookback_days:
+                        continue
                 else:
                     item_start_date = datetime.datetime.strptime(d_str.strip(), '%Y-%m-%d').date()
                     item_end_date = item_start_date
