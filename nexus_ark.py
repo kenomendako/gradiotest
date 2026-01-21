@@ -4114,11 +4114,11 @@ try:
         )
         
         # 表情ファイルアップロード
-        # NOTE: .upload()イベントではファイルパスが最初の引数として渡されるため、
-        # inputs にはファイル以外の必要な情報のみを指定する
+        # NOTE: .upload()イベントではinputsの最初の要素（ファイルコンポーネント）の値が
+        # 関数の第1引数として渡される。そのため expression_file_upload を先頭に含める。
         expression_file_upload.upload(
             fn=ui_handlers.handle_expression_file_upload,
-            inputs=[current_room_name, new_expression_name],
+            inputs=[expression_file_upload, current_room_name, new_expression_name],
             outputs=[expressions_df, new_expression_name, new_expression_keywords]
         )
 
