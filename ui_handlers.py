@@ -6141,7 +6141,8 @@ def handle_log_punctuation_correction(
             # --- [新アーキテクチャ：分割・修正・再結合] ---
 
             # 1. 【分割】コンテンツを3つのパーツに分離
-            thoughts_pattern = re.compile(r"(【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
+            # 後方互換性: 新形式 [THOUGHT] と旧形式 【Thoughts】 の両方に対応
+            thoughts_pattern = re.compile(r"(\[THOUGHT\][\s\S]*?\[/THOUGHT\]|【Thoughts】[\s\S]*?【/Thoughts】)", re.IGNORECASE)
             # タイムスタンプの正規表現: YYYY-MM-DD (...) HH:MM:SS | モデル名
             # 修正: \n\n がなくてもマッチするようにし、末尾のアンカーを調整
             timestamp_pattern = re.compile(r'(\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}(?: \| .*)?)$')
@@ -6162,11 +6163,19 @@ def handle_log_punctuation_correction(
             corrected_thoughts = ""
             if thoughts_part:
                 # 思考ログからタグを除いた中身だけをAIに渡す
-                inner_thoughts = re.sub(r"【/?Thoughts】", "", thoughts_part, flags=re.IGNORECASE).strip()
+                # 新形式と旧形式の両方のタグを除去
+                inner_thoughts = re.sub(r"\[/?THOUGHT\]|【/?Thoughts】", "", thoughts_part, flags=re.IGNORECASE).strip()
                 text_to_fix = inner_thoughts.replace("、", "").replace("､", "")
                 result = gemini_api.correct_punctuation_with_ai(text_to_fix, api_key, context_type="thoughts")
                 # 安全装置：AIが失敗したら元のテキストを使う
-                corrected_thoughts = f"【Thoughts】\n{result.strip()}\n【/Thoughts】" if result and len(result) > len(inner_thoughts) * 0.5 else thoughts_part
+                if result and len(result) > len(inner_thoughts) * 0.5:
+                    # 元のタグ形式を維持 (新形式 [THOUGHT] か旧形式 【Thoughts】)
+                    if "[THOUGHT]" in thoughts_part.upper():
+                        corrected_thoughts = f"[THOUGHT]\n{result.strip()}\n[/THOUGHT]"
+                    else:
+                        corrected_thoughts = f"【Thoughts】\n{result.strip()}\n【/Thoughts】"
+                else:
+                    corrected_thoughts = thoughts_part
 
             corrected_body = ""
             if body_part:
@@ -6735,12 +6744,20 @@ def handle_chatbot_edit(
         timestamp_match = re.search(r'(\n\n\d{4}-\d{2}-\d{2} \(...\) \d{2}:\d{2}:\d{2}$)', original_content)
         preserved_timestamp = timestamp_match.group(1) if timestamp_match else ""
 
+        # 元のログから思考ログのタグ形式を検出（新形式 [THOUGHT] か旧形式 【Thoughts】）
+        original_uses_new_format = bool(re.search(r"\[THOUGHT\]", original_content, re.IGNORECASE))
+
+        # UI側のMarkdownコードブロック（```...```）から思考ログを抽出
         thoughts_pattern = re.compile(r"```\n([\s\S]*?)\n```")
         thoughts_match = thoughts_pattern.search(edited_markdown_string)
         new_thoughts_block = ""
         if thoughts_match:
             inner_thoughts = thoughts_match.group(1).strip()
-            new_thoughts_block = f"【Thoughts】\n{inner_thoughts}\n【/Thoughts】"
+            # 元のログ形式に合わせてタグを生成
+            if original_uses_new_format:
+                new_thoughts_block = f"[THOUGHT]\n{inner_thoughts}\n[/THOUGHT]"
+            else:
+                new_thoughts_block = f"【Thoughts】\n{inner_thoughts}\n【/Thoughts】"
 
         temp_string = thoughts_pattern.sub("", edited_markdown_string)
 
