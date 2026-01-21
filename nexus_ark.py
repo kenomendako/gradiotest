@@ -243,8 +243,9 @@ try:
     #memory_txt_editor_code textarea, #core_memory_editor_code textarea {
         max-height: 400px !important; overflow-y: auto !important;
     }
-    #notepad_editor_code textarea, #system_prompt_editor textarea, #creative_notes_editor_code textarea, #research_notes_editor_code textarea {
-        max-height: 400px !important; overflow-y: auto !important; box-sizing: border-box;
+    #notepad_editor_code textarea, #system_prompt_editor textarea, #creative_notes_editor_code textarea, #research_notes_editor_code textarea,
+    #diary_raw_editor textarea, #creative_notes_raw_editor textarea, #research_notes_raw_editor textarea {
+        max-height: 600px !important; overflow-y: auto !important; box-sizing: border-box;
     }
     #memory_txt_editor_code, #notepad_editor_code, #system_prompt_editor, #core_memory_editor_code {
         max-height: 410px; border: 1px solid var(--border-color-primary); border-radius: 8px; padding: 0;
@@ -1990,6 +1991,7 @@ try:
                                     lines=15,
                                     max_lines=25,
                                     autoscroll=True,
+                                    elem_id="diary_raw_editor",
                                     placeholder="ファイル全体を直接編集できます"
                                 )
                                 with gr.Row():
@@ -2341,6 +2343,7 @@ try:
                                     lines=15,
                                     max_lines=25,
                                     autoscroll=True,
+                                    elem_id="creative_notes_raw_editor",
                                     placeholder="ファイル全体を直接編集できます"
                                 )
                                 with gr.Row():
@@ -2386,6 +2389,7 @@ try:
                                     lines=15,
                                     max_lines=25,
                                     autoscroll=True,
+                                    elem_id="research_notes_raw_editor",
                                     placeholder="ファイル全体を直接編集できます"
                                 )
                                 with gr.Row():

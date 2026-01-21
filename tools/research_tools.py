@@ -68,9 +68,9 @@ def _apply_research_notes_edits(instructions: List[Dict[str, Any]], room_name: s
         with open(research_notes_path, 'r', encoding='utf-8') as f:
             existing_content = f.read()
         
-        # タイムスタンプ付きセクションを作成
-        timestamp = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}]"
-        section_header = f"\n---\n{timestamp} 研究記録\n"
+        # タイムスタンプ付きセクションを作成 (他のノートと形式を統一)
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+        section_header = f"\n---\n📝 {timestamp}\n"
         new_section = section_header + "\n".join(contents_to_add)
         
         # 既存コンテンツがある場合は区切りを追加

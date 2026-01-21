@@ -4236,8 +4236,9 @@ def _parse_notes_entries(content: str) -> list:
     import re
     entries = []
     
-    # 区切り線でセクションを分割
-    sections = re.split(r'\n---+\n', content)
+    # 区切り線(---)の後にタイムスタンプが続く場合のみ分割（本文中の罫線による誤分割を防止）
+    # \s* を追加して区切り線とアイコンの間の不必要な空白・改行を許容する
+    sections = re.split(r'\n---+\n\s*(?=📝|\[)', content)
     
     for section in sections:
         section = section.strip()
@@ -4573,7 +4574,8 @@ def handle_save_research_entry(room_name: str, selected_idx: str, new_content: s
             old_section = entries[idx]["raw_section"]
             timestamp = entries[idx]["timestamp"]
             if timestamp != "日付なし":
-                new_section = f"[{timestamp}] 研究記録\n{new_content.strip()}"
+                # 他のノートと形式を統一し、重複するラベルを削除
+                new_section = f"📝 {timestamp}\n{new_content.strip()}"
             else:
                 new_section = new_content.strip()
             
