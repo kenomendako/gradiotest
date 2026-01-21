@@ -1956,6 +1956,7 @@ try:
                             gr.Markdown("ペルソナの主観的な記録です。感情、思考、重要な出来事を書き留めます。")
                             with gr.Row():
                                 refresh_diary_button = gr.Button("📚 エントリを読み込む", variant="primary")
+                                show_latest_diary_button = gr.Button("📄 最新を表示", variant="secondary")
                                 core_memory_update_button = gr.Button("コアメモリを更新", variant="secondary")
                             
                             with gr.Row():
@@ -2309,6 +2310,7 @@ try:
                             gr.Markdown("ペルソナの創作活動専用スペースです。詩、物語、アイデアスケッチなど。")
                             with gr.Row():
                                 refresh_creative_notes_button = gr.Button("📚 エントリを読み込む", variant="primary")
+                                show_latest_creative_button = gr.Button("📄 最新を表示", variant="secondary")
                             
                             with gr.Row():
                                 creative_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
@@ -2355,6 +2357,7 @@ try:
                             gr.Markdown("Web巡回ツールによる分析結果や洞察が蓄積されるスペースです。AIが自律的に更新します。")
                             with gr.Row():
                                 refresh_research_notes_button = gr.Button("📚 エントリを読み込む", variant="primary")
+                                show_latest_research_button = gr.Button("📄 最新を表示", variant="secondary")
                             
                             with gr.Row():
                                 research_year_filter = gr.Dropdown(label="年で絞り込む", choices=["すべて"], value="すべて", scale=1)
@@ -3348,6 +3351,12 @@ try:
             inputs=[current_room_name],
             outputs=[diary_year_filter, diary_month_filter, diary_entry_dropdown, diary_raw_editor]
         )
+        # 最新を表示ボタン
+        show_latest_diary_button.click(
+            fn=ui_handlers.handle_show_latest_diary,
+            inputs=[current_room_name],
+            outputs=[diary_year_filter, diary_month_filter, diary_entry_dropdown, memory_txt_editor, diary_raw_editor]
+        )
         # フィルタ変更時 → ドロップダウン選択肢を更新
         diary_year_filter.change(
             fn=ui_handlers.handle_diary_filter_change,
@@ -3381,6 +3390,12 @@ try:
             inputs=[current_room_name],
             outputs=[creative_year_filter, creative_month_filter, creative_entry_dropdown, creative_notes_raw_editor]
         )
+        # 最新を表示ボタン
+        show_latest_creative_button.click(
+            fn=ui_handlers.handle_show_latest_creative,
+            inputs=[current_room_name],
+            outputs=[creative_year_filter, creative_month_filter, creative_entry_dropdown, creative_notes_editor, creative_notes_raw_editor]
+        )
         # フィルタ変更時 → ドロップダウン選択肢を更新
         creative_year_filter.change(
             fn=ui_handlers.handle_creative_filter_change,
@@ -3410,6 +3425,12 @@ try:
             fn=ui_handlers.handle_load_research_entries,
             inputs=[current_room_name],
             outputs=[research_year_filter, research_month_filter, research_entry_dropdown, research_notes_raw_editor]
+        )
+        # 最新を表示ボタン
+        show_latest_research_button.click(
+            fn=ui_handlers.handle_show_latest_research,
+            inputs=[current_room_name],
+            outputs=[research_year_filter, research_month_filter, research_entry_dropdown, research_notes_editor, research_notes_raw_editor]
         )
         research_year_filter.change(
             fn=ui_handlers.handle_research_filter_change,
@@ -4093,9 +4114,11 @@ try:
         )
         
         # 表情ファイルアップロード
+        # NOTE: .upload()イベントではファイルパスが最初の引数として渡されるため、
+        # inputs にはファイル以外の必要な情報のみを指定する
         expression_file_upload.upload(
             fn=ui_handlers.handle_expression_file_upload,
-            inputs=[current_room_name, new_expression_name, expression_file_upload],
+            inputs=[current_room_name, new_expression_name],
             outputs=[expressions_df, new_expression_name, new_expression_keywords]
         )
 

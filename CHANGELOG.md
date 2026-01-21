@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **ノート形式の標準化とヘッダー統一 (2026-01-21):** 研究ノートの独自形式を廃止し、すべてのノートで `📝 YYYY-MM-DD HH:MM` 形式を標準化。AIプロンプト（`agent/graph.py`）を強化し、重複ヘッダーの生成を抑制。[レポート](docs/reports/2026-01-21_notes_ui_standardization.md)
 - **日記・ノートUI大幅改善 (2026-01-19):** 創作ノート/研究ノート/日記を「索引+詳細表示」形式に変更。年・月フィルタ機能、RAW編集機能を追加。全削除ボタンを廃止しデータ安全性向上。AIツールを追記専用モードに変更し書き込み動作を安定化。ノートクリーンアップスクリプト（`scripts/cleanup_notes.py`）を追加。[レポート](docs/reports/2026-01-19_notes-ui-improvement.md)
 - **Intent分類APIコスト最適化 (2026-01-16):** retrieval_nodeでクエリ生成と同時にIntent分類を実行。検索あたりのAPI呼び出しを2回→1回に削減。[レポート](docs/reports/2026-01-16_intent_classification_optimization.md)
 - **Intent-Aware Retrieval (2026-01-16):** 記憶検索にクエリ意図分類を導入。感情的質問は古い記憶も優先（時間減衰抑制）、技術的質問は新しい情報優先（時間減衰強め）。3項式複合スコアリング（Similarity + Arousal + TimeDecay×Arousal）を実装。[レポート](docs/reports/2026-01-16_intent_aware_retrieval.md) [研究メモ](docs/plans/research/arousal_aware_time_decay_study.md)
@@ -28,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **エピソード記憶UIの改善 (2026-01-17):** 同じ日付に複数エピソードがある場合に全て表示するよう修正。作成順ソート、件数案内、ドロップダウン重複排除、自動スクロール無効化を実装。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 
 ### Fixed
+- **ノート分割ロジックとRAWエディタの改善 (2026-01-21):** 本文中の `---` による誤分割を防止するため、パース正規表現を改良。RAWエディタにスクロール機能（CSS）を追加し、長文編集時の操作性を向上。[レポート](docs/reports/2026-01-21_notes_ui_standardization.md)
 - **Gemini 3 Flash API 完全対応 (2026-01-20):** LangGraph環境で頻発していた503エラー、デッドロック、空応答問題を解決。Automatic Function Calling (AFC) の無効化、Thinking内容のレスポンス正規化、および「テキストなしThinkingのみ」のケースにおける思考救出ロジックを実装。これにより高速応答と深い思考の両立を確認。[レポート](docs/reports/2026-01-20_Gemini_3_Flash_Debug.md)
 - **旧形式Arousalデータ移行問題を修正 (2026-01-16):** `session_arousal.json`の旧形式（scores配列）から新形式（sessions配列）への移行時に`time: "00:00:00"`となる問題に対し、該当セッションをスキップするロジックを追加。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 - **特殊タイプエピソードの重複判定修正 (2026-01-17):** 達成エピソード等がある日でも日次要約が生成されるよう判定ロジックを修正。

@@ -3380,6 +3380,68 @@ def handle_load_diary_entries(room_name: str):
     )
 
 
+def handle_show_latest_diary(room_name: str):
+    """日記を読み込み、最新のエントリを自動的に選択して表示する。
+    
+    Returns:
+        (year_filter, month_filter, entry_dropdown, editor_content, raw_editor_content)
+    """
+    if not room_name:
+        return gr.update(choices=["すべて"]), gr.update(choices=["すべて"]), gr.update(choices=[]), "", ""
+    
+    _, _, _, memory_txt_path, _, _ = get_room_files_paths(room_name)
+    if not memory_txt_path or not os.path.exists(memory_txt_path):
+        gr.Info("日記はまだありません。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), "", ""
+    
+    with open(memory_txt_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    
+    if not content.strip():
+        gr.Info("日記は空です。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), "", content
+    
+    entries = _parse_diary_entries(content)
+    
+    if not entries:
+        gr.Info("日付形式のエントリが見つかりません。RAW編集を使用してください。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), "", content
+    
+    # 年・月リストを抽出
+    years = set()
+    months = set()
+    choices = []
+    
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        if len(date_str) >= 7:
+            years.add(date_str[:4])
+            months.add(date_str[5:7])
+        
+        # ラベル作成
+        preview = entry["content"][:30].replace("\n", " ")
+        if len(entry["content"]) > 30:
+            preview += "..."
+        label = f"{date_str} - {preview}"
+        choices.append((label, str(i)))
+    
+    year_choices = ["すべて"] + sorted(list(years), reverse=True)
+    month_choices = ["すべて"] + sorted(list(months))
+    
+    # 最新のエントリ（インデックス0）を選択して詳細を表示
+    latest_entry = entries[0]
+    latest_content = latest_entry.get("content", "")
+    
+    gr.Info("最新の日記を表示しています。")
+    return (
+        gr.update(choices=year_choices, value="すべて"),
+        gr.update(choices=month_choices, value="すべて"),
+        gr.update(choices=choices, value="0"),  # 最新エントリを選択
+        latest_content,  # エディタに最新エントリの内容を表示
+        content  # RAWエディタにも反映
+    )
+
+
 def handle_diary_filter_change(room_name: str, year: str, month: str):
     """日記のフィルタ変更時にドロップダウン選択肢を更新"""
     if not room_name:
@@ -4323,6 +4385,61 @@ def handle_load_creative_entries(room_name: str):
     )
 
 
+def handle_show_latest_creative(room_name: str):
+    """創作ノートを読み込み、最新のエントリを自動的に選択して表示する。
+    
+    Returns:
+        (year_filter, month_filter, entry_dropdown, editor_content, raw_editor_content)
+    """
+    if not room_name:
+        return gr.update(choices=["すべて"]), gr.update(choices=["すべて"]), gr.update(choices=[]), "", ""
+    
+    content = load_creative_notes_content(room_name)
+    if not content.strip():
+        gr.Info("創作ノートは空です。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), "", content
+    
+    entries = _parse_notes_entries(content)
+    
+    if not entries:
+        gr.Info("エントリが見つかりません。RAW編集を使用してください。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), "", content
+    
+    # 年・月リストを抽出
+    years = set()
+    months = set()
+    choices = []
+    
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        if len(date_str) >= 7:
+            years.add(date_str[:4])
+            months.add(date_str[5:7])
+        
+        # ラベル作成
+        preview = entry["content"][:30].replace("\n", " ")
+        if len(entry["content"]) > 30:
+            preview += "..."
+        label = f"{entry['timestamp']} - {preview}"
+        choices.append((label, str(i)))
+    
+    year_choices = ["すべて"] + sorted(list(years), reverse=True)
+    month_choices = ["すべて"] + sorted(list(months))
+    
+    # 最新のエントリ（インデックス0）を選択して詳細を表示
+    latest_entry = entries[0]
+    latest_content = latest_entry.get("content", "")
+    
+    gr.Info("最新の創作ノートを表示しています。")
+    return (
+        gr.update(choices=year_choices, value="すべて"),
+        gr.update(choices=month_choices, value="すべて"),
+        gr.update(choices=choices, value="0"),  # 最新エントリを選択
+        latest_content,  # エディタに最新エントリの内容を表示
+        content  # RAWエディタにも反映
+    )
+
+
 def handle_creative_filter_change(room_name: str, year: str, month: str):
     """創作ノートのフィルタ変更時にドロップダウン選択肢を更新"""
     if not room_name:
@@ -4507,6 +4624,61 @@ def handle_load_research_entries(room_name: str):
         gr.update(choices=year_choices, value="すべて"),
         gr.update(choices=month_choices, value="すべて"),
         gr.update(choices=choices, value=None),
+        content  # RAWエディタにも反映
+    )
+
+
+def handle_show_latest_research(room_name: str):
+    """研究ノートを読み込み、最新のエントリを自動的に選択して表示する。
+    
+    Returns:
+        (year_filter, month_filter, entry_dropdown, editor_content, raw_editor_content)
+    """
+    if not room_name:
+        return gr.update(choices=["すべて"]), gr.update(choices=["すべて"]), gr.update(choices=[]), "", ""
+    
+    content = load_research_notes_content(room_name)
+    if not content.strip():
+        gr.Info("研究ノートは空です。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), "", content
+    
+    entries = _parse_notes_entries(content)
+    
+    if not entries:
+        gr.Info("エントリが見つかりません。RAW編集を使用してください。")
+        return gr.update(choices=["すべて"], value="すべて"), gr.update(choices=["すべて"], value="すべて"), gr.update(choices=[], value=None), "", content
+    
+    # 年・月リストを抽出
+    years = set()
+    months = set()
+    choices = []
+    
+    for i, entry in enumerate(entries):
+        date_str = entry.get("date", "")
+        if len(date_str) >= 7:
+            years.add(date_str[:4])
+            months.add(date_str[5:7])
+        
+        # ラベル作成
+        preview = entry["content"][:30].replace("\n", " ")
+        if len(entry["content"]) > 30:
+            preview += "..."
+        label = f"{entry['timestamp']} - {preview}"
+        choices.append((label, str(i)))
+    
+    year_choices = ["すべて"] + sorted(list(years), reverse=True)
+    month_choices = ["すべて"] + sorted(list(months))
+    
+    # 最新のエントリ（インデックス0）を選択して詳細を表示
+    latest_entry = entries[0]
+    latest_content = latest_entry.get("content", "")
+    
+    gr.Info("最新の研究ノートを表示しています。")
+    return (
+        gr.update(choices=year_choices, value="すべて"),
+        gr.update(choices=month_choices, value="すべて"),
+        gr.update(choices=choices, value="0"),  # 最新エントリを選択
+        latest_content,  # エディタに最新エントリの内容を表示
         content  # RAWエディタにも反映
     )
 
@@ -6508,14 +6680,17 @@ def handle_delete_expression(room_name: str, expressions_df_data, selected_index
     return refresh_expressions_list(room_name)
 
 
-def handle_expression_file_upload(room_name: str, expression_name: str, file_path: str) -> tuple:
+def handle_expression_file_upload(file_path: str, room_name: str, expression_name: str) -> tuple:
     """
     表情用のファイル（画像/動画）をアップロードして保存する。
     
+    NOTE: Gradioの.upload()イベントでは、ファイルパスが最初の引数として渡され、
+    その後にinputsリストで指定したコンポーネントの値が順に渡される。
+    
     Args:
-        room_name: ルームのフォルダ名
-        expression_name: 表情名
-        file_path: アップロードされたファイルのパス
+        file_path: アップロードされたファイルのパス (自動的に最初に渡される)
+        room_name: ルームのフォルダ名 (inputs[0])
+        expression_name: 表情名 (inputs[1])
         
     Returns:
         (expressions_df, ...) の更新
