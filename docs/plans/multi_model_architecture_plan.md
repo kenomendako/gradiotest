@@ -2,7 +2,7 @@
 
 **作成日**: 2026-01-22
 **最終更新**: 2026-01-23
-**ステータス**: 🏗️ 実装進行中（Phase 2完了）
+**ステータス**: ✅ Phase 3 完了（Zhipu AI 統合と UI 改善）
 
 ---
 
@@ -91,10 +91,11 @@ Nexus ArkはGemini APIに強く依存しており、以下の問題が顕在化�
 - [x] `LLMFactory`の`force_google`ロジック改修（動的選択対応）
 - [x] 設定の永続化とリロード対応の強化
 
-#### Phase 3: 代替プロバイダ統合 [NEXT]
-- [ ] GLM-4対応（Zhipu AI）
+#### Phase 3: 代替プロバイダ統合 [DONE]
+- [x] GLM-4対応（Zhipu AI）
   - GLM-4-Flash/FlashX: **内部処理用**（要約、分類、軽量タスク）
   - GLM-4.7: **最終応答候補**（コスパ重視ユーザー向け選択肢）
+- [x] APIキー UI の改善と集約
 - [ ] Groq対応（高速推論）
 - [ ] ローカルLLM対応（Ollama/llama.cpp）
 

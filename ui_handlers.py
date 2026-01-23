@@ -826,7 +826,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 163):
+def handle_initial_load(room_name: str = None, expected_count: int = 164):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。

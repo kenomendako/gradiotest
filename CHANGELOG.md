@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Phase 3: Zhipu AI (GLM-4) 統合と UI 改善 (2026-01-23):** Zhipu AI プロバイダに対応。内部処理モデル設定 UI を提供し、APIキー管理を「🔑 APIキー / Webhook管理」へ集約。初期値ロード不具合とエンティティ記憶書き込み時の API キーエラーを修正。[レポート](docs/reports/2026-01-23_zhipu_ai_integration_phase3_final.md)
 - **Phase 3: 内部処理モデル設定UI (2026-01-23):** 共通設定タブに「🔧 内部処理モデル設定」アコーディオンを追加。処理モデル/要約モデルをUI上で変更可能に。司会モデルは処理モデルに統合（2モデル構成に簡素化）。[レポート](docs/reports/2026-01-23_internal_model_settings_ui_phase3.md)
 - **Phase 2.5: 内部処理モデル動的選択機能 (2026-01-23):** `LLMFactory.create_chat_model`に`internal_role`引数を追加。14箇所の`get_configured_llm`呼び出しを移行し、内部処理モデル（summarization/processing）の設定ベース動的選択を実現。[レポート](docs/reports/2026-01-23_internal_model_migration_phase2.5.md)
 - **日記・ノートに「📄 最新を表示」ボタン追加 (2026-01-21):** 日記・創作ノート・研究ノートにエピソード記憶/夢日記と同様の「最新を表示」ボタンを追加。表情ファイルアップロード機能の配線バグも修正。[レポート](docs/reports/2026-01-21_show_latest_button.md)
