@@ -962,6 +962,7 @@ def handle_initial_load(room_name: str = None, expected_count: int = 163):
         f"最終更新: {current_log_index_last_updated}",  # current_log_reindex_status
         *internal_model_updates,  # [Phase 3] 内部モデル設定
         config_manager.ZHIPU_API_KEY or "", # [Phase 3] zhipu_api_key_input
+        config_manager.TAVILY_API_KEY or "", # [Phase 3] tavily_api_key_input
     )
     
     # 初期化完了: 以降の設定変更では通知を表示する（ただし直後のgrace periodは除く）

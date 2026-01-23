@@ -518,6 +518,30 @@ try:
                                 with gr.Accordion("Discord", open=False):
                                     discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", interactive=True)
                                     save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
+                                
+                                # Zhipu AI (GLM-4) [Phase 3]
+                                with gr.Accordion("Zhipu AI (GLM-4)", open=False) as zhipu_api_key_group:
+                                    gr.Markdown("💡 **Zhipu AI (GLM-4) APIキー**: [bigmodel.cn](https://open.bigmodel.cn/usercenter/apikeys) でAPIキーを取得してください（登録で500万トークン無料）。")
+                                    zhipu_api_key_input = gr.Textbox(
+                                        label="Zhipu APIキー",
+                                        type="password",
+                                        placeholder="[API_KEY_ID].[API_KEY_SECRET]",
+                                        value=config_manager.ZHIPU_API_KEY or "",
+                                        interactive=True
+                                    )
+                                    save_zhipu_key_button = gr.Button("Zhipu APIキーを保存", variant="primary", size="sm")
+
+                                # Tavily (Web Search) [Phase 3]
+                                with gr.Accordion("Tavily (Web検索)", open=False) as tavily_api_key_group:
+                                    gr.Markdown("💡 **Tavily APIキー**: [tavily.com](https://tavily.com) で無料アカウントを作成してAPIキーを取得してください（月1000クレジット無料）。")
+                                    tavily_api_key_input = gr.Textbox(
+                                        label="Tavily APIキー",
+                                        type="password",
+                                        placeholder="tvly-...",
+                                        value=config_manager.TAVILY_API_KEY or "",
+                                        interactive=True
+                                    )
+                                    save_tavily_key_button = gr.Button("Tavily APIキーを保存", variant="primary", size="sm")
                                 gr.Markdown("⚠️ **注意:** APIキーやWebhook URLはPC上の `config.json` ファイルに平文で保存されます。取り扱いには十分ご注意ください。")
 
                             with gr.Accordion("⚡ AIモデルプロバイダ設定（デフォルト）", open=False):
@@ -683,29 +707,8 @@ try:
                                     info="AIがWeb検索を行う際に使用するサービスを選択します。"
                                 )
                                 
-                                # Tavily APIキー入力欄（Tavilyが選択されている時のみ表示）
-                                with gr.Group(visible=(current_search_provider == "tavily")) as tavily_api_key_group:
-                                    gr.Markdown("💡 **Tavily APIキー**: [tavily.com](https://tavily.com) で無料アカウントを作成してAPIキーを取得してください（月1000クレジット無料）。")
-                                    tavily_api_key_input = gr.Textbox(
-                                        label="Tavily APIキー",
-                                        type="password",
-                                        placeholder="tvly-...",
-                                        value=config_manager.TAVILY_API_KEY or "",
-                                        interactive=True
-                                    )
-                                    save_tavily_key_button = gr.Button("Tavily APIキーを保存", variant="primary", size="sm")
-                                
-                                # Zhipu APIキー入力欄 [Phase 3]
-                                with gr.Group() as zhipu_api_key_group:
-                                    gr.Markdown("💡 **Zhipu AI (GLM-4) APIキー**: [bigmodel.cn](https://open.bigmodel.cn/usercenter/apikeys) でAPIキーを取得してください（登録で500万トークン無料）。")
-                                    zhipu_api_key_input = gr.Textbox(
-                                        label="Zhipu APIキー",
-                                        type="password",
-                                        placeholder="[API_KEY_ID].[API_KEY_SECRET]",
-                                        value=config_manager.ZHIPU_API_KEY or "",
-                                        interactive=True
-                                    )
-                                    save_zhipu_key_button = gr.Button("Zhipu APIキーを保存", variant="primary", size="sm")
+                                # キー入力欄は「APIキー / Webhook管理」に移動しました
+                                pass
 
 
                             with gr.Accordion("📢 通知サービス設定", open=False):
@@ -2822,6 +2825,7 @@ try:
             internal_processing_model_input,
             internal_summarization_model_input,
             zhipu_api_key_input, # [Phase 3]
+            tavily_api_key_input, # [Phase 3]
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -2848,6 +2852,10 @@ try:
         ]
         full_refresh_output_count = gr.State(len(unified_full_room_refresh_outputs))
         
+        full_refresh_output_count = gr.State(len(unified_full_room_refresh_outputs))
+        
+        # 数が一致することを確認（デバッグ用）
+        # print(f"DEBUG: initial_load_outputs len = {len(initial_load_outputs)}")
         initial_load_output_count = gr.State(len(initial_load_outputs))
         demo.load(
             fn=ui_handlers.handle_initial_load,
@@ -4637,7 +4645,7 @@ try:
         search_provider_radio.change(
             fn=ui_handlers.handle_search_provider_change,
             inputs=[search_provider_radio],
-            outputs=[tavily_api_key_group]
+            outputs=None  # 個別表示制御を廃止し、常時表示（アコーディオン）へ
         )
         
         save_tavily_key_button.click(
