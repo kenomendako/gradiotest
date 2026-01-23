@@ -175,7 +175,7 @@ class EpisodicMemoryManager:
         全ログ（現行＋アーカイブ）を解析し、未処理の過去日付について要約を作成・追記する。
         【v3: 名前解決・逐次保存版】
         """
-        from gemini_api import get_configured_llm
+        from llm_factory import LLMFactory
 
         print(f"--- [Episodic Memory] 更新処理開始: {self.room_name} ---")
         
@@ -296,7 +296,11 @@ class EpisodicMemoryManager:
 
         # 4. 要約の生成と逐次保存
         effective_settings = config_manager.get_effective_settings(self.room_name)
-        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        llm = LLMFactory.create_chat_model(
+            api_key=api_key,
+            generation_config=effective_settings,
+            internal_role="summarization"
+        )
         
         success_count = 0
         error_count = 0
@@ -431,7 +435,7 @@ class EpisodicMemoryManager:
         Returns:
             処理結果メッセージ
         """
-        from gemini_api import get_configured_llm
+        from llm_factory import LLMFactory
         import session_arousal_manager
         
         print(f"--- [Episodic Memory] セッション単位処理: {self.room_name} ({date_str}) ---")
@@ -500,7 +504,11 @@ class EpisodicMemoryManager:
         
         # 3. 各セッションについて要約生成
         effective_settings = config_manager.get_effective_settings(self.room_name)
-        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        llm = LLMFactory.create_chat_model(
+            api_key=api_key,
+            generation_config=effective_settings,
+            internal_role="summarization"
+        )
         
         success_count = 0
         processed_times = []
@@ -783,7 +791,7 @@ class EpisodicMemoryManager:
         Returns:
             処理結果のメッセージ
         """
-        from gemini_api import get_configured_llm
+        from llm_factory import LLMFactory
         from collections import defaultdict
         import room_manager
         
@@ -861,7 +869,11 @@ class EpisodicMemoryManager:
         
         # --- 各週の要約を生成 ---
         effective_settings = config_manager.get_effective_settings(self.room_name)
-        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        llm = LLMFactory.create_chat_model(
+            api_key=api_key,
+            generation_config=effective_settings,
+            internal_role="summarization"
+        )
         
         compressed_episodes = []
         
@@ -1010,7 +1022,7 @@ class EpisodicMemoryManager:
         Returns:
             処理結果のメッセージ
         """
-        from gemini_api import get_configured_llm
+        from llm_factory import LLMFactory
         from collections import defaultdict
         import room_manager
         
@@ -1084,7 +1096,11 @@ class EpisodicMemoryManager:
         
         # --- 各月の要約を生成 ---
         effective_settings = config_manager.get_effective_settings(self.room_name)
-        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        llm = LLMFactory.create_chat_model(
+            api_key=api_key,
+            generation_config=effective_settings,
+            internal_role="summarization"
+        )
         
         new_monthly_episodes = []
         

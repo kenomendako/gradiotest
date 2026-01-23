@@ -137,9 +137,13 @@ class RAGManager:
             }
         """
         try:
-            from gemini_api import get_configured_llm
+            from llm_factory import LLMFactory
             
-            llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, self.api_key, {})
+            llm = LLMFactory.create_chat_model(
+                api_key=self.api_key,
+                generation_config={},
+                internal_role="processing"
+            )
             
             prompt = """あなたはクエリ分類の専門家です。以下のクエリを5つのカテゴリのいずれか1つに分類してください。
 

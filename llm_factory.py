@@ -9,20 +9,21 @@ import gemini_api # 既存のGemini設定ロジックを再利用するため
 class LLMFactory:
     @staticmethod
     def create_chat_model(
-        model_name: str,
+        model_name: str = None,
         temperature: float = 0.7,
         top_p: float = 0.95,
         max_retries: int = 0,
         api_key: str = None, # Gemini用 (OpenAI系は設定から取得)
         generation_config: dict = None,
         force_google: bool = False,  # 内部処理用にGeminiを強制使用する場合True
-        room_name: str = None  # ルーム名（ルーム個別のプロバイダ設定を取得するため）
+        room_name: str = None,  # ルーム名（ルーム個別のプロバイダ設定を取得するため）
+        internal_role: str = None  # [Phase 2] "processing", "summarization", "supervisor"
     ):
         """
         現在の設定(active_provider)に基づいて、適切なLangChain ChatModelインスタンスを生成して返す。
         
         Args:
-            model_name: 使用するモデル名
+            model_name: 使用するモデル名（internal_role指定時は省略可）
             temperature: 生成温度
             top_p: Top-P
             max_retries: リトライ回数（Agent側で制御するため基本0）
@@ -30,9 +31,43 @@ class LLMFactory:
             generation_config: その他の生成設定（安全性設定など）
             force_google: Trueの場合、active_providerに関係なくGemini Nativeを使用。
                           内部処理（検索クエリ生成、情景描写等）はGemini固定のため。
+                          ※internal_role指定時は無視される（後方互換用）
             room_name: ルーム名。指定するとルーム個別のプロバイダ設定を優先する。
+            internal_role: [Phase 2] 内部処理のロール。"processing", "summarization", "supervisor"のいずれか。
+                          指定すると、config.jsonの内部モデル設定に基づいてプロバイダとモデルを自動選択。
         """
         config_manager.load_config() 
+        
+        # --- [Phase 2] internal_role優先ロジック ---
+        if internal_role:
+            # config_managerから内部モデル設定を取得
+            provider, internal_model_name = config_manager.get_effective_internal_model(internal_role)
+            print(f"--- [LLM Factory] Internal role mode: {internal_role} ---")
+            print(f"  - Provider: {provider}")
+            print(f"  - Model: {internal_model_name}")
+            
+            # プロバイダに応じて処理を分岐
+            if provider == "google":
+                if not api_key:
+                    raise ValueError("Google provider requires an API key.")
+                return gemini_api.get_configured_llm(
+                    model_name=internal_model_name,
+                    api_key=api_key,
+                    generation_config=generation_config or {}
+                )
+            else:
+                # 将来のプロバイダ対応用（Phase 3: zhipu, local等）
+                # 現時点ではGoogleにフォールバック
+                print(f"  - (Fallback to Google for unsupported provider: {provider})")
+                if not api_key:
+                    raise ValueError("Google provider requires an API key.")
+                return gemini_api.get_configured_llm(
+                    model_name=internal_model_name,
+                    api_key=api_key,
+                    generation_config=generation_config or {}
+                )
+        
+        # --- 以下は既存ロジック（internal_role未指定時） ---
         
         # モデル名から注釈（かっこ書き）を除去する
         # 例: "gemini-3-flash-preview (Slow Response)" -> "gemini-3-flash-preview"

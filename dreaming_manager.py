@@ -13,7 +13,7 @@ import config_manager
 import utils
 import rag_manager
 import room_manager
-from gemini_api import get_configured_llm
+from llm_factory import LLMFactory
 from entity_memory_manager import EntityMemoryManager
 from goal_manager import GoalManager
 from episodic_memory_manager import EpisodicMemoryManager
@@ -126,7 +126,11 @@ class DreamingManager:
 
         # 3. 検索クエリの生成 (高速モデル)
         # ※特定のジャンル（技術、悩みなど）に偏らないよう一般化
-        llm_flash = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, self.api_key, effective_settings)
+        llm_flash = LLMFactory.create_chat_model(
+            api_key=self.api_key,
+            generation_config=effective_settings,
+            internal_role="processing"
+        )
         
         query_prompt = f"""
         あなたはAIの「深層意識」です。
@@ -185,7 +189,11 @@ class DreamingManager:
         """
 
         # 5. 洞察の生成 (高品質モデルを使用)
-        llm_dreamer = get_configured_llm(constants.SUMMARIZATION_MODEL, self.api_key, effective_settings)
+        llm_dreamer = LLMFactory.create_chat_model(
+            api_key=self.api_key,
+            generation_config=effective_settings,
+            internal_role="summarization"
+        )
         
         dreaming_prompt = f"""
         あなたは今、深い眠りの中で記憶を整理しています。
@@ -454,7 +462,11 @@ class DreamingManager:
         print(f"  - [Phase B] {len(questions)}件の解決済み質問を記憶に変換中...")
         
         # LLMで分類・抽出
-        llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, self.api_key, effective_settings)
+        llm = LLMFactory.create_chat_model(
+            api_key=self.api_key,
+            generation_config=effective_settings,
+            internal_role="processing"
+        )
         
         converted_count = 0
         for q in questions:
@@ -589,7 +601,11 @@ class DreamingManager:
         ペルソナなしのAI処理として実行
         """
         effective_settings = config_manager.get_effective_settings(self.room_name)
-        llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, self.api_key, effective_settings)
+        llm = LLMFactory.create_chat_model(
+            api_key=self.api_key,
+            generation_config=effective_settings,
+            internal_role="processing"
+        )
         
         existing_str = ", ".join(existing_entities) if existing_entities else "（なし）"
         

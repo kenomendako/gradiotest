@@ -1100,3 +1100,84 @@ def is_tool_use_enabled(room_name: str = None) -> bool:
         return openai_setting.get("tool_use_enabled", True)
     
     return True  # フォールバック
+
+
+# --- [Phase 2] 内部処理モデル設定管理 ---
+
+def get_internal_model_settings() -> Dict[str, Any]:
+    """
+    内部処理モデルの設定を取得する。
+    設定がない場合はデフォルト値を返す。
+    """
+    default_settings = {
+        "provider": "google",  # "google", "zhipu", "openai", "local"
+        "processing_model": constants.INTERNAL_PROCESSING_MODEL,  # 軽量タスク
+        "summarization_model": constants.SUMMARIZATION_MODEL,    # 要約・文章生成
+        "supervisor_model": constants.INTERNAL_PROCESSING_MODEL,  # グループ司会
+    }
+    
+    user_settings = CONFIG_GLOBAL.get("internal_model_settings", {})
+    
+    # デフォルト値とマージ（ユーザー設定を優先）
+    merged = default_settings.copy()
+    merged.update(user_settings)
+    
+    return merged
+
+
+def save_internal_model_settings(settings: Dict[str, Any]) -> bool:
+    """
+    内部処理モデルの設定を保存する。
+    
+    Returns:
+        保存が成功したかどうか
+    """
+    try:
+        save_config_if_changed("internal_model_settings", settings)
+        return True
+    except Exception as e:
+        print(f"[config_manager] 内部モデル設定の保存に失敗: {e}")
+        return False
+
+
+def reset_internal_model_settings() -> Dict[str, Any]:
+    """
+    内部処理モデルの設定をデフォルトにリセットする。
+    
+    Returns:
+        リセット後の設定
+    """
+    default_settings = {
+        "provider": "google",
+        "processing_model": constants.INTERNAL_PROCESSING_MODEL,
+        "summarization_model": constants.SUMMARIZATION_MODEL,
+        "supervisor_model": constants.INTERNAL_PROCESSING_MODEL,
+    }
+    
+    save_internal_model_settings(default_settings)
+    return default_settings
+
+
+def get_effective_internal_model(role: str) -> Tuple[str, str]:
+    """
+    指定されたロールに応じた内部処理モデルのプロバイダとモデル名を取得する。
+    
+    Args:
+        role: "processing", "summarization", "supervisor" のいずれか
+    
+    Returns:
+        (provider, model_name) のタプル
+    """
+    settings = get_internal_model_settings()
+    provider = settings.get("provider", "google")
+    
+    model_key_map = {
+        "processing": "processing_model",
+        "summarization": "summarization_model",
+        "supervisor": "supervisor_model",
+    }
+    
+    model_key = model_key_map.get(role, "processing_model")
+    model_name = settings.get(model_key, constants.INTERNAL_PROCESSING_MODEL)
+    
+    return (provider, model_name)

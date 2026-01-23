@@ -5453,9 +5453,13 @@ def _generate_scenery_prompt(room_name: str, api_key_name: str, style_choice: st
     if not space_text:
         raise gr.Error("現在の場所の定義が見つかりません。")
 
-    from gemini_api import get_configured_llm
+    from llm_factory import LLMFactory
     effective_settings = config_manager.get_effective_settings(room_name)
-    scene_director_llm = get_configured_llm(constants.INTERNAL_PROCESSING_MODEL, api_key, effective_settings)
+    scene_director_llm = LLMFactory.create_chat_model(
+        api_key=api_key,
+        generation_config=effective_settings,
+        internal_role="processing"
+    )
 
     director_prompt = f"""
 You are a master scene director AI for a high-end image generation model.
@@ -9966,10 +9970,14 @@ def handle_summarize_outing_text(preview_text: str, room_name: str, target_secti
         return preview_text, f"📝 推定文字数: **{len(preview_text):,}** 文字"
     
     try:
-        from gemini_api import get_configured_llm
+        from llm_factory import LLMFactory
         
         effective_settings = config_manager.get_effective_settings(room_name)
-        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        llm = LLMFactory.create_chat_model(
+            api_key=api_key,
+            generation_config=effective_settings,
+            internal_role="summarization"
+        )
         
         # 圧縮プロンプト
         prompt = f"""以下のAIペルソナデータを、重要な情報を保持しながらできるだけ圧縮してください。
@@ -10126,10 +10134,14 @@ def handle_outing_compress_section(text: str, section_name: str, room_name: str)
         return text, f"文字数: {len(text):,}"
     
     try:
-        from gemini_api import get_configured_llm
+        from llm_factory import LLMFactory
         
         effective_settings = config_manager.get_effective_settings(room_name)
-        llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, effective_settings)
+        llm = LLMFactory.create_chat_model(
+            api_key=api_key,
+            generation_config=effective_settings,
+            internal_role="summarization"
+        )
         
         prompt = f"""以下の{section_name}を、重要な情報を保持しながら圧縮してください。
 

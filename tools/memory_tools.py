@@ -638,8 +638,12 @@ def summarize_and_update_core_memory(room_name: str, api_key: str) -> str:
 
         history_summary_text = ""
         if diary_text_to_summarize:
-            from gemini_api import get_configured_llm
-            summarizer_llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, {})
+            from llm_factory import LLMFactory
+            summarizer_llm = LLMFactory.create_chat_model(
+                api_key=api_key,
+                generation_config={},
+                internal_role="summarization"
+            )
 
             # ▼▼▼ [2024-12-28 最適化] コアメモリ要約プロンプトを簡潔化 ▼▼▼
             # エピソード記憶や中期記憶が別途存在するため、コアメモリは核心のみに絞る。
@@ -772,8 +776,12 @@ def archive_old_diary_entries(room_name: str, api_key: str, archive_until_date: 
 
         # 6. AIによる【圧縮率の高い】要約
         print("  - 古い日記の【索引向け】要約をAIに依頼します...")
-        from gemini_api import get_configured_llm
-        summarizer_llm = get_configured_llm(constants.SUMMARIZATION_MODEL, api_key, {})
+        from llm_factory import LLMFactory
+        summarizer_llm = LLMFactory.create_chat_model(
+            api_key=api_key,
+            generation_config={},
+            internal_role="summarization"
+        )
 
         # ▼▼▼ 既存の summarize_prompt の定義ブロック全体を、以下のコードで置き換えてください ▼▼▼
         summarize_prompt = f"""あなたは、膨大な記録から本質を見抜き、簡潔な索引を作成する専門の図書館司書です。
