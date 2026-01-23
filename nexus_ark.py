@@ -626,7 +626,8 @@ try:
                                 internal_provider_radio = gr.Radio(
                                     choices=[
                                         ("Google (Gemini)", "google"),
-                                        ("OpenAI互換 (今後対応予定)", "openai")
+                                        ("Zhipu AI (GLM-4)", "zhipu"),
+                                        ("OpenAI互換", "openai")
                                     ],
                                     value=_internal_settings.get("provider", "google"),
                                     label="内部処理プロバイダ",
@@ -693,6 +694,18 @@ try:
                                         interactive=True
                                     )
                                     save_tavily_key_button = gr.Button("Tavily APIキーを保存", variant="primary", size="sm")
+                                
+                                # Zhipu APIキー入力欄 [Phase 3]
+                                with gr.Group() as zhipu_api_key_group:
+                                    gr.Markdown("💡 **Zhipu AI (GLM-4) APIキー**: [bigmodel.cn](https://open.bigmodel.cn/usercenter/apikeys) でAPIキーを取得してください（登録で500万トークン無料）。")
+                                    zhipu_api_key_input = gr.Textbox(
+                                        label="Zhipu APIキー",
+                                        type="password",
+                                        placeholder="[API_KEY_ID].[API_KEY_SECRET]",
+                                        value=config_manager.ZHIPU_API_KEY or "",
+                                        interactive=True
+                                    )
+                                    save_zhipu_key_button = gr.Button("Zhipu APIキーを保存", variant="primary", size="sm")
 
 
                             with gr.Accordion("📢 通知サービス設定", open=False):
@@ -2808,6 +2821,7 @@ try:
             internal_provider_radio,
             internal_processing_model_input,
             internal_summarization_model_input,
+            zhipu_api_key_input, # [Phase 3]
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -4629,6 +4643,12 @@ try:
         save_tavily_key_button.click(
             fn=ui_handlers.handle_save_tavily_key,
             inputs=[tavily_api_key_input],
+            outputs=None
+        )
+        
+        save_zhipu_key_button.click(
+            fn=ui_handlers.handle_save_zhipu_key,
+            inputs=[zhipu_api_key_input],
             outputs=None
         )
 

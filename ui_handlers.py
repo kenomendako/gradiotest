@@ -374,6 +374,22 @@ def handle_save_tavily_key(api_key: str):
         # グローバル変数も更新
         config_manager.TAVILY_API_KEY = api_key
         gr.Info("Tavily APIキーを保存しました。")
+
+def handle_save_zhipu_key(api_key: str):
+    """
+    Zhipu AI (GLM-4) APIキーを保存する。
+    """
+    if not api_key or not api_key.strip():
+        gr.Warning("APIキーが空です。")
+        return
+    
+    api_key = api_key.strip()
+    
+    # config.jsonに保存
+    if config_manager.save_config_if_changed("zhipu_api_key", api_key):
+        # グローバル変数も更新
+        config_manager.ZHIPU_API_KEY = api_key
+        gr.Info("Zhipu APIキーを保存しました。")
     else:
         gr.Info("Tavily APIキーは既に保存されています。")
 
@@ -810,7 +826,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 162):
+def handle_initial_load(room_name: str = None, expected_count: int = 163):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -945,6 +961,7 @@ def handle_initial_load(room_name: str = None, expected_count: int = 162):
         f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
         f"最終更新: {current_log_index_last_updated}",  # current_log_reindex_status
         *internal_model_updates,  # [Phase 3] 内部モデル設定
+        config_manager.ZHIPU_API_KEY or "", # [Phase 3] zhipu_api_key_input
     )
     
     # 初期化完了: 以降の設定変更では通知を表示する（ただし直後のgrace periodは除く）

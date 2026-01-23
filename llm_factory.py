@@ -55,8 +55,23 @@ class LLMFactory:
                     api_key=api_key,
                     generation_config=generation_config or {}
                 )
+            elif provider == "zhipu":
+                # [Phase 3] Zhipu AI (GLM-4) 対応
+                zhipu_api_key = config_manager.ZHIPU_API_KEY
+                if not zhipu_api_key:
+                    raise ValueError("Zhipu AI provider requires an API key. Please set it in Settings.")
+                
+                print(f"--- [LLM Factory] Creating ZhipuAI client ---")
+                return ChatOpenAI(
+                    base_url="https://open.bigmodel.cn/api/paas/v4/",
+                    api_key=zhipu_api_key,
+                    model=internal_model_name,
+                    temperature=temperature,
+                    max_retries=max_retries,
+                    streaming=True
+                )
             else:
-                # 将来のプロバイダ対応用（Phase 3: zhipu, local等）
+                # 将来のプロバイダ対応用（local等）
                 # 現時点ではGoogleにフォールバック
                 print(f"  - (Fallback to Google for unsupported provider: {provider})")
                 if not api_key:
