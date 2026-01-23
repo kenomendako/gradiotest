@@ -11527,3 +11527,68 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
         print(f"内的状態リフレッシュエラー: {e}")
         traceback.print_exc()
         return (0, 0, 0, 0, f"エラー: {e}", empty_df, "更新失敗", empty_emotion_df)
+
+
+# --- [Phase 3] 内部処理モデル設定ハンドラ ---
+
+def handle_save_internal_model_settings(provider: str, processing_model: str, summarization_model: str):
+    """
+    内部処理モデル設定を保存する。
+    
+    Args:
+        provider: 使用するプロバイダ ("google", "openai")
+        processing_model: 処理モデル名
+        summarization_model: 要約モデル名
+        
+    Returns:
+        (status_markdown,) - ステータスメッセージ
+    """
+    try:
+        settings = {
+            "provider": provider,
+            "processing_model": processing_model.strip(),
+            "summarization_model": summarization_model.strip(),
+            # supervisorは処理モデルと同じ値を使用
+            "supervisor_model": processing_model.strip(),
+        }
+        
+        success = config_manager.save_internal_model_settings(settings)
+        
+        if success:
+            return gr.update(value="✅ 設定を保存しました。", visible=True)
+        else:
+            return gr.update(value="❌ 保存に失敗しました。", visible=True)
+            
+    except Exception as e:
+        print(f"[ui_handlers] 内部モデル設定保存エラー: {e}")
+        traceback.print_exc()
+        return gr.update(value=f"❌ エラー: {e}", visible=True)
+
+
+def handle_reset_internal_model_settings():
+    """
+    内部処理モデル設定をデフォルトにリセットする。
+    
+    Returns:
+        (provider, processing_model, summarization_model, status_markdown)
+    """
+    try:
+        default_settings = config_manager.reset_internal_model_settings()
+        
+        return (
+            default_settings.get("provider", "google"),
+            default_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL),
+            default_settings.get("summarization_model", constants.SUMMARIZATION_MODEL),
+            gr.update(value="✅ デフォルト設定にリセットしました。", visible=True)
+        )
+        
+    except Exception as e:
+        print(f"[ui_handlers] 内部モデル設定リセットエラー: {e}")
+        traceback.print_exc()
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(value=f"❌ エラー: {e}", visible=True)
+        )
+

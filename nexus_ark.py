@@ -614,6 +614,45 @@ try:
                                                 
                                     save_openai_config_button = gr.Button("このプロファイル設定を保存", variant="secondary")
 
+                            with gr.Accordion("🔧 内部処理モデル設定", open=False):
+                                gr.Markdown(
+                                    "要約・RAGクエリ生成など、バックグラウンド処理に使用するモデルを設定します。\n\n"
+                                    "⚠️ **現時点ではGoogleプロバイダのみ動作します。**"
+                                )
+                                
+                                # 現在の設定を取得
+                                _internal_settings = config_manager.get_internal_model_settings()
+                                
+                                internal_provider_radio = gr.Radio(
+                                    choices=[
+                                        ("Google (Gemini)", "google"),
+                                        ("OpenAI互換 (今後対応予定)", "openai")
+                                    ],
+                                    value=_internal_settings.get("provider", "google"),
+                                    label="内部処理プロバイダ",
+                                    interactive=True
+                                )
+                                
+                                internal_processing_model_input = gr.Textbox(
+                                    label="処理モデル（軽量タスク用）",
+                                    value=_internal_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL),
+                                    info="RAGクエリ生成、Intent分類、グループ会話の司会などに使用",
+                                    interactive=True
+                                )
+                                
+                                internal_summarization_model_input = gr.Textbox(
+                                    label="要約モデル（文章生成用）",
+                                    value=_internal_settings.get("summarization_model", constants.SUMMARIZATION_MODEL),
+                                    info="日次/週次要約、コアメモリ圧縮、ペルソナデータ圧縮などに使用",
+                                    interactive=True
+                                )
+                                
+                                with gr.Row():
+                                    reset_internal_model_button = gr.Button("デフォルトに戻す", variant="secondary", size="sm")
+                                    save_internal_model_button = gr.Button("設定を保存", variant="primary", size="sm")
+                                
+                                internal_model_status = gr.Markdown("", visible=False)
+
                             with gr.Accordion("🎨 画像生成設定", open=False):
                                 # Configから値を読み込み、廃止された "old" が設定されていた場合は "new" にフォールバックする
                                 current_img_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
@@ -4619,6 +4658,19 @@ try:
             fn=ui_handlers.handle_save_openai_config,
             inputs=[openai_profile_dropdown, openai_base_url_input, openai_api_key_input, openai_model_dropdown, openai_tool_use_checkbox],
             outputs=None
+        )
+        
+        # --- [Phase 3] 内部処理モデル設定ボタンのイベント ---
+        save_internal_model_button.click(
+            fn=ui_handlers.handle_save_internal_model_settings,
+            inputs=[internal_provider_radio, internal_processing_model_input, internal_summarization_model_input],
+            outputs=[internal_model_status]
+        )
+        
+        reset_internal_model_button.click(
+            fn=ui_handlers.handle_reset_internal_model_settings,
+            inputs=None,
+            outputs=[internal_provider_radio, internal_processing_model_input, internal_summarization_model_input, internal_model_status]
         )
         
         # カスタムモデル追加ボタンのイベント
