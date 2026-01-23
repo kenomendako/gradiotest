@@ -48,8 +48,13 @@ class LLMFactory:
             
             # プロバイダに応じて処理を分岐
             if provider == "google":
+                # api_key が未指定なら自動補完
                 if not api_key:
-                    raise ValueError("Google provider requires an API key.")
+                    api_key = config_manager.get_active_gemini_api_key(room_name)
+                    
+                if not api_key:
+                    raise ValueError("Google provider requires an API key. No valid key found.")
+                    
                 return gemini_api.get_configured_llm(
                     model_name=internal_model_name,
                     api_key=api_key,
@@ -100,10 +105,12 @@ class LLMFactory:
 
         # --- Google Gemini (Native) ---
         if active_provider == "google":
-            # 既存の gemini_api.get_configured_llm ロジックを利用
-            # ※ api_key が必須
+            # api_key が未指定なら自動補完
             if not api_key:
-                raise ValueError("Google provider requires an API key.")
+                api_key = config_manager.get_active_gemini_api_key(room_name)
+                
+            if not api_key:
+                raise ValueError("Google provider requires an API key. No valid key found.")
                 
             return gemini_api.get_configured_llm(
                 model_name=internal_model_name,

@@ -1923,7 +1923,7 @@ def safe_tool_executor(state: AgentState):
         tool_args_for_log = tool_args.copy()
         if 'api_key' in tool_args_for_log: tool_args_for_log['api_key'] = '<REDACTED>'
         tool_args['room_name'] = room_name
-        if tool_name in ['generate_image', 'search_past_conversations', 'recall_memories']:
+        if tool_name in ['generate_image', 'search_past_conversations', 'recall_memories', 'write_entity_memory']:
             tool_args['api_key'] = api_key
             api_key_name = None
             try:
