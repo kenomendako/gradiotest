@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Phase 3: 内部処理モデル設定UI (2026-01-23):** 共通設定タブに「🔧 内部処理モデル設定」アコーディオンを追加。処理モデル/要約モデルをUI上で変更可能に。司会モデルは処理モデルに統合（2モデル構成に簡素化）。[レポート](docs/reports/2026-01-23_internal_model_settings_ui_phase3.md)
 - **Phase 2.5: 内部処理モデル動的選択機能 (2026-01-23):** `LLMFactory.create_chat_model`に`internal_role`引数を追加。14箇所の`get_configured_llm`呼び出しを移行し、内部処理モデル（summarization/processing）の設定ベース動的選択を実現。[レポート](docs/reports/2026-01-23_internal_model_migration_phase2.5.md)
 - **日記・ノートに「📄 最新を表示」ボタン追加 (2026-01-21):** 日記・創作ノート・研究ノートにエピソード記憶/夢日記と同様の「最新を表示」ボタンを追加。表情ファイルアップロード機能の配線バグも修正。[レポート](docs/reports/2026-01-21_show_latest_button.md)
 - **ノート形式の標準化とヘッダー統一 (2026-01-21):** 研究ノートの独自形式を廃止し、すべてのノートで `📝 YYYY-MM-DD HH:MM` 形式を標準化。AIプロンプト（`agent/graph.py`）を強化し、重複ヘッダーの生成を抑制。[レポート](docs/reports/2026-01-21_notes_ui_standardization.md)

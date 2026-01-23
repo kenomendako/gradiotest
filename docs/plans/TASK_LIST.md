@@ -247,9 +247,11 @@
   - ✅ 完了 (2026-01-10): [自動生成廃止レポート](docs/reports/2026-01-10_auto_scenery_generation_fix.md) | [フォールバック改善レポート](docs/reports/2026-01-10_scenery_fallback_improvement.md)
   - 📄 仕様書: [SCENERY_SYSTEM_SPECIFICATION.md](docs/specifications/SCENERY_SYSTEM_SPECIFICATION.md)
 
-- [ ] **内部仕様モデルのカスタム設定** 🆕
+- [x] **内部仕様モデルのカスタム設定 (Phase 3)** ✅ (2026-01-23 完了)
   - 詳細: 内部の高速モデルや要約モデルを今はGeminiで固定しているが、ユーザーが好みのモデルに変更できるようにする。GLM-4.7などを検討。
-  - 優先度: 🔴高
+  - Phase 2.5完了: `config_manager.py`に設定管理関数、`LLMFactory`に`internal_role`対応を実装済み
+  - Phase 3完了: UI設定画面を追加（共通設定 → 🔧 内部処理モデル設定）
+  - [レポート](../reports/2026-01-23_internal_model_settings_ui_phase3.md)
 
 - [x] **ノート形式の標準化とUI改善** ✅ (2026-01-21 完了)
   - 全ノート形式を `📝` アイコンヘッダーに統一。

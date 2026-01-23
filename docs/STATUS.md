@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-23 | **Phase 3: 内部処理モデル設定UI**<br>・共通設定に「🔧 内部処理モデル設定」追加<br>・処理/要約モデルをUI上で変更可能に<br>・司会モデルは処理モデルに統合（2モデル構成） | [レポート](reports/2026-01-23_internal_model_settings_ui_phase3.md) |
 | 2026-01-23 | **Phase 2.5: 内部処理モデル動的選択**<br>・`internal_role`引数による自動モデル選択<br>・14箇所のget_configured_llm呼び出しを移行<br>・将来のOpenAI/Claude対応の基盤完成 | [レポート](reports/2026-01-23_internal_model_migration_phase2.5.md) |
 | 2026-01-22 | **エピソード記憶注入バグ修正**<br>・週次記憶の重複削除、フィルタリングロジック改善<br>・ルックバック基準を「今日」に修正<br>・datetime.now()エラー・配線バグ修正 | [レポート](reports/2026-01-22_episodic_memory_injection_fix.md) |
 | 2026-01-21 | **日記・ノートに「📄 最新を表示」ボタン追加**<br>・日記/創作ノート/研究ノートに最新表示ボタンを追加<br>・表情ファイルアップロードの配線バグを修正 | [レポート](reports/2026-01-21_show_latest_button.md) |
