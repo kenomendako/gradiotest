@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-23 | **Phase 2.5: 内部処理モデル動的選択**<br>・`internal_role`引数による自動モデル選択<br>・14箇所のget_configured_llm呼び出しを移行<br>・将来のOpenAI/Claude対応の基盤完成 | [レポート](reports/2026-01-23_internal_model_migration_phase2.5.md) |
 | 2026-01-22 | **エピソード記憶注入バグ修正**<br>・週次記憶の重複削除、フィルタリングロジック改善<br>・ルックバック基準を「今日」に修正<br>・datetime.now()エラー・配線バグ修正 | [レポート](reports/2026-01-22_episodic_memory_injection_fix.md) |
 | 2026-01-21 | **日記・ノートに「📄 最新を表示」ボタン追加**<br>・日記/創作ノート/研究ノートに最新表示ボタンを追加<br>・表情ファイルアップロードの配線バグを修正 | [レポート](reports/2026-01-21_show_latest_button.md) |
 | 2026-01-21 | **ノート形式の標準化とUI不具合の修正**<br>・全ノート形式を `📝` アイコンヘッダーに統一<br>・本文内 `---` による誤分割の防止とAI生成抑制<br>・RAWエディタのスクロール対応（CSS改善） | [レポート](reports/2026-01-21_notes_ui_standardization.md) |
