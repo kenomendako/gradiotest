@@ -2803,7 +2803,11 @@ try:
             room_openai_model_dropdown,
             # --- 索引ステータス欄（最終更新日時表示用）---
             memory_reindex_status,
-            current_log_reindex_status
+            current_log_reindex_status,
+            # --- [Phase 3] 内部モデル設定 ---
+            internal_provider_radio,
+            internal_processing_model_input,
+            internal_summarization_model_input,
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]

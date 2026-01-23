@@ -170,13 +170,21 @@ def save_config_if_changed(key: str, value: Any) -> bool:
     # ファイルから最新を読み込む
     config = load_config_file()
     
+    current_value = config.get(key)
+    print(f"[config_manager] save_config_if_changed: key={key}")  # DEBUG
+    print(f"[config_manager]   current_value: {current_value}")  # DEBUG
+    print(f"[config_manager]   new_value: {value}")  # DEBUG
+    print(f"[config_manager]   are_equal: {current_value == value}")  # DEBUG
+    
     # 変更チェック
-    if config.get(key) == value:
+    if current_value == value:
+        print(f"[config_manager]   -> No change, skipping save")  # DEBUG
         return False  # 変更なし
 
     # 変更があれば保存
     config[key] = value
     _save_config_file(config)
+    print(f"[config_manager]   -> Saved to file")  # DEBUG
     
     # 【重要】メモリ上の設定も更新して、再起動なしで反映させる
     if CONFIG_GLOBAL is None:
@@ -1133,8 +1141,10 @@ def save_internal_model_settings(settings: Dict[str, Any]) -> bool:
         保存が成功したかどうか
     """
     try:
-        save_config_if_changed("internal_model_settings", settings)
-        return True
+        print(f"[config_manager] save_internal_model_settings called with: {settings}")  # DEBUG
+        result = save_config_if_changed("internal_model_settings", settings)
+        print(f"[config_manager] save_config_if_changed returned: {result}")  # DEBUG
+        return True  # 例外がなければ成功（変更がなかった場合もTrue）
     except Exception as e:
         print(f"[config_manager] 内部モデル設定の保存に失敗: {e}")
         return False

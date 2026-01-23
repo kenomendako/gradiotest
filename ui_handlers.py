@@ -810,7 +810,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 159):
+def handle_initial_load(room_name: str = None, expected_count: int = 162):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -918,8 +918,16 @@ def handle_initial_load(room_name: str = None, expected_count: int = 159):
     memory_index_last_updated = _get_rag_index_last_updated(safe_initial_room, "memory")
     current_log_index_last_updated = _get_rag_index_last_updated(safe_initial_room, "current_log")
 
-    # --- 7. 全ての戻り値を正しい順序で組み立てる ---
-    # `initial_load_outputs`のリスト（61個）に対応
+    # --- 7. [Phase 3] 内部モデル設定を取得 ---
+    internal_model_settings = config_manager.get_internal_model_settings()
+    internal_model_updates = (
+        gr.update(value=internal_model_settings.get("provider", "google")),
+        gr.update(value=internal_model_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL)),
+        gr.update(value=internal_model_settings.get("summarization_model", constants.SUMMARIZATION_MODEL)),
+    )
+
+    # --- 8. 全ての戻り値を正しい順序で組み立てる ---
+    # `initial_load_outputs`のリストに対応
     final_outputs = (
         display_df, df_with_ids, feedback_text,
         *chat_tab_updates,
@@ -935,7 +943,8 @@ def handle_initial_load(room_name: str = None, expected_count: int = 159):
         *openai_updates,
         room_openai_model_dropdown_update,  # 個別設定のOpenAI互換モデルドロップダウン
         f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
-        f"最終更新: {current_log_index_last_updated}"  # current_log_reindex_status
+        f"最終更新: {current_log_index_last_updated}",  # current_log_reindex_status
+        *internal_model_updates,  # [Phase 3] 内部モデル設定
     )
     
     # 初期化完了: 以降の設定変更では通知を表示する（ただし直後のgrace periodは除く）
@@ -11552,9 +11561,14 @@ def handle_save_internal_model_settings(provider: str, processing_model: str, su
             "supervisor_model": processing_model.strip(),
         }
         
+        print(f"[Phase 3] 内部モデル設定保存: {settings}")  # DEBUG
+        
         success = config_manager.save_internal_model_settings(settings)
         
+        print(f"[Phase 3] 保存結果: {success}")  # DEBUG
+        
         if success:
+            gr.Info("内部モデル設定を保存しました")
             return gr.update(value="✅ 設定を保存しました。", visible=True)
         else:
             return gr.update(value="❌ 保存に失敗しました。", visible=True)

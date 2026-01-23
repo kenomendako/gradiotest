@@ -9,16 +9,11 @@ Phase 2.5で実装したバックエンド（`config_manager.py`の内部モデ�
 
 ## 変更内容
 
-### [nexus_ark.py](file:///home/baken/nexus_ark/nexus_ark.py)
-共通設定タブに「🔧 内部処理モデル設定」アコーディオンを追加:
-- プロバイダ選択（Google / OpenAI互換）
-- 処理モデル入力（軽量タスク、司会含む）
-- 要約モデル入力（文章生成タスク）
-- 「設定を保存」「デフォルトに戻す」ボタン
-
-### [ui_handlers.py](file:///home/baken/nexus_ark/ui_handlers.py)
-- `handle_save_internal_model_settings()`: 設定保存
-- `handle_reset_internal_model_settings()`: デフォルトリセット
+### [バグ修正] 設定の永続化とリロード対応
+- ページリロード時に設定が元に戻る問題を修正。
+- `nexus_ark.py`: `initial_load_outputs` に内部モデル設定コンポーネントを追加。
+- `ui_handlers.py`: `handle_initial_load` で起動時に `config.json` から設定を読み込みUIに反映。
+- `ui_handlers.py`: `handle_initial_load` の `expected_count` を 159 -> 162 に更新。
 
 ## 設計決定
 
@@ -30,7 +25,8 @@ Phase 2.5で実装したバックエンド（`config_manager.py`の内部モデ�
 | 項目 | 結果 |
 |------|------|
 | シンタックスチェック | ✅ OK |
-| 配線検証 | ✅ Phase 3関連エラーなし |
+| 配線検証 | ✅ `handle_initial_load` のカウント不整合を解消。Phase 3関連エラーなし |
+| 手動テスト | ✅ ページリロード後も設定が維持されることを確認 |
 
 ## 次のステップ
 
