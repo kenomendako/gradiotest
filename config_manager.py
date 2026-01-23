@@ -20,6 +20,7 @@ NOTIFICATION_SERVICE_GLOBAL = "discord"
 NOTIFICATION_WEBHOOK_URL_GLOBAL = None
 PUSHOVER_CONFIG = {}
 ZHIPU_API_KEY = ""    # [Phase 3] Zhipu AI (GLM-4) 用APIキー
+GROQ_API_KEY = ""     # [Phase 3b] Groq用APIキー
 
 SUPPORTED_VOICES = {
     "zephyr": "Zephyr (明るい)", "puck": "Puck (アップビート)", "charon": "Charon (情報が豊富)",
@@ -517,7 +518,7 @@ def load_config():
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_streaming_speed_global
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
-    global ZHIPU_API_KEY
+    global ZHIPU_API_KEY, GROQ_API_KEY
 
     # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
 # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
@@ -743,6 +744,7 @@ def load_config():
 
     TAVILY_API_KEY = config.get("tavily_api_key", "")
     ZHIPU_API_KEY = config.get("zhipu_api_key", "")
+    GROQ_API_KEY = config.get("groq_api_key", "")
 
     AVAILABLE_MODELS_GLOBAL = config.get("available_models")
     DEFAULT_MODEL_GLOBAL = config.get("default_model")

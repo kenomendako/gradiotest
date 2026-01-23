@@ -391,7 +391,25 @@ def handle_save_zhipu_key(api_key: str):
         config_manager.ZHIPU_API_KEY = api_key
         gr.Info("Zhipu APIキーを保存しました。")
     else:
-        gr.Info("Tavily APIキーは既に保存されています。")
+        gr.Info("Zhipu APIキーは既に保存されています。")
+
+def handle_save_groq_key(api_key: str):
+    """
+    Groq APIキーを保存する。
+    """
+    if not api_key or not api_key.strip():
+        gr.Warning("APIキーが空です。")
+        return
+    
+    api_key = api_key.strip()
+    
+    # config.jsonに保存
+    if config_manager.save_config_if_changed("groq_api_key", api_key):
+        # グローバル変数も更新
+        config_manager.GROQ_API_KEY = api_key
+        gr.Info("Groq APIキーを保存しました。")
+    else:
+        gr.Info("Groq APIキーは既に保存されています。")
 
 def _get_location_choices_for_ui(room_name: str) -> list:
     """
@@ -962,6 +980,7 @@ def handle_initial_load(room_name: str = None, expected_count: int = 164):
         f"最終更新: {current_log_index_last_updated}",  # current_log_reindex_status
         *internal_model_updates,  # [Phase 3] 内部モデル設定
         config_manager.ZHIPU_API_KEY or "", # [Phase 3] zhipu_api_key_input
+        config_manager.GROQ_API_KEY or "", # [Phase 3b] groq_api_key_input
         config_manager.TAVILY_API_KEY or "", # [Phase 3] tavily_api_key_input
     )
     

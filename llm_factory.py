@@ -75,6 +75,21 @@ class LLMFactory:
                     max_retries=max_retries,
                     streaming=True
                 )
+            elif provider == "groq":
+                # [Phase 3b] Groq対応
+                groq_api_key = config_manager.GROQ_API_KEY
+                if not groq_api_key:
+                    raise ValueError("Groq provider requires an API key. Please set it in Settings.")
+                
+                print(f"--- [LLM Factory] Creating Groq client ---")
+                return ChatOpenAI(
+                    base_url="https://api.groq.com/openai/v1",
+                    api_key=groq_api_key,
+                    model=internal_model_name,
+                    temperature=temperature,
+                    max_retries=max_retries,
+                    streaming=True
+                )
             else:
                 # 将来のプロバイダ対応用（local等）
                 # 現時点ではGoogleにフォールバック

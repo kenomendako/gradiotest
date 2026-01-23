@@ -531,6 +531,18 @@ try:
                                     )
                                     save_zhipu_key_button = gr.Button("Zhipu APIキーを保存", variant="primary", size="sm")
 
+                                # Groq [Phase 3b]
+                                with gr.Accordion("Groq", open=False) as groq_api_key_group:
+                                    gr.Markdown("💡 **Groq APIキー**: [console.groq.com](https://console.groq.com/keys) でAPIキーを取得してください（無料枠あり・毎日リセット）。")
+                                    groq_api_key_input = gr.Textbox(
+                                        label="Groq APIキー",
+                                        type="password",
+                                        placeholder="gsk_...",
+                                        value=config_manager.GROQ_API_KEY or "",
+                                        interactive=True
+                                    )
+                                    save_groq_key_button = gr.Button("Groq APIキーを保存", variant="primary", size="sm")
+
                                 # Tavily (Web Search) [Phase 3]
                                 with gr.Accordion("Tavily (Web検索)", open=False) as tavily_api_key_group:
                                     gr.Markdown("💡 **Tavily APIキー**: [tavily.com](https://tavily.com) で無料アカウントを作成してAPIキーを取得してください（月1000クレジット無料）。")
@@ -641,7 +653,7 @@ try:
                             with gr.Accordion("🔧 内部処理モデル設定", open=False):
                                 gr.Markdown(
                                     "要約・RAGクエリ生成など、バックグラウンド処理に使用するモデルを設定します。\n\n"
-                                    "⚠️ **現時点ではGoogleプロバイダのみ動作します。**"
+                                    "💡 **対応プロバイダ**: Google, Zhipu AI, Groq"
                                 )
                                 
                                 # 現在の設定を取得
@@ -651,6 +663,7 @@ try:
                                     choices=[
                                         ("Google (Gemini)", "google"),
                                         ("Zhipu AI (GLM-4)", "zhipu"),
+                                        ("Groq", "groq"),
                                         ("OpenAI互換", "openai")
                                     ],
                                     value=_internal_settings.get("provider", "google"),
@@ -2825,6 +2838,7 @@ try:
             internal_processing_model_input,
             internal_summarization_model_input,
             zhipu_api_key_input, # [Phase 3]
+            groq_api_key_input, # [Phase 3b]
             tavily_api_key_input, # [Phase 3]
         ]
 
@@ -4657,6 +4671,12 @@ try:
         save_zhipu_key_button.click(
             fn=ui_handlers.handle_save_zhipu_key,
             inputs=[zhipu_api_key_input],
+            outputs=None
+        )
+        
+        save_groq_key_button.click(
+            fn=ui_handlers.handle_save_groq_key,
+            inputs=[groq_api_key_input],
             outputs=None
         )
 
