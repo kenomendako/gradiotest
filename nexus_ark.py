@@ -533,7 +533,7 @@ try:
 
                                 # Groq [Phase 3b]
                                 with gr.Accordion("Groq", open=False) as groq_api_key_group:
-                                    gr.Markdown("💡 **Groq APIキー**: [console.groq.com](https://console.groq.com/keys) でAPIキーを取得してください（無料枠あり・毎日リセット）。")
+                                    gr.Markdown("💡 **Groq APIキー**: console.groq.com/keys でAPIキーを取得してください（無料枠あり・毎日リセット）。")
                                     groq_api_key_input = gr.Textbox(
                                         label="Groq APIキー",
                                         type="password",
@@ -817,11 +817,12 @@ try:
                                     room_openai_profile_dropdown = gr.Dropdown(
                                         choices=[s["name"] for s in config_manager.get_openai_settings_list()],
                                         label="プロファイル選択",
-                                        info="共通設定で登録したプロファイルから選択します。選択すると下の項目が自動入力されます。",
+                                        info="共通設定で登録したプロファイルを使用します。APIキーは共通設定で管理されます。",
                                         interactive=True
                                     )
                                                 
-                                    with gr.Row():
+                                    # Base URL/API Keyは非表示（共通設定で一元管理）
+                                    with gr.Row(visible=False):
                                         room_openai_base_url_input = gr.Textbox(
                                             label="Base URL",
                                             placeholder="例: https://openrouter.ai/api/v1",
