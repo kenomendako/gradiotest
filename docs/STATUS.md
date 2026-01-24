@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-24 | **Phase 3c & 4: ローカルLLM対応 & フォールバック機構**<br>・llama-cpp-python によるGGUFモデルサポート<br>・Ollama廃止、配布容易性を向上<br>・プロバイダ障害時のGoogleへの自動フォールバック | [レポート](reports/2026-01-24_local_llm_fallback_phase3c_4.md) |
 | 2026-01-24 | **Phase 3b: Groq 内部処理モデル対応**<br>・Groq をプロバイダとして追加<br>・APIキー管理UI と内部モデル選択肢に Groq を追加<br>・ルーム設定のAPI入力を非表示化（共通設定で一元管理） | [レポート](reports/2026-01-24_groq_internal_model_phase3b.md) |
 | 2026-01-23 | **Phase 3: 内部処理モデル設定 & Zhipu AI 統合完了**<br>・Zhipu AI (GLM-4) プロバイダの統合<br>・APIキー管理UIの集約と配置改善<br>・内部モデル設定のUI連携と初期化バグ修正 | [レポート](reports/2026-01-23_zhipu_ai_integration_phase3_final.md) |
 | 2026-01-23 | **Phase 2.5: 内部処理モデル動的選択**<br>・`internal_role`引数による自動モデル選択<br>・14箇所のget_configured_llm呼び出しを移行<br>・将来のOpenAI/Claude対応の基盤完成 | [レポート](reports/2026-01-23_internal_model_migration_phase2.5.md) |

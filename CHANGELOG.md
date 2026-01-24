@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Phase 3c & 4: ローカルLLM対応 & フォールバック機構 (2026-01-24):** llama-cpp-python によるGGUFモデルのローカル実行をサポート。Ollamaを廃止し配布容易性を向上。プロバイダ障害時のGoogleへの自動フォールバック機構を追加。[レポート](docs/reports/2026-01-24_local_llm_fallback_phase3c_4.md)
 - **Phase 3b: Groq 内部処理モデル対応 (2026-01-24):** Groq をプロバイダとして追加。APIキー管理UI、内部モデル選択肢に Groq を追加。ルーム個別設定の冗長なAPIキー入力を非表示化し、共通設定での一元管理を強化。[レポート](docs/reports/2026-01-24_groq_internal_model_phase3b.md)
 - **Phase 3: Zhipu AI (GLM-4) 統合と UI 改善 (2026-01-23):** Zhipu AI プロバイダに対応。内部処理モデル設定 UI を提供し、APIキー管理を「🔑 APIキー / Webhook管理」へ集約。初期値ロード不具合とエンティティ記憶書き込み時の API キーエラーを修正。[レポート](docs/reports/2026-01-23_zhipu_ai_integration_phase3_final.md)
 - **Phase 3: 内部処理モデル設定UI (2026-01-23):** 共通設定タブに「🔧 内部処理モデル設定」アコーディオンを追加。処理モデル/要約モデルをUI上で変更可能に。司会モデルは処理モデルに統合（2モデル構成に簡素化）。[レポート](docs/reports/2026-01-23_internal_model_settings_ui_phase3.md)
