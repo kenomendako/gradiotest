@@ -878,10 +878,11 @@ class EpisodicMemoryManager:
         compressed_episodes = []
         
         for week_start, week_episodes in sorted(weekly_groups.items()):
-            # 週の終了日を計算
-            week_start_date = datetime.datetime.strptime(week_start, '%Y-%m-%d')
-            week_end_date = week_start_date + datetime.timedelta(days=6)
-            week_end = week_end_date.strftime('%Y-%m-%d')
+            # 週の終了日を計算（実データの最終日を使用）
+            # バグ修正: カレンダー上の週末ではなく、実際に圧縮対象に含まれる最終日を使う
+            # これにより、まだ終わっていない週が未来の日付を含む範囲で圧縮されることを防ぐ
+            actual_dates = [ep.get('date', '') for ep in week_episodes]
+            week_end = max(actual_dates)  # 実データの最終日
             
             # --- [Phase 2-B] Arousalによるソート ---
             # 高Arousalエピソードを優先して詳細に記載
