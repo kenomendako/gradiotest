@@ -261,10 +261,10 @@
   - RAWエディタのスクロール対応（CSS改善）。
   - [レポート](../reports/2026-01-21_notes_ui_standardization.md)
 
-- [x] **代替プロバイダ統合 (Phase 3)** ✅ (2026-01-23 完了)
-  - 詳細: GLM-4 (Zhipu AI) 対応を行い、Geminiへの依存度を下げる。APIキー管理UIの集約とバグ修正を含む。
-  - 第一弾: Zhipu AI (GLM-4) 統合
-  - [レポート](../reports/2026-01-23_zhipu_ai_integration_phase3_final.md)
+- [x] **代替プロバイダ統合 (Phase 3)** ✅ (2026-01-24 更新)
+  - 詳細: GLM-4 (Zhipu AI) / Groq 対応を行い、Geminiへの依存度を下げる。APIキー管理UIの集約とバグ修正を含む。
+  - 第一弾: Zhipu AI (GLM-4) 統合 → [レポート](../reports/2026-01-23_zhipu_ai_integration_phase3_final.md)
+  - 第二弾: Groq 統合 → [レポート](../reports/2026-01-24_groq_internal_model_phase3b.md)
 
 - [ ] **ツール使用を常にログに記録する** 🆕
   - 詳細: 自律行動時・通常応答時だけでなく、アラームの時など、いつであってもペルソナのツール使用はログに記録する。透明性と前回何をしたかのペルソナの記憶のため。
