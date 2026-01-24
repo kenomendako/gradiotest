@@ -90,17 +90,29 @@ class LLMFactory:
                     max_retries=max_retries,
                     streaming=True
                 )
+            elif provider == "local":
+                # [Phase 3c] ローカルLLM対応 (llama-cpp-python)
+                local_model_path = config_manager.LOCAL_MODEL_PATH
+                if not local_model_path or not os.path.exists(local_model_path):
+                    raise ValueError(f"Local LLM requires a valid GGUF model path. Current: '{local_model_path}'")
+                
+                print(f"--- [LLM Factory] Creating Local LLM client (llama.cpp) ---")
+                print(f"  - Model path: {local_model_path}")
+                
+                try:
+                    from langchain_community.chat_models import ChatLlamaCpp
+                    return ChatLlamaCpp(
+                        model_path=local_model_path,
+                        temperature=temperature,
+                        n_ctx=4096,  # コンテキスト長（設定可能にする余地あり）
+                        n_gpu_layers=0,  # CPU版デフォルト（0=CPU、-1=全層GPU）
+                        verbose=False
+                    )
+                except ImportError:
+                    raise ValueError("llama-cpp-python is not installed. Run: pip install llama-cpp-python")
             else:
-                # 将来のプロバイダ対応用（local等）
-                # 現時点ではGoogleにフォールバック
-                print(f"  - (Fallback to Google for unsupported provider: {provider})")
-                if not api_key:
-                    raise ValueError("Google provider requires an API key.")
-                return gemini_api.get_configured_llm(
-                    model_name=internal_model_name,
-                    api_key=api_key,
-                    generation_config=generation_config or {}
-                )
+                # 未対応プロバイダ - エラーを投げる（フォールバックはPhase 4で実装）
+                raise ValueError(f"Unsupported internal model provider: {provider}")
         
         # --- 以下は既存ロジック（internal_role未指定時） ---
         
@@ -177,3 +189,71 @@ class LLMFactory:
 
         else:
             raise ValueError(f"Unknown provider: {active_provider}")
+
+    @staticmethod
+    def create_chat_model_with_fallback(
+        internal_role: str,
+        room_name: str = None,
+        temperature: float = 0.7,
+        **kwargs
+    ):
+        """
+        [Phase 4] フォールバック機構付きでチャットモデルを生成する。
+        
+        プライマリプロバイダでエラーが発生した場合、設定されたフォールバック順序に従って
+        次のプロバイダを試行する。
+        
+        Args:
+            internal_role: "processing", "summarization", "supervisor" のいずれか
+            room_name: ルーム名
+            temperature: 生成温度
+            **kwargs: その他のオプション
+            
+        Returns:
+            LangChain ChatModel インスタンス
+            
+        Raises:
+            ValueError: すべてのプロバイダで失敗した場合
+        """
+        settings = config_manager.get_internal_model_settings()
+        primary_provider = settings.get("provider", "google")
+        fallback_enabled = settings.get("fallback_enabled", True)
+        fallback_order = settings.get("fallback_order", ["google"])
+        
+        # 試行するプロバイダリストを構築（プライマリ + フォールバック順）
+        providers_to_try = [primary_provider]
+        if fallback_enabled:
+            for fb_provider in fallback_order:
+                if fb_provider != primary_provider and fb_provider not in providers_to_try:
+                    providers_to_try.append(fb_provider)
+        
+        errors = []
+        for provider in providers_to_try:
+            try:
+                # プロバイダを一時的に上書きして試行
+                original_provider = settings.get("provider")
+                settings["provider"] = provider
+                config_manager.save_config_if_changed("internal_model_settings", settings)
+                
+                print(f"[LLM Factory] Trying provider: {provider}")
+                model = LLMFactory.create_chat_model(
+                    internal_role=internal_role,
+                    room_name=room_name,
+                    temperature=temperature,
+                    **kwargs
+                )
+                
+                # 成功したらプロバイダを元に戻す
+                settings["provider"] = original_provider
+                config_manager.save_config_if_changed("internal_model_settings", settings)
+                
+                return model
+                
+            except Exception as e:
+                error_msg = f"{provider}: {str(e)}"
+                errors.append(error_msg)
+                print(f"[LLM Factory] Fallback: Provider '{provider}' failed: {e}")
+                continue
+        
+        # すべてのプロバイダで失敗
+        raise ValueError(f"All providers failed: {'; '.join(errors)}")

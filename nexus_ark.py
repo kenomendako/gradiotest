@@ -543,6 +543,22 @@ try:
                                     )
                                     save_groq_key_button = gr.Button("Groq APIキーを保存", variant="primary", size="sm")
 
+                                # ローカルLLM [Phase 3c]
+                                with gr.Accordion("ローカルLLM (llama.cpp)", open=False) as local_llm_group:
+                                    gr.Markdown(
+                                        "💡 **ローカルLLM**: llama-cpp-python を使用してGGUFモデルをローカルで実行します。\n\n"
+                                        "📦 **インストール**: `pip install llama-cpp-python`\n\n"
+                                        "📁 **推奨モデル**: Qwen 2.5 3B Instruct (Q4_K_M) など軽量なGGUFモデル"
+                                    )
+                                    local_model_path_input = gr.Textbox(
+                                        label="GGUFモデルパス",
+                                        placeholder="/path/to/model.gguf",
+                                        value=config_manager.LOCAL_MODEL_PATH or "",
+                                        info="ローカルに保存したGGUFモデルファイルの絶対パス",
+                                        interactive=True
+                                    )
+                                    save_local_model_path_button = gr.Button("モデルパスを保存", variant="primary", size="sm")
+
                                 # Tavily (Web Search) [Phase 3]
                                 with gr.Accordion("Tavily (Web検索)", open=False) as tavily_api_key_group:
                                     gr.Markdown("💡 **Tavily APIキー**: [tavily.com](https://tavily.com) で無料アカウントを作成してAPIキーを取得してください（月1000クレジット無料）。")
@@ -653,7 +669,7 @@ try:
                             with gr.Accordion("🔧 内部処理モデル設定", open=False):
                                 gr.Markdown(
                                     "要約・RAGクエリ生成など、バックグラウンド処理に使用するモデルを設定します。\n\n"
-                                    "💡 **対応プロバイダ**: Google, Zhipu AI, Groq"
+                                    "💡 **対応プロバイダ**: Google, Zhipu AI, Groq, ローカル (llama.cpp)"
                                 )
                                 
                                 # 現在の設定を取得
@@ -664,6 +680,7 @@ try:
                                         ("Google (Gemini)", "google"),
                                         ("Zhipu AI (GLM-4)", "zhipu"),
                                         ("Groq", "groq"),
+                                        ("ローカル (llama.cpp)", "local"),
                                         ("OpenAI互換", "openai")
                                     ],
                                     value=_internal_settings.get("provider", "google"),
@@ -682,6 +699,14 @@ try:
                                     label="要約モデル（文章生成用）",
                                     value=_internal_settings.get("summarization_model", constants.SUMMARIZATION_MODEL),
                                     info="日次/週次要約、コアメモリ圧縮、ペルソナデータ圧縮などに使用",
+                                    interactive=True
+                                )
+                                
+                                # [Phase 4] フォールバック設定
+                                internal_fallback_checkbox = gr.Checkbox(
+                                    label="フォールバック有効（プロバイダ障害時にGoogleへ自動切替）",
+                                    value=_internal_settings.get("fallback_enabled", True),
+                                    info="プライマリプロバイダでエラーが発生した場合、Google (Gemini) にフォールバック",
                                     interactive=True
                                 )
                                 
@@ -2838,8 +2863,10 @@ try:
             internal_provider_radio,
             internal_processing_model_input,
             internal_summarization_model_input,
+            internal_fallback_checkbox, # [Phase 4]
             zhipu_api_key_input, # [Phase 3]
             groq_api_key_input, # [Phase 3b]
+            local_model_path_input, # [Phase 3c]
             tavily_api_key_input, # [Phase 3]
         ]
 
@@ -4680,6 +4707,12 @@ try:
             inputs=[groq_api_key_input],
             outputs=None
         )
+        
+        save_local_model_path_button.click(
+            fn=ui_handlers.handle_save_local_model_path,
+            inputs=[local_model_path_input],
+            outputs=None
+        )
 
 # --- API Key / Webhook Events ---
         paid_keys_checkbox_group.change(
@@ -4716,14 +4749,14 @@ try:
         # --- [Phase 3] 内部処理モデル設定ボタンのイベント ---
         save_internal_model_button.click(
             fn=ui_handlers.handle_save_internal_model_settings,
-            inputs=[internal_provider_radio, internal_processing_model_input, internal_summarization_model_input],
+            inputs=[internal_provider_radio, internal_processing_model_input, internal_summarization_model_input, internal_fallback_checkbox],
             outputs=[internal_model_status]
         )
         
         reset_internal_model_button.click(
             fn=ui_handlers.handle_reset_internal_model_settings,
             inputs=None,
-            outputs=[internal_provider_radio, internal_processing_model_input, internal_summarization_model_input, internal_model_status]
+            outputs=[internal_provider_radio, internal_processing_model_input, internal_summarization_model_input, internal_fallback_checkbox, internal_model_status]
         )
         
         # カスタムモデル追加ボタンのイベント

@@ -411,6 +411,23 @@ def handle_save_groq_key(api_key: str):
     else:
         gr.Info("Groq APIキーは既に保存されています。")
 
+def handle_save_local_model_path(model_path: str):
+    """
+    ローカルLLM (llama.cpp) のGGUFモデルパスを保存する。
+    """
+    model_path = model_path.strip() if model_path else ""
+    
+    # パスが空でも保存可能（無効化のため）
+    if config_manager.save_config_if_changed("local_model_path", model_path):
+        # グローバル変数も更新
+        config_manager.LOCAL_MODEL_PATH = model_path
+        if model_path:
+            gr.Info("ローカルモデルパスを保存しました。")
+        else:
+            gr.Info("ローカルモデルパスをクリアしました。")
+    else:
+        gr.Info("ローカルモデルパスは既に保存されています。")
+
 def _get_location_choices_for_ui(room_name: str) -> list:
     """
     UIの移動先Dropdown用の、エリアごとにグループ化された選択肢リストを生成する。
@@ -958,6 +975,7 @@ def handle_initial_load(room_name: str = None, expected_count: int = 164):
         gr.update(value=internal_model_settings.get("provider", "google")),
         gr.update(value=internal_model_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL)),
         gr.update(value=internal_model_settings.get("summarization_model", constants.SUMMARIZATION_MODEL)),
+        gr.update(value=internal_model_settings.get("fallback_enabled", True)),  # [Phase 4]
     )
 
     # --- 8. 全ての戻り値を正しい順序で組み立てる ---
@@ -981,6 +999,7 @@ def handle_initial_load(room_name: str = None, expected_count: int = 164):
         *internal_model_updates,  # [Phase 3] 内部モデル設定
         config_manager.ZHIPU_API_KEY or "", # [Phase 3] zhipu_api_key_input
         config_manager.GROQ_API_KEY or "", # [Phase 3b] groq_api_key_input
+        config_manager.LOCAL_MODEL_PATH or "", # [Phase 3c] local_model_path_input
         config_manager.TAVILY_API_KEY or "", # [Phase 3] tavily_api_key_input
     )
     
@@ -11577,14 +11596,15 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
 
 # --- [Phase 3] 内部処理モデル設定ハンドラ ---
 
-def handle_save_internal_model_settings(provider: str, processing_model: str, summarization_model: str):
+def handle_save_internal_model_settings(provider: str, processing_model: str, summarization_model: str, fallback_enabled: bool = True):
     """
     内部処理モデル設定を保存する。
     
     Args:
-        provider: 使用するプロバイダ ("google", "openai")
+        provider: 使用するプロバイダ ("google", "zhipu", "groq", "local", "openai")
         processing_model: 処理モデル名
         summarization_model: 要約モデル名
+        fallback_enabled: フォールバック有効/無効
         
     Returns:
         (status_markdown,) - ステータスメッセージ
@@ -11596,6 +11616,9 @@ def handle_save_internal_model_settings(provider: str, processing_model: str, su
             "summarization_model": summarization_model.strip(),
             # supervisorは処理モデルと同じ値を使用
             "supervisor_model": processing_model.strip(),
+            # [Phase 4] フォールバック設定
+            "fallback_enabled": fallback_enabled,
+            "fallback_order": ["google"],  # デフォルトはGoogleにフォールバック
         }
         
         print(f"[Phase 3] 内部モデル設定保存: {settings}")  # DEBUG
@@ -11621,7 +11644,7 @@ def handle_reset_internal_model_settings():
     内部処理モデル設定をデフォルトにリセットする。
     
     Returns:
-        (provider, processing_model, summarization_model, status_markdown)
+        (provider, processing_model, summarization_model, fallback_enabled, status_markdown)
     """
     try:
         default_settings = config_manager.reset_internal_model_settings()
@@ -11630,6 +11653,7 @@ def handle_reset_internal_model_settings():
             default_settings.get("provider", "google"),
             default_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL),
             default_settings.get("summarization_model", constants.SUMMARIZATION_MODEL),
+            default_settings.get("fallback_enabled", True),
             gr.update(value="✅ デフォルト設定にリセットしました。", visible=True)
         )
         
@@ -11637,6 +11661,7 @@ def handle_reset_internal_model_settings():
         print(f"[ui_handlers] 内部モデル設定リセットエラー: {e}")
         traceback.print_exc()
         return (
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
