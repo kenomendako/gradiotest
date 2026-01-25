@@ -11,6 +11,8 @@ import traceback
 import logging
 import json
 import hashlib
+import math
+from datetime import datetime
 
 from langchain_core.embeddings import Embeddings
 from langchain_community.vectorstores import FAISS
@@ -44,6 +46,9 @@ class LangChainEmbeddingWrapper(Embeddings):
 
 
 class RAGManager:
+    # インデックスをメモリ上に保持するキャッシュ {str(path): (FAISS_db, timestamp)}
+    _index_cache: Dict[str, Tuple[FAISS, float]] = {}
+
     def __init__(self, room_name: str, api_key: str):
         self.room_name = room_name
         self.api_key = api_key
@@ -62,19 +67,9 @@ class RAGManager:
         
         if self.embedding_mode == "local":
             # ローカルエンベディングを使用
-            try:
-                from topic_cluster_manager import LocalEmbeddingProvider
-                local_provider = LocalEmbeddingProvider()
-                self.embeddings = LangChainEmbeddingWrapper(local_provider)
-                print(f"[RAGManager] ローカルエンベディングモードで初期化")
-            except Exception as e:
-                print(f"[RAGManager] ローカルエンベディング初期化失敗、APIにフォールバック: {e}")
-                from langchain_google_genai import GoogleGenerativeAIEmbeddings
-                self.embeddings = GoogleGenerativeAIEmbeddings(
-                    model=constants.EMBEDDING_MODEL,
-                    google_api_key=self.api_key,
-                    task_type="retrieval_document"
-                )
+            # メモリ節約のため、必要になるまでインポートを遅らせる
+            self.embeddings = None # 後で遅延初期化
+            print(f"[RAGManager] ローカルエンベディングモード (遅延初期化待ち)")
         else:
             # Gemini API エンベディングを使用
             from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -83,6 +78,28 @@ class RAGManager:
                 google_api_key=self.api_key,
                 task_type="retrieval_document"
             )
+
+    def _get_embeddings(self):
+        """エンベディングインスタンスを取得（必要に応じて初期化）"""
+        if self.embeddings is not None:
+            return self.embeddings
+        
+        if self.embedding_mode == "local":
+            try:
+                # 非常に重いライブラリをここで初めて呼ぶ
+                from topic_cluster_manager import LocalEmbeddingProvider
+                local_provider = LocalEmbeddingProvider()
+                self.embeddings = LangChainEmbeddingWrapper(local_provider)
+                print(f"[RAGManager] ローカルエンベディングを初期化しました")
+            except Exception as e:
+                print(f"[RAGManager] ローカルエンベディング初期化失敗、APIにフォールバック: {e}")
+                from langchain_google_genai import GoogleGenerativeAIEmbeddings
+                self.embeddings = GoogleGenerativeAIEmbeddings(
+                    model=constants.EMBEDDING_MODEL,
+                    google_api_key=self.api_key,
+                    task_type="retrieval_document"
+                )
+        return self.embeddings
 
     def _load_processed_record(self) -> Set[str]:
         if self.processed_files_record.exists():
@@ -249,6 +266,12 @@ class RAGManager:
                     # 3. 新しいインデックスを配置
                     shutil.move(str(temp_path), str(target_path))
                     
+                    # キャッシュをクリア（古い情報の参照を防ぐ）
+                    cache_key = str(target_path.absolute())
+                    if cache_key in RAGManager._index_cache:
+                        del RAGManager._index_cache[cache_key]
+                        # print(f"  - [RAG] キャッシュをクリアしました: {target_path.name}")
+
                     # 4. 退避した古いディレクトリの削除を試みる（失敗しても索引更新自体は成功とする）
                     self._cleanup_old_indices(target_path.parent, target_path.name)
                     return # 成功
@@ -275,27 +298,48 @@ class RAGManager:
             pass
 
     def _safe_load_index(self, target_path: Path) -> Optional[FAISS]:
-        """インデックスを安全に読み込む（一時コピー経由）"""
-        if not target_path.exists():
+        """インデックスを安全に読み込む（キャッシュ対応）"""
+        if not target_path or not target_path.exists():
             return None
-            
-        # ロード中の一時ディレクトリ消失によるエラーを防ぐため、コピーを作成してロード
-        # 注意: FAISS.load_local はロード完了後にファイルを必要としないため、
-        # ここでは一時ディレクトリでロードが完了すれば十分。
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_index_path = Path(temp_dir) / "index"
-            try:
-                shutil.copytree(str(target_path), str(temp_index_path))
+        
+        # パスを絶対パスかつ文字列として正規化（キャッシュキー用）
+        target_abs_path = str(target_path.resolve())
+        mtime = target_path.stat().st_mtime
+        
+        # キャッシュの有効性チェック
+        if target_abs_path in RAGManager._index_cache:
+            cache_db, cache_mtime = RAGManager._index_cache[target_abs_path]
+            if cache_mtime == mtime:
+                # print(f"  - [RAG] キャッシュからロード: {target_path.name}")
+                return cache_db
+        
+        # FAISS.load_local は読み込み中もディレクトリ内のファイルを継続的に参照する場合があるため
+        # 一時ディレクトリに完全にコピーしてからロードを完了させる方式が最も安全
+        try:
+            # メモリ節約のため、まず一時コピーを作成
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_index_dir = Path(temp_dir) / "index"
+                shutil.copytree(str(target_path), str(temp_index_dir))
                 
-                # モードに応じたエンベディングを使用
-                return FAISS.load_local(
-                    str(temp_index_path),
-                    self.embeddings,
+                # 埋め込みモデルを取得（遅延初期化対応）
+                embeddings = self._get_embeddings()
+                
+                # ロード実行
+                db = FAISS.load_local(
+                    str(temp_index_dir),
+                    embeddings,
                     allow_dangerous_deserialization=True
                 )
-            except Exception as e:
-                # print(f"  - [RAG] インデックス読み込みエラー: {e}")
-                return None
+                
+                # キャッシュに保存（この時点で db はメモリ上に展開されている）
+                RAGManager._index_cache[target_abs_path] = (db, mtime)
+                # print(f"  - [RAG] ロード成功 (キャッシュ更新): {target_path.name}")
+                return db
+                
+        except Exception as e:
+            print(f"  - [RAG Error] インデックス読み込み失敗 ({target_path.name}): {e}")
+            # traceback.print_exc()
+            return None
 
     def _create_index_in_batches(self, splits: List[Document], existing_db: Optional[FAISS] = None, 
                                    progress_callback=None, save_callback=None, status_callback=None) -> FAISS:
@@ -808,7 +852,7 @@ class RAGManager:
                 for attempt in range(max_retries):
                     try:
                         if db is None:
-                            db = FAISS.from_documents(batch, self.embeddings)
+                            db = FAISS.from_documents(batch, self._get_embeddings())
                         else:
                             db.add_documents(batch)
                         
