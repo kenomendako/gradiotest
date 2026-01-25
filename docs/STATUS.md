@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-25 | **RAGメモリ最適化 & ログ順序不整合の修復**<br>・FAISSインデックスのキャッシュ化により検索速度を大幅向上 (0.00s)<br>・重量級ライブラリの遅延ロードによる起動時メモリ節約<br>・不整合（巻き戻り）が発生した会話ログの時系列物理ソート修復 | [レポート](reports/2026-01-25_RAG_OOM_Fix_and_Log_Recovery.md) |
 | 2026-01-24 | **週次圧縮の未来日付バグ修正**<br>・`compress_old_episodes`が未来日付を含む範囲を作成する問題を修正<br>・週終了日を「カレンダー上の日曜」から「実データの最終日」に変更<br>・日次要約が「処理済み」と誤判定される問題を解消 | [レポート](reports/2026-01-24_weekly_compression_future_date_fix.md) |
 | 2026-01-24 | **Phase 3c & 4: ローカルLLM対応 & フォールバック機構**<br>・llama-cpp-python によるGGUFモデルサポート<br>・Ollama廃止、配布容易性を向上<br>・プロバイダ障害時のGoogleへの自動フォールバック | [レポート](reports/2026-01-24_local_llm_fallback_phase3c_4.md) |
 | 2026-01-24 | **Phase 3b: Groq 内部処理モデル対応**<br>・Groq をプロバイダとして追加<br>・APIキー管理UI と内部モデル選択肢に Groq を追加<br>・ルーム設定のAPI入力を非表示化（共通設定で一元管理） | [レポート](reports/2026-01-24_groq_internal_model_phase3b.md) |

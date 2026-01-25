@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **RAGメモリ最適化とインデックスキャッシュ (2026-01-25):** FAISSインデックスのメモリ保持（キャッシュ）と重量級ライブラリの遅延ロードを実装。連続検索時のIO負荷とメモリ消費を大幅に削減。[レポート](docs/reports/2026-01-25_RAG_OOM_Fix_and_Log_Recovery.md)
 - **Phase 3c & 4: ローカルLLM対応 & フォールバック機構 (2026-01-24):** llama-cpp-python によるGGUFモデルのローカル実行をサポート。Ollamaを廃止し配布容易性を向上。プロバイダ障害時のGoogleへの自動フォールバック機構を追加。[レポート](docs/reports/2026-01-24_local_llm_fallback_phase3c_4.md)
 - **Phase 3b: Groq 内部処理モデル対応 (2026-01-24):** Groq をプロバイダとして追加。APIキー管理UI、内部モデル選択肢に Groq を追加。ルーム個別設定の冗長なAPIキー入力を非表示化し、共通設定での一元管理を強化。[レポート](docs/reports/2026-01-24_groq_internal_model_phase3b.md)
 - **Phase 3: Zhipu AI (GLM-4) 統合と UI 改善 (2026-01-23):** Zhipu AI プロバイダに対応。内部処理モデル設定 UI を提供し、APIキー管理を「🔑 APIキー / Webhook管理」へ集約。初期値ロード不具合とエンティティ記憶書き込み時の API キーエラーを修正。[レポート](docs/reports/2026-01-23_zhipu_ai_integration_phase3_final.md)
@@ -35,6 +36,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **エピソード記憶UIの改善 (2026-01-17):** 同じ日付に複数エピソードがある場合に全て表示するよう修正。作成順ソート、件数案内、ドロップダウン重複排除、自動スクロール無効化を実装。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 
 ### Fixed
+- **会話ログの順序不整合（「巻き戻り」）の修復 (2026-01-25):** 昨夜の異常により `log.txt` 内で本日分のメッセージが中間に埋もれていた不整合を特定。物理ソートスクリプト（`scripts/fix_corrupted_log.py`）により、すべてのログを時系列順に正しく復旧。
+- **破損したRAGインデックスのクリーンアップ (2026-01-25):** 読み取り専用エラー時に不完全な状態で保存されたインデックスファイルをクリーンアップし、再構築可能な状態に復旧。
 - **エピソード記憶注入の週次記憶フィルタリング修正 (2026-01-21):** 短期間（例: 2日）のルックバック設定で週次圧縮記憶（7日分の要約）が注入される問題を修正。`get_episodic_context` にルックバック日数より長い範囲の記憶を除外するロジックを追加。また、重複していた週次記憶データをクリーンアップ。ルックバック基準を「今日」に変更し日付ズレを解消。[レポート](docs/reports/2026-01-22_episodic_memory_injection_fix.md)
 - **週次圧縮の未来日付バグ修正 (2026-01-24):** `compress_old_episodes`が「カレンダー上の週末」で週終了日を計算していたため、まだ終わっていない週が未来の日付を含む範囲で圧縮され、日次要約生成がスキップされる問題を修正。週終了日を「実データの最終日」に変更。[レポート](docs/reports/2026-01-24_weekly_compression_future_date_fix.md)
 - **ノート分割ロジックとRAWエディタの改善 (2026-01-21):** 本文中の `---` による誤分割を防止するため、パース正規表現を改良。RAWエディタにスクロール機能（CSS）を追加し、長文編集時の操作性を向上。[レポート](docs/reports/2026-01-21_notes_ui_standardization.md)
