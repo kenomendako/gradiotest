@@ -2314,7 +2314,7 @@ try:
                                 label="📦 古い記憶を圧縮する",
                                 value=False,  # デフォルトOFF（破壊的操作のため）
                                 interactive=True,
-                                info="半年以上前のエピソード記憶を週単位に統合"
+                                info="3日以上前のエピソード記憶を週単位に統合"
                             )
                             sleep_consolidation_extract_questions_cb = gr.Checkbox(
                                 label="❓ 未解決の問いを抽出する",
@@ -2355,7 +2355,7 @@ try:
 
                             gr.Markdown("---")
                             gr.Markdown("### 📦 記憶の圧縮 (Archive)")
-                            gr.Markdown("半年以上前のエピソード記憶を週単位に統合して、データ量を削減します。")
+                            gr.Markdown("3日以上経過した記憶を週・月単位に圧縮し、RAGの検索効率を向上させます。")
                             compress_episodes_button = gr.Button("古い記憶を手動で圧縮する", variant="secondary")
                             compress_episodes_status = gr.Textbox(label="圧縮ステータス", interactive=False)
                             
