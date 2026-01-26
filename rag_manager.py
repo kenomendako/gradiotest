@@ -764,7 +764,7 @@ class RAGManager:
                 batch = splits[j : j + BATCH_SIZE]
                 batch_num = (j // BATCH_SIZE) + 1
                 
-                max_retries = 3
+                max_retries = 5
                 for attempt in range(max_retries):
                     try:
                         if static_db is None:
@@ -777,10 +777,17 @@ class RAGManager:
                         break
                     except Exception as e:
                         error_str = str(e)
+                        is_retryable = any(code in error_str for code in ["429", "ResourceExhausted", "503", "504", "502", "UNAVAILABLE"])
+                        
+                        wait_time = (2 ** attempt) * 10 + (5 * (attempt + 1))
                         print(f"      ! ベクトル化エラー (試行 {attempt+1}/{max_retries}): {e}")
-                        if "429" in error_str or "ResourceExhausted" in error_str:
-                            wait_time = 10 * (attempt + 1)
-                            yield (group_num, total_groups, f"API制限 - {wait_time}秒待機中...")
+                        
+                        if is_retryable and attempt < max_retries - 1:
+                            print(f"      ! 待機してリトライします（{wait_time}秒）...")
+                            if "429" in error_str:
+                                yield (group_num, total_groups, f"API制限 - {wait_time}秒待機中...")
+                            else:
+                                yield (group_num, total_groups, f"サーバーエラー - {wait_time}秒待機中...")
                             time.sleep(wait_time)
                         else:
                             if attempt == max_retries - 1:
@@ -791,16 +798,20 @@ class RAGManager:
                 # 20バッチごとに途中保存と進捗報告
                 if batch_num % 20 == 0:
                     progress_pct = int((batch_num / total_batches) * 100)
-                    yield (group_num, total_groups, f"グループ {group_num}: {batch_num}/{total_batches} バッチ ({progress_pct}%)")
+                    yield (group_num, total_groups, f"グループ {group_num}/{total_groups}: {batch_num}/{total_batches} バッチ ({progress_pct}%)")
                     if static_db:
                         self._safe_save_index(static_db, self.static_index_path)
             
             # グループ完了時に保存
             if static_db:
                 self._safe_save_index(static_db, self.static_index_path)
+                # 完了したレコードのみ記録を更新
                 processed_records.update(batch_ids)
                 self._save_processed_record(processed_records)
                 processed_count += len(batch_items)
+                
+                # 低頻度でGCを実行
+                gc.collect()
         
         result_msg = f"記憶索引: {processed_count}件を追加保存"
         print(f"--- [RAG Memory] 完了: {result_msg} ---")
