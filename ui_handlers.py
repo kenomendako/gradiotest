@@ -4404,7 +4404,7 @@ def _parse_notes_entries(content: str) -> list:
                 "raw_section": section
             })
     
-    return entries
+    return entries[::-1]
 
 
 def handle_load_creative_entries(room_name: str):
