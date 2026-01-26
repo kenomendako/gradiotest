@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **RAGレジリエンス強化とエピソード記憶のクリーンアップ (2026-01-26):** Gemini API 503エラー対策（リトライ・GC呼出）と記憶の重複除去を実行。合計809件のエピソードを230件に整理し、RAGの安定性と精度を大幅に向上。UI上の圧縮説明を現状に合わせて修正。[レポート](docs/reports/2026-01-26_Memory_Stability_and_UI_Optimization.md)
 - **RAGメモリ最適化とインデックスキャッシュ (2026-01-25):** FAISSインデックスのメモリ保持（キャッシュ）と重量級ライブラリの遅延ロードを実装。連続検索時のIO負荷とメモリ消費を大幅に削減。[レポート](docs/reports/2026-01-25_RAG_OOM_Fix_and_Log_Recovery.md)
 - **Phase 3c & 4: ローカルLLM対応 & フォールバック機構 (2026-01-24):** llama-cpp-python によるGGUFモデルのローカル実行をサポート。Ollamaを廃止し配布容易性を向上。プロバイダ障害時のGoogleへの自動フォールバック機構を追加。[レポート](docs/reports/2026-01-24_local_llm_fallback_phase3c_4.md)
 - **Phase 3b: Groq 内部処理モデル対応 (2026-01-24):** Groq をプロバイダとして追加。APIキー管理UI、内部モデル選択肢に Groq を追加。ルーム個別設定の冗長なAPIキー入力を非表示化し、共通設定での一元管理を強化。[レポート](docs/reports/2026-01-24_groq_internal_model_phase3b.md)
