@@ -23,6 +23,7 @@ from google.api_core import exceptions as google_exceptions
 import constants
 import config_manager
 import utils
+import psutil
 
 # ロギング設定
 logger = logging.getLogger(__name__)
@@ -239,51 +240,68 @@ class RAGManager:
             return 0.5
 
     def _safe_save_index(self, db: FAISS, target_path: Path):
-        """インデックスを安全に保存する（リネーム退避方式）"""
+        """インデックスを安全に保存する（リネーム退避方式、同一ディレクトリ内一時保存）"""
         target_path = Path(target_path)
-        with tempfile.TemporaryDirectory() as temp_dir:
+        parent_dir = target_path.parent
+        
+        # 0. ファイルシステムの書き込みチェック
+        check_file = parent_dir / f".write_test_{int(time.time())}"
+        try:
+            check_file.touch()
+            check_file.unlink()
+        except OSError as e:
+            if e.errno == 30: # Read-only file system
+                print(f"  - [RAG Error] ファイルシステムが読み取り専用です。WSLの再起動やディスク修復が必要です。")
+                raise
+            else:
+                print(f"  - [RAG Warning] 書き込みテスト失敗: {e}")
+
+        # 1. 同じディレクトリ内に一時的なディレクトリを作成
+        # これにより、パーティションを跨ぐコピー(shutil.move の低速モード)を回避し、高速な rename を保証する
+        with tempfile.TemporaryDirectory(dir=str(parent_dir), prefix=".tmp_index_") as temp_dir:
             temp_path = Path(temp_dir)
             db.save_local(str(temp_path))
             
-            # Windowsでのファイルロック問題に対応
+            # Windows/WSLでのファイルロック・競合に対応するためのリトライループ
             max_retries = 3
             for attempt in range(max_retries):
-                # 退避用のパス（タイムスタンプ付き）
-                old_path = target_path.parent / (target_path.name + f".old_{int(time.time())}_{attempt}")
+                # 退避用のパス（ハッシュ付きで衝突回避）
+                old_path = parent_dir / (target_path.name + f".old_{hashlib.md5(str(time.time()).encode()).hexdigest()[:8]}")
                 
                 try:
                     if target_path.exists():
-                        # 1. まずリネームを試みる（フォルダが開かれていてもリネームは成功することが多い）
+                        # まずリネームによる退避を試みる
                         try:
                             target_path.rename(old_path)
-                            # print(f"  - [RAG] 既存索引をリネーム退避: {old_path.name}")
                         except Exception:
-                            # 2. リネームに失敗した場合は GC を呼んでから削除を試行（従来方式）
+                            # リネーム失敗時は GC を呼んでから削除（従来方式）
                             gc.collect()
                             time.sleep(0.5)
-                            shutil.rmtree(str(target_path))
+                            if target_path.exists():
+                                shutil.rmtree(str(target_path))
                     
-                    # 3. 新しいインデックスを配置
+                    # 新しいインデックスを rename で配置（同一ディレクトリ内なので一瞬）
+                    temp_path = Path(temp_dir)
+                    # 既に temp_dir 内にファイルがある状態。そのディレクトリごと移動しようとすると
+                    # shutil.move は賢いので、ここでは target_path への rename を試みる。
+                    # shutil.move(str(temp_path), str(target_path)) を使うのが無難（同一ディスクなら内部で rename になる）
+                    # ただし target_path が存在しないことが確実（上で rename/rmtree 済み）なので move が確実。
                     shutil.move(str(temp_path), str(target_path))
                     
-                    # キャッシュをクリア（古い情報の参照を防ぐ）
+                    # キャッシュをクリア
                     cache_key = str(target_path.absolute())
                     if cache_key in RAGManager._index_cache:
                         del RAGManager._index_cache[cache_key]
-                        # print(f"  - [RAG] キャッシュをクリアしました: {target_path.name}")
 
-                    # 4. 退避した古いディレクトリの削除を試みる（失敗しても索引更新自体は成功とする）
-                    self._cleanup_old_indices(target_path.parent, target_path.name)
-                    return # 成功
+                    # 成功
+                    self._cleanup_old_indices(parent_dir, target_path.name)
+                    return 
                     
-                except PermissionError as e:
+                except (PermissionError, OSError) as e:
                     if attempt < max_retries - 1:
-                        wait_time = 1 * (attempt + 1)
-                        print(f"  - [RAG] 保存待機中... ({attempt + 1}/{max_retries})")
-                        time.sleep(wait_time)
-                    else:
-                        print(f"  - [RAG] 保存に失敗しました。他のプロセスが使用中の可能性があります。: {e}")
-                        raise
+                        time.sleep(1)
+                        continue
+                    raise e
 
     def _cleanup_old_indices(self, parent_dir: Path, base_name: str):
         """退避された古い .old フォルダをクリーンアップする"""
@@ -362,6 +380,19 @@ class RAGManager:
             progress_callback(0, total_batches)
 
         for i in range(0, total_splits, BATCH_SIZE):
+            # --- [MEMORY MONITORING] ---
+            # 512MB以下の空きメモリしかない場合は中断検討
+            available_mem_mb = psutil.virtual_memory().available / (1024 * 1024)
+            if available_mem_mb < 512:
+                print(f"    [WARNING] 低メモリ状態検知 ({available_mem_mb:.1f}MB)。GC実行...")
+                gc.collect()
+                time.sleep(2)
+                available_mem_mb = psutil.virtual_memory().available / (1024 * 1024)
+                if available_mem_mb < 300:
+                    print(f"    [CRITICAL] メモリ不足のためインデックス作成を中断します。")
+                    if status_callback: status_callback("メモリ不足のため中断")
+                    return db
+
             batch = splits[i : i + BATCH_SIZE]
             batch_num = (i // BATCH_SIZE) + 1
             
@@ -408,6 +439,9 @@ class RAGManager:
                 if save_callback and db:
                     print(f"    [SAVE] 途中保存実行...")
                     save_callback(db)
+                
+                # 20バッチごとにGC
+                gc.collect()
         
         print(f"    [BATCH] 全バッチ処理完了")
         return db
@@ -420,6 +454,12 @@ class RAGManager:
         def report(message):
             print(f"--- [RAG Memory] {message}")
             if status_callback: status_callback(message)
+
+        # メモリチェック
+        available_mem_mb = psutil.virtual_memory().available / (1024 * 1024)
+        if available_mem_mb < 300:
+            report(f"致命的な低メモリ状態です ({available_mem_mb:.1f}MB)。更新を延期します。")
+            return "メモリ不足のため延期"
 
         report("記憶索引を更新中: 過去ログ、エピソード記憶、夢日記、日記ファイルの差分を確認...")
         

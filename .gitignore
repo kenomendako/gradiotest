@@ -1,55 +1,33 @@
-# Python
+# Nexus Ark .gitignore
+
+# Personas / Private Data (Managed by nested Git)
+characters/
+
+# Python / Environment
+venv/
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
-/venv/
-/.venv/
-/env/
-/.env
 
-# Gradio
-.gradio_cache/
+# Runtime Data / Logs
+.memos/
+backups/
+*.log
+*.pkl
+*.lock
+logs/
 
-# IDE / Editor specific
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# OS / Editor
+.DS_Store
 .vscode/
 .idea/
 
-# Application Configuration (Local User Settings)
-# これらのファイルは個人の環境に依存するため、リポジトリに含めません。
+# User Configuration and Data
 config.json
 alarms.json
 redaction_rules.json
-
-# Character Data (All character-specific files are ignored)
-# キャラクターの全データ（ログ、設定、画像、キャッシュ等）はリポジトリに含めません。
-/characters/
-
-# Application Generated Caches & Logs
-# アプリケーションが実行時に自動生成する一時ファイルやログ。
-/temp/
-/.memos/
-importer_errors.log
-retry_success.log
-*.log
-*.lock
-
-# Build artifacts
-/dist/
-/build/
-*.egg-info/
-
-# Development/Backup Artifacts
-# 開発中の一時的な作業ディレクトリやバックアップファイル。
-jules-scratch/
-*_backup.py
-*.bak
-
-pipインストール.bat
-仮想環境.bat
-
-# Outing folder (Personal)
-/outing/
-
-# WSL-specific startup script
-start.sh
