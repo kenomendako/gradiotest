@@ -132,11 +132,24 @@ TOOLS_SAVE_ANNOUNCEMENT_ONLY = {
     # 記憶・検索系
     "recall_memories",
     "search_past_conversations",
+    "read_memory_context",
+    "search_memory",
+    "search_knowledge_base",    # 追加
     # Web巡回・検索系
     "check_watchlist",
     "web_search_tool",
     "tavily_search",
     "tavily_extract",
+    "read_url_tool",            # 追加
+    # ファイル読み取り系（追加）
+    "read_project_file",
+    "list_project_files",
+    "read_main_memory",
+    "read_secret_diary",
+    "read_creative_notes",
+    "read_research_notes",
+    "read_full_notepad",
+    "read_world_settings",
     # ファイル編集系（ペルソナ向け指示はログ不要）
     "plan_research_notes_edit",
     "plan_main_memory_edit",

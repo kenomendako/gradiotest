@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **ツール出力のログ保存最適化 (2026-01-27):** ツール実行結果（生データ）がログに保存されコンテキストを圧迫する問題を解決。12種類の高ボリュームツールをアナウンスのみの保存に切り替え、APIコストを削減。[レポート](docs/reports/2026-01-27_tool_result_log_optimization.md)
 - **プロジェクト探索機能 (Project Explorer) の実装 (2026-01-27):** AIがプロジェクト内のファイルを探索・読解できるツール（`list_project_files`, `read_project_file`）を追加。ルームごとのルートパス・除外リスト設定、行範囲指定読み込み、行番号表示に対応。ツール実行結果の誤判定防止ロジックと、UI出力不整合エラー（170 vs 167）を修正。[レポート](docs/reports/2026-01-27_ProjectExplorerImplementation.md)
 - **RAGレジリエンス強化とエピソード記憶のクリーンアップ (2026-01-26):** Gemini API 503エラー対策（リトライ・GC呼出）と記憶の重複除去を実行。合計809件のエピソードを230件に整理し、RAGの安定性と精度を大幅に向上。UI上の圧縮説明を現状に合わせて修正。[レポート](docs/reports/2026-01-26_Memory_Stability_and_UI_Optimization.md)
 - **RAGメモリ最適化とインデックスキャッシュ (2026-01-25):** FAISSインデックスのメモリ保持（キャッシュ）と重量級ライブラリの遅延ロードを実装。連続検索時のIO負荷とメモリ消費を大幅に削減。[レポート](docs/reports/2026-01-25_RAG_OOM_Fix_and_Log_Recovery.md)
