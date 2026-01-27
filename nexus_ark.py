@@ -1230,6 +1230,27 @@ try:
                                             )
                                             ai_add_button = gr.Button("✅ 選択したサイトを追加", variant="primary", scale=1)
 
+                            with gr.Accordion("📁 プロジェクト探索設定", open=False):
+                                gr.Markdown("AIが `list_project_files` や `read_project_file` ツールでアクセスできるフォルダを設定します。")
+                                room_project_root_input = gr.Textbox(
+                                    label="プロジェクトルートの絶対パス",
+                                    placeholder="例: /home/user/my_project",
+                                    info="空の場合は Nexus Ark の実行ディレクトリが使用されます。",
+                                    interactive=True
+                                )
+                                with gr.Row():
+                                    room_project_exclude_dirs_input = gr.Textbox(
+                                        label="除外ディレクトリ (カンマ区切り)",
+                                        placeholder=".git, venv, __pycache__",
+                                        interactive=True
+                                    )
+                                    room_project_exclude_files_input = gr.Textbox(
+                                        label="除外ファイル (カンマ区切り)",
+                                        placeholder="*.pyc, .env, config.json",
+                                        interactive=True
+                                    )
+                                gr.Markdown("💡 設定はルームごとに保存されます。")
+
 
                         with gr.TabItem("デザイン") as theme_tab:
                             # チェックボックスをタブの最上部に配置
@@ -2823,6 +2844,9 @@ try:
             dream_status_display,  # [Phase 17 追加] 睡眠時記憶整理ステータス
             room_auto_summary_checkbox,
             room_auto_summary_threshold_slider,
+            room_project_root_input,
+            room_project_exclude_dirs_input,
+            room_project_exclude_files_input,
         ]
 
         initial_load_outputs = [
@@ -2889,8 +2913,7 @@ try:
             token_count_display,
             room_delete_confirmed_state, # handle_delete_room が返すリセット値用
             memory_reindex_status,
-            current_log_reindex_status,
-            dream_status_display
+            current_log_reindex_status
         ]
         full_refresh_output_count = gr.State(len(unified_full_room_refresh_outputs))
         
@@ -3240,6 +3263,9 @@ try:
             sleep_consolidation_extract_questions_cb,  # 追加: 未解決の問い抽出
             room_auto_summary_checkbox,
             room_auto_summary_threshold_slider,
+            room_project_root_input,
+            room_project_exclude_dirs_input,
+            room_project_exclude_files_input,
         ]
 
         # 個別設定の即時保存対応: 各コンポーネントに変更イベントを登録

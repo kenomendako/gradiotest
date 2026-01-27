@@ -339,20 +339,34 @@ def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]
     
     # エラー判定：ツールの実行エラー特有のパターンのみを検出
     # 一般的な文章中の "Error" や "エラー" を誤検出しないよう、より厳密なパターンにする
+    # 特に、ファイル内容を返すツールについては「行頭が【エラー】」であることを必須とする
+    is_developer_tool = tool_name in ["list_project_files", "read_project_file"]
+    
     error_patterns = [
         r"^Error:",           # 行頭の "Error:"
+        r"^【エラー】",        # 行頭の "【エラー】" (developer_toolsの標準)
         r"^エラー:",           # 行頭の "エラー:"
+        r"Exception:",         # Python例外
+    ]
+    
+    # 一般的な不具合パターン（開発者ツール以外で適用）
+    generic_error_patterns = [
         r"ツールエラー",        # ツール実行時のエラー
         r"実行エラー",          # 実行時エラー
-        r"Exception:",         # Python例外
         r"failed to",          # 失敗パターン（英語）
         r"に失敗しました",      # 失敗パターン（日本語）
         r"could not",          # 失敗パターン（英語）
         r"できませんでした",    # 失敗パターン（日本語）
     ]
+    
     for pattern in error_patterns:
         if re.search(pattern, tool_result, re.IGNORECASE | re.MULTILINE):
             return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
+            
+    if not is_developer_tool:
+        for pattern in generic_error_patterns:
+            if re.search(pattern, tool_result, re.IGNORECASE | re.MULTILINE):
+                return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
     
     display_text = ""
     if tool_name == 'set_current_location':
@@ -395,6 +409,15 @@ def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]
             display_text = f'過去の会話を検索しました（キーワード: 「{query_match.group(1)}」）'
         else:
             display_text = '過去の会話を検索しました。'
+    elif tool_name == 'list_project_files':
+        display_text = 'プロジェクトのファイル一覧を取得しました。'
+    elif tool_name == 'read_project_file':
+        # ファイル名と言い範囲（Lxx-Lyy）を抽出
+        file_match = re.search(r'【ファイル内容: (.*?) \((.*?)\ / 全(\d+)行\)】', tool_result)
+        if file_match:
+            display_text = f'ファイル「{file_match.group(1)}」の {file_match.group(2)} （全{file_match.group(3)}行）を読み取りました。'
+        else:
+            display_text = 'ファイルを読み取りました。'
     return f"🛠️ {display_text}" if display_text else f"🛠️ ツール「{tool_name}」を実行しました。"
 
 def get_season(month: int) -> str:

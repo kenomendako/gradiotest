@@ -713,6 +713,12 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     # エピソード更新のステータス復元
     last_episodic_update = override_settings.get("last_episodic_update") or room_config.get("last_episodic_update", "未実行")
     
+    # プロジェクト探索設定
+    project_explorer = effective_settings.get("project_explorer", {})
+    project_root = project_explorer.get("root_path", "")
+    project_exclude_dirs = ", ".join(project_explorer.get("exclude_dirs", []))
+    project_exclude_files = ", ".join(project_explorer.get("exclude_files", []))
+
     # エンティティ一覧の初期取得
     from entity_memory_manager import EntityMemoryManager
     em = EntityMemoryManager(room_name)
@@ -858,10 +864,13 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=last_dream_time), # dream_status_display
         gr.update(value=effective_settings.get("auto_summary_enabled", False)), # room_auto_summary_checkbox
         gr.update(value=effective_settings.get("auto_summary_threshold", constants.AUTO_SUMMARY_DEFAULT_THRESHOLD), visible=effective_settings.get("auto_summary_enabled", False)), # room_auto_summary_threshold_slider
+        gr.update(value=project_root), # room_project_root_input
+        gr.update(value=project_exclude_dirs), # room_project_exclude_dirs_input
+        gr.update(value=project_exclude_files), # room_project_exclude_files_input
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 164):
+def handle_initial_load(room_name: str = None, expected_count: int = 170):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -1052,6 +1061,9 @@ def handle_save_room_settings(
     sleep_extract_questions: bool = True,  # NEW: 未解決の問い抽出
     auto_summary_enabled: bool = False,
     auto_summary_threshold: int = constants.AUTO_SUMMARY_DEFAULT_THRESHOLD,
+    project_root: str = "",
+    project_exclude_dirs: str = "",
+    project_exclude_files: str = "",
     silent: bool = False,
     force_notify: bool = False
 ):
@@ -1135,6 +1147,11 @@ def handle_save_room_settings(
         },
         "auto_summary_enabled": bool(auto_summary_enabled),
         "auto_summary_threshold": int(auto_summary_threshold),
+        "project_explorer": {
+            "root_path": project_root.strip(),
+            "exclude_dirs": [d.strip() for d in project_exclude_dirs.split(",") if d.strip()],
+            "exclude_files": [f.strip() for f in project_exclude_files.split(",") if f.strip()]
+        }
     }
     result = room_manager.update_room_config(room_name, new_settings)
     if not silent:

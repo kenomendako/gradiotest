@@ -856,6 +856,11 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         },
         "watchlist_settings": {
             "notify_on_change": True
+        },
+        "project_explorer": {
+            "root_path": "",
+            "exclude_dirs": [".git", "venv", "__pycache__", "node_modules", ".agent", ".gemini"],
+            "exclude_files": ["*.pyc", ".env", "config.json"]
         }
     }
     
