@@ -1056,6 +1056,25 @@ def get_active_gemini_api_key_name(room_name: str = None) -> Optional[str]:
     return get_latest_api_key_name_from_config()
 
 
+def get_key_name_by_value(api_key_value: str) -> str:
+    """
+    APIキーの値から、設定ファイル内の名称を逆引きする。
+    見つからない場合は "Unknown" を返す。
+    """
+    if not api_key_value:
+        return "Unknown"
+        
+    # 値のスペース除去などで正規化して比較
+    target_val = api_key_value.strip()
+    
+    for name, val in GEMINI_API_KEYS.items():
+        if val and isinstance(val, str) and val.strip() == target_val:
+            return name
+            
+    return "Unknown"
+
+
+
 def has_valid_api_key() -> bool:
     """
     設定ファイルに、有効な（プレースホルダではない）Gemini APIキーが一つでも存在するかどうかを返す。

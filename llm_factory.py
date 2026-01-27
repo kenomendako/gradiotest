@@ -132,15 +132,19 @@ class LLMFactory:
 
         # --- Google Gemini (Native) ---
         if active_provider == "google":
-            # api_key が未指定なら自動補完
             key_name_for_log = "Unknown"
+            
+            # api_key が未指定なら自動補完
             if not api_key:
                 api_key = config_manager.get_active_gemini_api_key(room_name)
-                # ログ用にキー名を取得
+                # 設定から取得した場合、そのコンテキストでの名前も取得
                 key_name = config_manager.get_active_gemini_api_key_name(room_name)
                 if key_name:
                     key_name_for_log = key_name
-                
+            else:
+                # 既にAPIキーが渡されている場合、値から逆引きして名前を特定
+                key_name_for_log = config_manager.get_key_name_by_value(api_key)
+
             if not api_key:
                 raise ValueError("Google provider requires an API key. No valid key found.")
 
