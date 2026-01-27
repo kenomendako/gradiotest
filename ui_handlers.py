@@ -1128,7 +1128,7 @@ def handle_save_room_settings(
         },
         # [Phase 3] 個別プロバイダ設定
         "provider": provider if provider != "default" else None,
-        "api_key_name": api_key_name if api_key_name else None,
+        "api_key_name": api_key_name if (api_key_name and provider != "default") else None,
         "openai_settings": {
             "profile": openai_profile if openai_profile else None,
             "base_url": openai_base_url if openai_base_url else "",

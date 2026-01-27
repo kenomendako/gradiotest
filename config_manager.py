@@ -1013,11 +1013,16 @@ def get_active_gemini_api_key(room_name: str = None) -> Optional[str]:
                 with open(room_config_path, "r", encoding="utf-8") as f:
                     room_config = json.load(f)
                 override_settings = room_config.get("override_settings", {})
-                room_api_key_name = override_settings.get("api_key_name")
-                if room_api_key_name:
-                    key_val = GEMINI_API_KEYS.get(room_api_key_name)
-                    if key_val and not key_val.startswith("YOUR_API_KEY"):
-                        return key_val
+                
+                # プロバイダ設定を確認（Noneの場合は共通設定に従うため、個別キー設定も無視する）
+                room_provider = override_settings.get("provider")
+                
+                if room_provider is not None:
+                    room_api_key_name = override_settings.get("api_key_name")
+                    if room_api_key_name:
+                        key_val = GEMINI_API_KEYS.get(room_api_key_name)
+                        if key_val and not key_val.startswith("YOUR_API_KEY"):
+                            return key_val
             except Exception:
                 pass
 
@@ -1043,12 +1048,17 @@ def get_active_gemini_api_key_name(room_name: str = None) -> Optional[str]:
                 with open(room_config_path, "r", encoding="utf-8") as f:
                     room_config = json.load(f)
                 override_settings = room_config.get("override_settings", {})
-                room_api_key_name = override_settings.get("api_key_name")
-                if room_api_key_name:
-                    # キー自体が存在することを確認
-                    key_val = GEMINI_API_KEYS.get(room_api_key_name)
-                    if key_val and not key_val.startswith("YOUR_API_KEY"):
-                        return room_api_key_name
+                
+                # プロバイダ設定を確認（Noneの場合は共通設定に従うため、個別キー設定も無視する）
+                room_provider = override_settings.get("provider")
+                
+                if room_provider is not None:
+                    room_api_key_name = override_settings.get("api_key_name")
+                    if room_api_key_name:
+                        # キー自体が存在することを確認
+                        key_val = GEMINI_API_KEYS.get(room_api_key_name)
+                        if key_val and not key_val.startswith("YOUR_API_KEY"):
+                            return room_api_key_name
             except Exception:
                 pass
 
