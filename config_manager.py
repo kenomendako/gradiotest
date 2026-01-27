@@ -1029,6 +1029,33 @@ def get_active_gemini_api_key(room_name: str = None) -> Optional[str]:
     return None
 
 
+def get_active_gemini_api_key_name(room_name: str = None) -> Optional[str]:
+    """
+    指定されたルームの設定（またはグローバル設定）に基づいて、
+    現在有効な Gemini API キーの『名称』を返す。
+    キーが設定されていない場合は None を返す。
+    """
+    # 1. ルーム個別の設定を確認
+    if room_name:
+        room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
+        if os.path.exists(room_config_path):
+            try:
+                with open(room_config_path, "r", encoding="utf-8") as f:
+                    room_config = json.load(f)
+                override_settings = room_config.get("override_settings", {})
+                room_api_key_name = override_settings.get("api_key_name")
+                if room_api_key_name:
+                    # キー自体が存在することを確認
+                    key_val = GEMINI_API_KEYS.get(room_api_key_name)
+                    if key_val and not key_val.startswith("YOUR_API_KEY"):
+                        return room_api_key_name
+            except Exception:
+                pass
+
+    # 2. グローバル設定（最後に使ったキー、または最初の有効なキー）
+    return get_latest_api_key_name_from_config()
+
+
 def has_valid_api_key() -> bool:
     """
     設定ファイルに、有効な（プレースホルダではない）Gemini APIキーが一つでも存在するかどうかを返す。

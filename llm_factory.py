@@ -133,11 +133,23 @@ class LLMFactory:
         # --- Google Gemini (Native) ---
         if active_provider == "google":
             # api_key が未指定なら自動補完
+            key_name_for_log = "Unknown"
             if not api_key:
                 api_key = config_manager.get_active_gemini_api_key(room_name)
+                # ログ用にキー名を取得
+                key_name = config_manager.get_active_gemini_api_key_name(room_name)
+                if key_name:
+                    key_name_for_log = key_name
                 
             if not api_key:
                 raise ValueError("Google provider requires an API key. No valid key found.")
+
+            # マスクされたキーを作成 (例: AIza...5678)
+            masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "***"
+            
+            print(f"--- [LLM Factory] Initializing Gemini Model ---")
+            print(f"  - Model: {internal_model_name}")
+            print(f"  - API Key: {key_name_for_log} ({masked_key})")
                 
             return gemini_api.get_configured_llm(
                 model_name=internal_model_name,
