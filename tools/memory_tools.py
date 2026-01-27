@@ -70,8 +70,11 @@ def recall_memories(query: str, room_name: str, api_key: str) -> str:
             else:
                 label = source
             
-            # 長すぎる場合はトリミング
+            # [2026-01-27] ヘッダーの簡略化 (## AGENT:ルシアン -> ルシアン)
             content = doc.page_content
+            content = re.sub(r'^## (?:USER|AGENT|SYSTEM):(.*)$', r'\1', content, flags=re.MULTILINE)
+            
+            # 長すぎる場合はトリミング
             if len(content) > 500:
                 content = content[:500] + "..."
             result_text += f"--- [{label}] ---\n{content}\n\n"
@@ -225,7 +228,9 @@ def search_past_conversations(query: str, room_name: str, api_key: str, exclude_
         for res in limited_blocks:
             date_str = f"日付: {res['date']}頃" if res['date'] else "日付不明"
             source_file = res['source']
+            # [2026-01-27] ヘッダーの簡略化 (## AGENT:ルシアン -> ルシアン)
             raw_content = res['content']
+            raw_content = re.sub(r'^## (?:USER|AGENT|SYSTEM):(.*)$', r'\1', raw_content, flags=re.MULTILINE)
             
             # [2026-01-07 追加] 長すぎるブロックを切り捨て（500文字上限）
             if len(raw_content) > 500:
