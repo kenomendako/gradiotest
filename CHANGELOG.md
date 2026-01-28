@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **APIキーローテーション実装 (2026-01-28):** Gemini APIの `ResourceExhausted` (429) エラー発生時に、自動的に次の利用可能なAPIキーへ切り替えてリトライする機能を実装。Global/Room別の有効化設定スイッチを追加。[レポート](docs/reports/2026-01-28_api_key_rotation.md)
+- **Zhipu AI (GLM-4) 完全統合と不具合修正 (2026-01-28):** ルーム設定UIへのZhipu AI統合、動的モデルリスト取得機能（API fetch）を実装。また、プロバイダ切り替え時の設定無視やモデル名不整合（Error 1211）などの重大なバグを修正し、`glm-4-plus` をデフォルトモデルに採用。[レポート](docs/reports/2026-01-28_Zhipu_Integration_Fix.md)
 - **APIキー・モデル名のターミナル表示 (2026-01-27):** APIキーローテーション機能の利用状況を可視化するため、使用中のAPIキー名とモデル名をターミナルログに出力する機能を追加。[レポート](docs/reports/2026-01-27_terminal_api_key_display.md)
 - **ツール出力のログ保存最適化 (2026-01-27):** ツール実行結果（生データ）がログに保存されコンテキストを圧迫する問題を解決。12種類の高ボリュームツールをアナウンスのみの保存に切り替え、APIコストを削減。[レポート](docs/reports/2026-01-27_tool_result_log_optimization.md)
 - **プロジェクト探索機能 (Project Explorer) の実装 (2026-01-27):** AIがプロジェクト内のファイルを探索・読解できるツール（`list_project_files`, `read_project_file`）を追加。ルームごとのルートパス・除外リスト設定、行範囲指定読み込み、行番号表示に対応。ツール実行結果の誤判定防止ロジックと、UI出力不整合エラー（170 vs 167）を修正。[レポート](docs/reports/2026-01-27_ProjectExplorerImplementation.md)
@@ -42,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - **過去の会話検索結果のヘッダー簡略化 (2026-01-27):** 検索結果に含まれる `## AGENT:ルシアン` 等のロールヘッダーを `ルシアン` のように簡略化。LLMのコンテキスト内の可視性向上と、現在の会話との混同を防止。[レポート](docs/reports/2026-01-27_Search_Header_Simplification.md)
+- **Zhipu AIモデル名エラー (Code 1211) の修正 (2026-01-28):** Zhipu AI選択時にGeminiのモデル名が誤って使用されるバグと、デフォルトモデル `glm-4` が廃止されていた問題を修正。[レポート](docs/reports/2026-01-28_Zhipu_Integration_Fix.md)
 - **研究ノート・創作ノートの最新表示順序の修正 (2026-01-26):** ノートを読み込む際に最新のエントリが先頭（インデックス0）に来るようにパースロジックを修正。「最新を表示」ボタンが正しく機能し、ドロップダウンも最新順で並ぶよう改善。[レポート](docs/reports/2026-01-26_Reverse_Notes_Order_Fix.md)
 - **会話ログの順序不整合（「巻き戻り」）の修復 (2026-01-25):** 昨夜の異常により `log.txt` 内で本日分のメッセージが中間に埋もれていた不整合を特定。物理ソートスクリプト（`scripts/fix_corrupted_log.py`）により、すべてのログを時系列順に正しく復旧。
 - **破損したRAGインデックスのクリーンアップ (2026-01-25):** 読み取り専用エラー時に不完全な状態で保存されたインデックスファイルをクリーンアップし、再構築可能な状態に復旧。
