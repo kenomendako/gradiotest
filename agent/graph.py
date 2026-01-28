@@ -1288,8 +1288,14 @@ def agent_node(state: AgentState):
 
     
     if tool_use_enabled:
-        llm_or_llm_with_tools = llm.bind_tools(all_tools)
-        print("  - ツール使用モード: 有効")
+        # Zhipu AI の場合は並列ツール呼び出しを無効化（安定性のため）
+        is_zhipu = "zhipu" in str(llm).lower()
+        if is_zhipu:
+            llm_or_llm_with_tools = llm.bind_tools(all_tools, parallel_tool_calls=False)
+            print("  - ツール使用モード: 有効 (Zhipu: Parallel Tools Disabled)")
+        else:
+            llm_or_llm_with_tools = llm.bind_tools(all_tools)
+            print("  - ツール使用モード: 有効")
     else:
         llm_or_llm_with_tools = llm
         print("  - ツール使用モード: 無効（会話のみ）")
@@ -1344,8 +1350,8 @@ def agent_node(state: AgentState):
         max_agent_retries = 2
         
         # システムプロンプトの追加
-        # メッセージリストの先頭にシステムプロンプトを追加
-        messages_for_agent = [SystemMessage(content=final_system_prompt_text)] + messages_for_agent
+        # ※ 既に 1185行目付近で追加されているため、ここでは重複を避ける（APIによっては複数システムプロンプトでエラーになるため）
+        # messages_for_agent = [SystemMessage(content=final_system_prompt_text)] + messages_for_agent
         
         # --- LLM実行 ---
         # ストリーミング実行（トークンごとの出力）と Invoke実行の分岐

@@ -167,15 +167,51 @@ class LLMFactory:
             if not zhipu_api_key:
                 raise ValueError("Zhipu AI provider requires an API key. Please set it in Settings.")
             
+            # generation_config から extra_body やその他のモデル引数を取り出す
+            # Zhipu AI (OpenAI規格) が理解できない、アプリ固有設定やGoogle設定を除外する
+            model_kwargs = {}
+            if generation_config and isinstance(generation_config, dict):
+                # 基本的な除外リスト
+                exclude_keys = [
+                    "temperature", "top_p", "max_tokens", "openai_api_key", "base_url",
+                    "model_name", "voice_id", "voice_style_prompt", "add_timestamp",
+                    "send_thoughts", "send_notepad", "use_common_prompt", "send_core_memory",
+                    "enable_scenery_system", "enable_auto_retrieval", "send_scenery",
+                    "scenery_send_mode", "send_current_time", "auto_memory_enabled",
+                    "thinking_level", "enable_typewriter_effect", "streaming_speed",
+                    "api_history_limit", "auto_summary_enabled", "auto_summary_threshold",
+                    "sleep_consolidation", "watchlist_settings", "project_explorer",
+                    "display_thoughts", "location_name", "scenery_text", "all_participants",
+                    "loop_count", "season_en", "time_of_day_en", "skip_tool_execution",
+                    "tool_use_enabled", "enable_supervisor"
+                ]
+                # safety_ で始まるGoogle固有設定も除外
+                for k, v in generation_config.items():
+                    if k not in exclude_keys and not k.startswith("safety_"):
+                        model_kwargs[k] = v
+
             print(f"--- [LLM Factory] Creating ZhipuAI client ---")
             print(f"  - Model: {internal_model_name}")
+            
+            # glm-4.7-flash 用の最適化パラメータ
+            if "glm-4.7-flash" in internal_model_name.lower():
+                # 智譜AI推奨値: temp=0.7, top_p=1.0
+                target_temp = 0.7 if temperature == 1.0 or temperature == 0.7 else temperature
+                target_top_p = 1.0 if top_p == 0.95 or top_p == 1.0 else top_p
+                print(f"  - [Optimization] Using recommended params for {internal_model_name}: temp={target_temp}, top_p={target_top_p}")
+            else:
+                target_temp = temperature
+                target_top_p = top_p
+
             return ChatOpenAI(
                 base_url="https://open.bigmodel.cn/api/paas/v4/",
                 api_key=zhipu_api_key,
                 model=internal_model_name,
-                temperature=temperature,
+                temperature=target_temp,
+                top_p=target_top_p,
                 max_retries=max_retries,
-                streaming=True
+                streaming=True,
+                model_kwargs=model_kwargs
             )
 
 
