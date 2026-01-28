@@ -167,28 +167,24 @@ class LLMFactory:
             if not zhipu_api_key:
                 raise ValueError("Zhipu AI provider requires an API key. Please set it in Settings.")
             
-            # generation_config から extra_body やその他のモデル引数を取り出す
-            # Zhipu AI (OpenAI規格) が理解できない、アプリ固有設定やGoogle設定を除外する
+            # generation_config から OpenAI/Zhipu がサポートするパラメータのみを抽出する（ホワイトリスト方式）
+            # アプリ固有設定やGoogle設定が混入して TypeError になるのを防ぐ
             model_kwargs = {}
+            max_tokens = None
+            # OpenAI / Zhipu API が公式にサポートしているパラメータのリスト
+            openai_whitelist = [
+                "presence_penalty", "frequency_penalty", "logit_bias", "user",
+                "response_format", "seed", "stop", "n"
+            ]
+            
             if generation_config and isinstance(generation_config, dict):
-                # 基本的な除外リスト
-                exclude_keys = [
-                    "temperature", "top_p", "max_tokens", "openai_api_key", "base_url",
-                    "model_name", "voice_id", "voice_style_prompt", "add_timestamp",
-                    "send_thoughts", "send_notepad", "use_common_prompt", "send_core_memory",
-                    "enable_scenery_system", "enable_auto_retrieval", "send_scenery",
-                    "scenery_send_mode", "send_current_time", "auto_memory_enabled",
-                    "thinking_level", "enable_typewriter_effect", "streaming_speed",
-                    "api_history_limit", "auto_summary_enabled", "auto_summary_threshold",
-                    "sleep_consolidation", "watchlist_settings", "project_explorer",
-                    "display_thoughts", "location_name", "scenery_text", "all_participants",
-                    "loop_count", "season_en", "time_of_day_en", "skip_tool_execution",
-                    "tool_use_enabled", "enable_supervisor"
-                ]
-                # safety_ で始まるGoogle固有設定も除外
                 for k, v in generation_config.items():
-                    if k not in exclude_keys and not k.startswith("safety_"):
+                    if k in openai_whitelist:
                         model_kwargs[k] = v
+                
+                # max_tokens はコンストラクタ引数として個別に扱う（あれば）
+                if "max_tokens" in generation_config and max_tokens is None:
+                    max_tokens = generation_config["max_tokens"]
 
             print(f"--- [LLM Factory] Creating ZhipuAI client ---")
             print(f"  - Model: {internal_model_name}")
@@ -209,6 +205,7 @@ class LLMFactory:
                 model=internal_model_name,
                 temperature=target_temp,
                 top_p=target_top_p,
+                max_tokens=max_tokens,
                 max_retries=max_retries,
                 streaming=True,
                 model_kwargs=model_kwargs
@@ -242,6 +239,22 @@ class LLMFactory:
             if not openai_api_key:
                 openai_api_key = "dummy"
 
+            # generation_config から OpenAI がサポートするパラメータのみを抽出する（ホワイトリスト方式）
+            model_kwargs = {}
+            openai_whitelist = [
+                "presence_penalty", "frequency_penalty", "logit_bias", "user",
+                "response_format", "seed", "stop", "n"
+            ]
+            max_tokens = None
+            
+            if generation_config and isinstance(generation_config, dict):
+                for k, v in generation_config.items():
+                    if k in openai_whitelist:
+                        model_kwargs[k] = v
+                
+                if "max_tokens" in generation_config:
+                    max_tokens = generation_config["max_tokens"]
+
             print(f"--- [LLM Factory] Creating OpenAI-compatible client ---")
             print(f"  - Provider: {provider_name}")
             print(f"  - Base URL: {base_url}")
@@ -252,9 +265,11 @@ class LLMFactory:
                 api_key=openai_api_key,
                 model=model_name,
                 temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
                 max_retries=max_retries,
-                # ストリーミング対応のため必須
-                streaming=True 
+                streaming=True,
+                model_kwargs=model_kwargs
             )
 
         else:
