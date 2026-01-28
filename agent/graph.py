@@ -1732,7 +1732,8 @@ def safe_tool_executor(state: AgentState):
             llm_persona = LLMFactory.create_chat_model(
                 model_name=state['model_name'],
                 api_key=state['api_key'],
-                generation_config=state['generation_config']
+                generation_config=state['generation_config'],
+                room_name=room_name
             )
  
             # テンプレート定義（省略せず記述）
