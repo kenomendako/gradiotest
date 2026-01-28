@@ -519,9 +519,9 @@ try:
                                     discord_webhook_input = gr.Textbox(label="Discord Webhook URL", type="password", interactive=True)
                                     save_discord_webhook_button = gr.Button("Discord Webhookを保存", variant="primary")
                                 
-                                # Zhipu AI (GLM-4) [Phase 3]
-                                with gr.Accordion("Zhipu AI (GLM-4)", open=False) as zhipu_api_key_group:
-                                    gr.Markdown("💡 **Zhipu AI (GLM-4) APIキー**: [bigmodel.cn](https://open.bigmodel.cn/usercenter/apikeys) でAPIキーを取得してください（登録で500万トークン無料）。")
+                                # Zhipu AI [Phase 3]
+                                with gr.Accordion("Zhipu AI", open=False) as zhipu_api_key_group:
+                                    gr.Markdown("💡 **Zhipu AI APIキー**: [bigmodel.cn](https://open.bigmodel.cn/usercenter/apikeys) でAPIキーを取得してください（登録で500万トークン無料）。")
                                     zhipu_api_key_input = gr.Textbox(
                                         label="Zhipu APIキー",
                                         type="password",
@@ -580,7 +580,7 @@ try:
                                 provider_radio = gr.Radio(
                                     choices=[
                                         ("Google (Gemini Native)", "google"),
-                                        ("Zhipu AI (GLM-4)", "zhipu"),
+                                        ("Zhipu AI", "zhipu"),
                                         ("OpenAI互換 (OpenRouter / Groq / Ollama / OpenAI)", "openai")
                                     ],
                                     value=current_provider,
@@ -612,10 +612,10 @@ try:
                                         info="レート制限 (429) 発生時、自動的に他の有効なキーに切り替えます。"
                                     )
 
-                                # --- Zhipu AI (GLM-4) 設定エリア ---
+                                # --- Zhipu AI 設定エリア ---
                                 with gr.Group(visible=(current_provider == "zhipu")) as zhipu_settings_group:
                                     gr.Markdown(
-                                        "💡 **Zhipu AI (GLM-4)**: 中国のZhipu AIが提供する高性能モデル。\n"
+                                        "💡 **Zhipu AI**: 中国のZhipu AIが提供する高性能モデル。\n"
                                         "APIキーは「🔑 APIキー / Webhook管理」で設定してください。"
                                     )
                                     zhipu_model_dropdown = gr.Dropdown(
@@ -703,7 +703,7 @@ try:
                                 internal_provider_radio = gr.Radio(
                                     choices=[
                                         ("Google (Gemini)", "google"),
-                                        ("Zhipu AI (GLM-4)", "zhipu"),
+                                        ("Zhipu AI", "zhipu"),
                                         ("Groq", "groq"),
                                         ("ローカル (llama.cpp)", "local"),
                                         ("OpenAI互換", "openai")
@@ -815,7 +815,7 @@ try:
                                     choices=[
                                         ("共通設定に従う", "default"),
                                         ("Google (Gemini Native)", "google"),
-                                        ("Zhipu AI (GLM-4)", "zhipu"),
+                                        ("Zhipu AI", "zhipu"),
                                         ("OpenAI互換 (OpenRouter / Groq / Ollama)", "openai")
                                     ],
                                     value="default",
@@ -869,7 +869,7 @@ try:
                                         interactive=True
                                     )
                                     
-                                # --- Zhipu AI (GLM-4) 設定グループ ---
+                                # --- Zhipu AI 設定グループ ---
                                 with gr.Group(visible=False) as room_zhipu_settings_group:
                                     room_zhipu_model_dropdown = gr.Dropdown(
                                         choices=config_manager.AVAILABLE_ZHIPU_MODELS,

@@ -176,7 +176,7 @@ EPISODIC_MONTHLY_COMPRESSION_WEEKS = 4  # 4週経過後に月次圧縮
 EPISODIC_WEEKLY_BUDGET = 600            # 週次圧縮の目標文字数
 EPISODIC_MONTHLY_BUDGET = 800           # 月次圧縮の目標文字数
 
-# --- Zhipu AI (GLM-4) Models ---
+# --- Zhipu AI Models ---
 ZHIPU_MODELS = [
     "glm-4.7-flash",
     "glm-4.7",
