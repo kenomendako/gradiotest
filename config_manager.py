@@ -23,6 +23,8 @@ PUSHOVER_CONFIG = {}
 ZHIPU_API_KEY = ""    # [Phase 3] Zhipu AI (GLM-4) 用APIキー
 GROQ_API_KEY = ""     # [Phase 3b] Groq用APIキー
 LOCAL_MODEL_PATH = "" # [Phase 3c] ローカルLLM (llama.cpp) 用GGUFモデルパス
+AVAILABLE_ZHIPU_MODELS = constants.ZHIPU_MODELS
+
 
 SUPPORTED_VOICES = {
     "zephyr": "Zephyr (明るい)", "puck": "Puck (アップビート)", "charon": "Charon (情報が豊富)",
@@ -162,6 +164,23 @@ def _save_config_file(config_data: dict):
                     pass
             return
 
+
+def save_zhipu_models(models: list[str]) -> bool:
+    """
+    Zhipu AIの利用可能モデルリストを保存する。
+    """
+    global AVAILABLE_ZHIPU_MODELS
+    
+    # 既存のリストと比較して変更がなければスルー
+    if set(models) == set(AVAILABLE_ZHIPU_MODELS):
+        return False
+        
+    if save_config_if_changed("zhipu_models", models):
+        # グローバル変数も更新
+        AVAILABLE_ZHIPU_MODELS = list(models) # コピーを保存
+        # constantsは書き換えない（定数なので）
+        return True
+    return False
 
 def save_config_if_changed(key: str, value: Any) -> bool:
     """
@@ -868,8 +887,10 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
         }
     }
     
+    
     room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
-    room_model_name = None  # ルーム個別モデル設定（あれば後で上書き）
+    room_model_name = None  # ルーム個別モデル設定（Google用）
+    room_zhipu_model = None # ルーム個別モデル設定（Zhipu用）
     room_provider = None  # ルーム個別プロバイダ設定（Noneは共通設定に従う）
     if os.path.exists(room_config_path):
         try:
@@ -883,6 +904,7 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
                     effective_settings[k] = v
             # ルーム個別のモデル設定を一時保存（後のロジックで使用）
             room_model_name = override_settings.get("model_name")
+            room_zhipu_model = override_settings.get("zhipu_model")
             # ルーム個別のプロバイダ設定（共通設定に従うかどうか）
             room_provider = override_settings.get("provider")
         except Exception as e:
@@ -909,6 +931,15 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
             openai_setting = get_active_openai_setting()
             if openai_setting:
                 effective_settings["model_name"] = openai_setting.get("default_model", "gpt-3.5-turbo")
+
+    elif active_provider == "zhipu":
+        # Zhipu AI (GLM-4) モード
+        # ルーム個別設定 > デフォルト (AVAILABLE_ZHIPU_MODELS[0])
+        if room_zhipu_model and room_provider is not None:
+             effective_settings["model_name"] = room_zhipu_model
+        else:
+             # フォールバック: available_settings の先頭
+             effective_settings["model_name"] = AVAILABLE_ZHIPU_MODELS[0] if AVAILABLE_ZHIPU_MODELS else "glm-4"
     else:
         # Googleモード: ルーム個別設定 > UI指定 > デフォルト の優先度でモデルを決定
         # ただし、room_providerがNone（共通設定に従う）の場合はルーム個別モデルを無視
@@ -1182,7 +1213,8 @@ def get_active_provider(room_name: str = None) -> str:
                 override_settings = room_config.get("override_settings", {})
                 room_provider = override_settings.get("provider")
                 # ルーム個別にプロバイダが設定されている場合はそれを使用
-                if room_provider and room_provider in ["google", "openai"]:
+                # ルーム個別にプロバイダが設定されている場合はそれを使用
+                if room_provider and room_provider in ["google", "openai", "zhipu"]:
                     return room_provider
             except Exception:
                 pass
@@ -1191,7 +1223,8 @@ def get_active_provider(room_name: str = None) -> str:
 
 def set_active_provider(provider: str):
     """アクティブなプロバイダを切り替える"""
-    if provider in ["google", "openai"]:
+    """アクティブなプロバイダを切り替える"""
+    if provider in ["google", "openai", "zhipu"]:
         save_config_if_changed("active_provider", provider)
 
 def get_openai_settings_list() -> List[Dict]:

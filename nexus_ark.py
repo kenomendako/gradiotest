@@ -580,6 +580,7 @@ try:
                                 provider_radio = gr.Radio(
                                     choices=[
                                         ("Google (Gemini Native)", "google"),
+                                        ("Zhipu AI (GLM-4)", "zhipu"),
                                         ("OpenAI互換 (OpenRouter / Groq / Ollama / OpenAI)", "openai")
                                     ],
                                     value=current_provider,
@@ -610,6 +611,23 @@ try:
                                         interactive=True,
                                         info="レート制限 (429) 発生時、自動的に他の有効なキーに切り替えます。"
                                     )
+
+                                # --- Zhipu AI (GLM-4) 設定エリア ---
+                                with gr.Group(visible=(current_provider == "zhipu")) as zhipu_settings_group:
+                                    gr.Markdown(
+                                        "💡 **Zhipu AI (GLM-4)**: 中国のZhipu AIが提供する高性能モデル。\n"
+                                        "APIキーは「🔑 APIキー / Webhook管理」で設定してください。"
+                                    )
+                                    zhipu_model_dropdown = gr.Dropdown(
+                                        choices=config_manager.AVAILABLE_ZHIPU_MODELS,
+                                        label="Zhipu AIモデル",
+                                        value="glm-4",
+                                        interactive=True
+                                    )
+                                    with gr.Row():
+                                        save_zhipu_model_button = gr.Button("設定を保存", variant="primary", size="sm")
+                                        fetch_zhipu_models_button = gr.Button("モデル一覧を取得", variant="secondary", size="sm")
+
 
                                 # --- OpenAI互換設定エリア ---
                                 with gr.Group(visible=(current_provider == "openai")) as openai_settings_group:
@@ -797,6 +815,7 @@ try:
                                     choices=[
                                         ("共通設定に従う", "default"),
                                         ("Google (Gemini Native)", "google"),
+                                        ("Zhipu AI (GLM-4)", "zhipu"),
                                         ("OpenAI互換 (OpenRouter / Groq / Ollama)", "openai")
                                     ],
                                     value="default",
@@ -849,7 +868,19 @@ try:
                                         info="思考モデルの予算を指定します。高いほど深い推論が可能ですが、待ち時間が長くなります。",
                                         interactive=True
                                     )
-                                            
+                                    
+                                # --- Zhipu AI (GLM-4) 設定グループ ---
+                                with gr.Group(visible=False) as room_zhipu_settings_group:
+                                    room_zhipu_model_dropdown = gr.Dropdown(
+                                        choices=config_manager.AVAILABLE_ZHIPU_MODELS,
+                                        label="このルームで使用するZhipu AIモデル",
+                                        value="glm-4",
+                                        interactive=True
+                                    )
+                                    with gr.Row():
+                                        room_fetch_zhipu_models_button = gr.Button("モデル一覧を取得", variant="secondary", size="sm")
+
+        
                                 # --- OpenAI互換設定グループ ---
                                 with gr.Column(visible=False) as room_openai_settings_group:
                                     # プロファイル選択
@@ -2778,8 +2809,10 @@ try:
             # [Phase 3] 個別プロバイダ設定
             room_provider_radio,
             room_google_settings_group,
+            room_zhipu_settings_group,
             room_openai_settings_group,
             room_api_key_dropdown,
+            room_zhipu_model_dropdown,
             room_openai_profile_dropdown,  # 追加: プロファイル選択
             room_openai_base_url_input,
             room_openai_api_key_input,
@@ -4780,7 +4813,25 @@ try:
         provider_radio.change(
             fn=ui_handlers.handle_provider_change,
             inputs=[provider_radio],
-            outputs=[google_settings_group, openai_settings_group]
+            outputs=[google_settings_group, zhipu_settings_group, openai_settings_group]
+        )
+        
+        save_zhipu_model_button.click(
+            fn=ui_handlers.handle_save_zhipu_model,
+            inputs=[zhipu_model_dropdown],
+            outputs=None
+        )
+        
+        save_zhipu_model_button.click(
+            fn=ui_handlers.handle_save_zhipu_model,
+            inputs=[zhipu_model_dropdown],
+            outputs=None
+        )
+        
+        fetch_zhipu_models_button.click(
+            fn=ui_handlers.handle_fetch_zhipu_models,
+            inputs=[zhipu_api_key_input],
+            outputs=[zhipu_model_dropdown]
         )
         
         openai_profile_dropdown.change(
@@ -5058,6 +5109,31 @@ try:
                 internal_state_last_update,
                 user_emotion_history_plot
             ]
+        )
+
+        # Room Provider Events [Phase 3]
+        room_provider_radio.change(
+            fn=ui_handlers.handle_room_provider_change,
+            inputs=[room_provider_radio],
+            outputs=[room_google_settings_group, room_zhipu_settings_group, room_openai_settings_group]
+        )
+
+        room_zhipu_model_dropdown.change(
+            fn=ui_handlers.handle_save_room_zhipu_model,
+            inputs=[current_room_name, room_zhipu_model_dropdown],
+            outputs=None
+        )
+
+        room_zhipu_model_dropdown.change(
+            fn=ui_handlers.handle_save_room_zhipu_model,
+            inputs=[current_room_name, room_zhipu_model_dropdown],
+            outputs=None
+        )
+
+        room_fetch_zhipu_models_button.click(
+            fn=ui_handlers.handle_fetch_room_zhipu_models,
+            inputs=[zhipu_api_key_input], # Global API Key input is sufficient as it's the source
+            outputs=[room_zhipu_model_dropdown]
         )
 
         # --- 外部接続設定に基づいてserver_nameを決定 ---

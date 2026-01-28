@@ -514,8 +514,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             # [Phase 3] 個別プロバイダ設定
             gr.update(value="default"),  # room_provider_radio
             gr.update(visible=False),  # room_google_settings_group
+            gr.update(visible=False),  # room_zhipu_settings_group
             gr.update(visible=False),  # room_openai_settings_group
             gr.update(value=None),  # room_api_key_dropdown
+            gr.update(value=None),  # room_zhipu_model_dropdown
             gr.update(value=None),  # room_openai_profile_dropdown
             gr.update(value=""),  # room_openai_base_url_input
             gr.update(value=""),  # room_openai_api_key_input
@@ -784,8 +786,10 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         # [Phase 3] 個別プロバイダ設定
         gr.update(value=effective_settings.get("provider", "default")),  # room_provider_radio
         gr.update(visible=(effective_settings.get("provider") == "google")),  # room_google_settings_group
+        gr.update(visible=(effective_settings.get("provider") == "zhipu")),  # room_zhipu_settings_group
         gr.update(visible=(effective_settings.get("provider") == "openai")),  # room_openai_settings_group
         gr.update(value=effective_settings.get("api_key_name", None)),  # room_api_key_dropdown
+        gr.update(value="glm-4"),  # room_zhipu_model_dropdown (初期値)
         gr.update(value=effective_settings.get("openai_settings", {}).get("profile", None)),  # room_openai_profile_dropdown
         gr.update(value=effective_settings.get("openai_settings", {}).get("base_url", "")),  # room_openai_base_url_input
         gr.update(value=effective_settings.get("openai_settings", {}).get("api_key", "")),  # room_openai_api_key_input
@@ -8092,9 +8096,90 @@ def handle_provider_change(provider_choice: str):
     config_manager.set_active_provider(provider_id)
     
     is_google = (provider_id == "google")
+    is_zhipu = (provider_id == "zhipu")
+    is_openai = (provider_id == "openai")
     
-    # Google設定(Visible), OpenAI設定(Visible) の順で返す
-    return gr.update(visible=is_google), gr.update(visible=not is_google)
+    # Google(Visible), Zhipu(Visible), OpenAI(Visible) の順で返す
+    return gr.update(visible=is_google), gr.update(visible=is_zhipu), gr.update(visible=is_openai)
+
+def handle_save_zhipu_model(model_name: str):
+    """
+    Zhipu AIのデフォルトモデルを保存する。
+    """
+    if config_manager.save_config_if_changed("zhipu_model", model_name):
+        config_manager.CONFIG_GLOBAL["zhipu_model"] = model_name
+        gr.Info(f"Zhipu AIのモデルを '{model_name}' に設定しました。")
+    else:
+        gr.Info(f"Zhipu AIのモデルは既に '{model_name}' です。")
+
+def handle_room_provider_change(provider_choice: str):
+    """
+    ルーム設定のAIプロバイダ選択が変更された時の処理。
+    """
+    is_google = (provider_choice == "google")
+    is_zhipu = (provider_choice == "zhipu")
+    is_openai = (provider_choice == "openai")
+    
+    # room_google_group, room_zhipu_group, room_openai_group の順でVisibilityを返す
+    return gr.update(visible=is_google), gr.update(visible=is_zhipu), gr.update(visible=is_openai)
+
+def handle_save_room_zhipu_model(room_name: str, model_name: str):
+    """
+    ルーム個別のZhipu AIモデル設定を保存する。
+    """
+    if not room_name:
+        return
+        
+    room_manager.update_room_config(room_name, {"zhipu_model": model_name})
+    gr.Info(f"ルーム '{room_name}'のZhipuモデルを保存しました: {model_name}")
+
+def handle_fetch_zhipu_models(api_key: str):
+    """
+    Zhipu AIのモデルリストを取得して保存し、ドロップダウンを更新する。
+    """
+    if not api_key:
+        api_key = config_manager.ZHIPU_API_KEY
+    
+    if not api_key:
+        gr.Warning("Zhipu AI APIキーが設定されていません。")
+        return gr.update()
+        
+    # Zhipu AI (GLM-4) はOpenAI互換APIを持つ
+    # Endpoint: https://open.bigmodel.cn/api/paas/v4
+    fetched_models = config_manager.fetch_models_from_api("https://open.bigmodel.cn/api/paas/v4", api_key)
+    
+    if not fetched_models:
+        gr.Warning("モデルリストの取得に失敗しました。")
+        return gr.update()
+    
+    # マージ処理: 定数定義モデル + 取得モデル
+    # 既存のリストを取得
+    current_models = list(config_manager.AVAILABLE_ZHIPU_MODELS)
+    
+    added_count = 0
+    for model in fetched_models:
+        if model not in current_models:
+            current_models.append(model)
+            added_count += 1
+            
+    if added_count > 0:
+        # 保存
+        config_manager.save_zhipu_models(current_models)
+        gr.Info(f"{len(fetched_models)} 件取得し、{added_count} モデルを追加しました。")
+    else:
+        gr.Info("新しいモデルは見つかりませんでした。")
+        
+    return gr.update(choices=current_models)
+
+def handle_fetch_room_zhipu_models(api_key: str):
+    """
+    Zhipu AIのモデルリストを取得（ルーム個別設定用）。
+    """
+    # グローバルと同じロジックでリストを更新し、ルーム用のドロップダウンを更新する
+    result = handle_fetch_zhipu_models(api_key)
+    return result # そのままgr.updateを返す
+
+
 
 def handle_openai_profile_select(profile_name: str):
     """

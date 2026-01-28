@@ -161,6 +161,24 @@ class LLMFactory:
                 generation_config=generation_config
             )
 
+        # --- Zhipu AI (GLM-4) ---
+        elif active_provider == "zhipu":
+            zhipu_api_key = config_manager.ZHIPU_API_KEY
+            if not zhipu_api_key:
+                raise ValueError("Zhipu AI provider requires an API key. Please set it in Settings.")
+            
+            print(f"--- [LLM Factory] Creating ZhipuAI client ---")
+            print(f"  - Model: {internal_model_name}")
+            return ChatOpenAI(
+                base_url="https://open.bigmodel.cn/api/paas/v4/",
+                api_key=zhipu_api_key,
+                model=internal_model_name,
+                temperature=temperature,
+                max_retries=max_retries,
+                streaming=True
+            )
+
+
         # --- OpenAI Compatible (OpenRouter, Groq, Ollama, etc.) ---
         elif active_provider == "openai":
             # ルーム個別のOpenAI設定を優先
