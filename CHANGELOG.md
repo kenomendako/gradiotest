@@ -43,6 +43,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - **過去の会話検索結果のヘッダー簡略化 (2026-01-27):** 検索結果に含まれる `## AGENT:ルシアン` 等のロールヘッダーを `ルシアン` のように簡略化。LLMのコンテキスト内の可視性向上と、現在の会話との混同を防止。[レポート](docs/reports/2026-01-27_Search_Header_Simplification.md)
+- **Zhipu AIツール実行エラー (404) の修正 (2026-01-28):** ツール実行用LLM初期化時にルーム名が渡されず、Zhipu設定時でもGoogle APIを使用してしまう不具合を修正。ファイル編集などの自律動作がZhipuモデルで正常に行えるようになりました。[レポート](docs/reports/2026-01-28_Zhipu_Tool_Provider_Fix.md)
 - **Zhipu AIモデル名エラー (Code 1211) の修正 (2026-01-28):** Zhipu AI選択時にGeminiのモデル名が誤って使用されるバグと、デフォルトモデル `glm-4` が廃止されていた問題を修正。[レポート](docs/reports/2026-01-28_Zhipu_Integration_Fix.md)
 - **研究ノート・創作ノートの最新表示順序の修正 (2026-01-26):** ノートを読み込む際に最新のエントリが先頭（インデックス0）に来るようにパースロジックを修正。「最新を表示」ボタンが正しく機能し、ドロップダウンも最新順で並ぶよう改善。[レポート](docs/reports/2026-01-26_Reverse_Notes_Order_Fix.md)
 - **会話ログの順序不整合（「巻き戻り」）の修復 (2026-01-25):** 昨夜の異常により `log.txt` 内で本日分のメッセージが中間に埋もれていた不整合を特定。物理ソートスクリプト（`scripts/fix_corrupted_log.py`）により、すべてのログを時系列順に正しく復旧。
