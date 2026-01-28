@@ -521,6 +521,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value=""),  # room_openai_api_key_input
             gr.update(value=None),  # room_openai_model_dropdown
             gr.update(value=True),  # room_openai_tool_use_checkbox
+            gr.update(value=effective_settings.get("enable_api_key_rotation", None)),  # room_rotation_dropdown
             # --- 睡眠時記憶整理 (Default values) ---
             gr.update(value=True),  # sleep_episodic
             gr.update(value=True),  # sleep_memory_index
@@ -790,6 +791,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=effective_settings.get("openai_settings", {}).get("api_key", "")),  # room_openai_api_key_input
         gr.update(choices=[], value=effective_settings.get("openai_settings", {}).get("model", None)),  # room_openai_model_dropdown (profs用chooseはprofile選択時に読み込み)
         gr.update(value=effective_settings.get("openai_settings", {}).get("tool_use_enabled", True)),  # room_openai_tool_use_checkbox
+        gr.update(value=effective_settings.get("enable_api_key_rotation", None)),  # room_rotation_dropdown
         # --- 睡眠時記憶整理 ---
         gr.update(value=sleep_episodic),
         gr.update(value=sleep_memory_index),
@@ -870,7 +872,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 170):
+def handle_initial_load(room_name: str = None, expected_count: int = 172):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -1010,6 +1012,7 @@ def handle_initial_load(room_name: str = None, expected_count: int = 170):
         config_manager.GROQ_API_KEY or "", # [Phase 3b] groq_api_key_input
         config_manager.LOCAL_MODEL_PATH or "", # [Phase 3c] local_model_path_input
         config_manager.TAVILY_API_KEY or "", # [Phase 3] tavily_api_key_input
+        config.get("enable_api_key_rotation", True), # settings_rotation_checkbox (再取得して渡す)
     )
     
     # 初期化完了: 以降の設定変更では通知を表示する（ただし直後のgrace periodは除く）
@@ -1052,6 +1055,7 @@ def handle_save_room_settings(
     openai_api_key: str = None,
     openai_model: str = None,
     openai_tool_use: bool = True,  # 追加: ツール使用オンオフ
+    enable_api_key_rotation: Any = None, # [Phase 1.5] 個別ロテ
     # --- 睡眠時記憶整理 ---
     sleep_update_episodic: bool = True,
     sleep_update_memory_index: bool = True,
@@ -1136,6 +1140,8 @@ def handle_save_room_settings(
             "model": openai_model if openai_model else "",
             "tool_use_enabled": bool(openai_tool_use)
         } if provider == "openai" else None,
+        # [Phase 1.5] ローテーション設定
+        "enable_api_key_rotation": enable_api_key_rotation if enable_api_key_rotation != "None" else None, 
         # --- 睡眠時記憶整理 ---
         "sleep_consolidation": {
             "update_episodic_memory": bool(sleep_update_episodic),
@@ -6159,6 +6165,18 @@ def handle_paid_keys_change(paid_key_names: List[str]):
     # ドロップダウンの表示も(Paid)ラベル付きで更新するために、新しい選択肢リストを返す
     new_choices_for_ui = config_manager.get_api_key_choices_for_ui()
     return gr.update(choices=new_choices_for_ui)
+
+
+def handle_rotation_setting_change(enabled: bool):
+    """APIキーローテーション設定が変更されたら即時保存する。"""
+    config_manager.save_config_if_changed("enable_api_key_rotation", enabled)
+    
+    # グローバル変数を更新して即時反映
+    config_manager.load_config()
+    
+    status_text = "有効" if enabled else "無効"
+    gr.Info(f"APIキー自動ローテーションを【{status_text}】に設定しました。")
+    return
 
 
 def handle_allow_external_connection_change(allow_external: bool):

@@ -603,6 +603,13 @@ try:
                                         interactive=True
                                     )
                                     api_test_button = gr.Button("API接続をテスト", variant="secondary")
+                                    # [Phase 1.5] ローテーション設定
+                                    settings_rotation_checkbox = gr.Checkbox(
+                                        label="APIキー自動ローテーションを有効にする",
+                                        value=True,
+                                        interactive=True,
+                                        info="レート制限 (429) 発生時、自動的に他の有効なキーに切り替えます。"
+                                    )
 
                                 # --- OpenAI互換設定エリア ---
                                 with gr.Group(visible=(current_provider == "openai")) as openai_settings_group:
@@ -826,6 +833,13 @@ try:
                                         choices=config_manager.get_api_key_choices_for_ui(),
                                         label="このルームで使用するAPIキー",
                                         info="共通設定で登録したAPIキーから選択します。",
+                                        interactive=True
+                                    )
+                                    # [Phase 1.5] 個別ローテーション設定
+                                    room_rotation_dropdown = gr.Dropdown(
+                                        choices=[("共通設定に従う", None), ("有効", True), ("無効", False)],
+                                        value=None,
+                                        label="このルームでローテーションを有効にする",
                                         interactive=True
                                     )
                                     
@@ -2771,6 +2785,7 @@ try:
             room_openai_api_key_input,
             room_openai_model_dropdown,
             room_openai_tool_use_checkbox,  # 追加: ツール使用オンオフ
+            room_rotation_dropdown, # [Phase 1.5]
             # --- 睡眠時記憶整理 ---
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
@@ -2892,6 +2907,7 @@ try:
             groq_api_key_input, # [Phase 3b]
             local_model_path_input, # [Phase 3c]
             tavily_api_key_input, # [Phase 3]
+            settings_rotation_checkbox, # [Phase 1.5]
         ]
 
         world_builder_outputs = [world_data_state, area_selector, world_settings_raw_editor, place_selector]
@@ -3254,6 +3270,7 @@ try:
             room_openai_api_key_input,
             room_openai_model_dropdown,
             room_openai_tool_use_checkbox,
+            room_rotation_dropdown,
             # --- 睡眠時記憶整理 ---
             sleep_consolidation_episodic_cb,
             sleep_consolidation_memory_index_cb,
@@ -4741,6 +4758,12 @@ try:
         )
 
 # --- API Key / Webhook Events ---
+        settings_rotation_checkbox.change(
+            fn=ui_handlers.handle_rotation_setting_change,
+            inputs=[settings_rotation_checkbox],
+            outputs=None
+        )
+
         paid_keys_checkbox_group.change(
             fn=ui_handlers.handle_paid_keys_change,
             inputs=[paid_keys_checkbox_group],

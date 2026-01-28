@@ -13,6 +13,7 @@ import constants
 # --- グローバル変数 ---
 CONFIG_GLOBAL = {}
 GEMINI_API_KEYS = {}
+GEMINI_KEY_STATES = {} # {key_name: {'exhausted': bool, 'exhausted_at': timestamp}}
 TAVILY_API_KEY = ""  # Tavily検索用APIキー
 AVAILABLE_MODELS_GLOBAL = []
 DEFAULT_MODEL_GLOBAL = "gemini-2.5-flash"
@@ -748,6 +749,9 @@ def load_config():
     GROQ_API_KEY = config.get("groq_api_key", "")
     LOCAL_MODEL_PATH = config.get("local_model_path", "")
 
+    # [Phase 1.5] APIキーローテーション設定
+    CONFIG_GLOBAL["enable_api_key_rotation"] = config.get("enable_api_key_rotation", True)
+
     AVAILABLE_MODELS_GLOBAL = config.get("available_models")
     DEFAULT_MODEL_GLOBAL = config.get("default_model")
     initial_room_global = config.get("last_room")
@@ -1005,7 +1009,10 @@ def get_active_gemini_api_key(room_name: str = None) -> Optional[str]:
     現在有効な Gemini API キーの『値（文字列）』を直接返す。
     キーが設定されていない場合は None を返す。
     """
-    # 1. ルーム個別の設定を確認
+    # ルーム名が指定されている場合、そのルームでのローテーション有効設定を確認
+    rotation_enabled_global = CONFIG_GLOBAL.get("enable_api_key_rotation", True)
+    rotation_enabled_room = True # デフォルトはTrue (有効)
+    
     if room_name:
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
         if os.path.exists(room_config_path):
@@ -1014,6 +1021,13 @@ def get_active_gemini_api_key(room_name: str = None) -> Optional[str]:
                     room_config = json.load(f)
                 override_settings = room_config.get("override_settings", {})
                 
+                # 個別設定でのスイッチ確認 (Noneなら共通設定に従う)
+                room_rot_setting = override_settings.get("enable_api_key_rotation")
+                if room_rot_setting is not None:
+                    rotation_enabled_room = room_rot_setting
+                else:
+                    rotation_enabled_room = rotation_enabled_global
+
                 # プロバイダ設定を確認（Noneの場合は共通設定に従うため、個別キー設定も無視する）
                 room_provider = override_settings.get("provider")
                 
@@ -1022,11 +1036,27 @@ def get_active_gemini_api_key(room_name: str = None) -> Optional[str]:
                     if room_api_key_name:
                         key_val = GEMINI_API_KEYS.get(room_api_key_name)
                         if key_val and not key_val.startswith("YOUR_API_KEY"):
-                            return key_val
+                            # キーが枯渇しているかチェック
+                            if rotation_enabled_room and is_key_exhausted(room_api_key_name):
+                                print(f"Warning: Room key '{room_api_key_name}' is exhausted. Falling back to common pool.")
+                                # フォールバック: 下記の共通設定ロジックへ流れる
+                            else:
+                                return key_val
             except Exception:
                 pass
 
+    # 共通設定でのローテーション確認
+    # ルーム指定がない、またはルーム設定でフォールバックした場合
+    rotation_enabled = rotation_enabled_room if room_name else rotation_enabled_global
+
     # 2. グローバル設定（最後に使ったキー、または最初の有効なキー）
+    # ローテーション有効なら、利用可能なキーを探す
+    if rotation_enabled:
+        available_key_name = get_next_available_gemini_key()
+        if available_key_name:
+            return GEMINI_API_KEYS.get(available_key_name)
+    
+    # ローテーション無効、または有効なキーが見つからない場合は従来のロジック
     key_name = get_latest_api_key_name_from_config()
     if key_name:
         return GEMINI_API_KEYS.get(key_name)
@@ -1040,7 +1070,10 @@ def get_active_gemini_api_key_name(room_name: str = None) -> Optional[str]:
     現在有効な Gemini API キーの『名称』を返す。
     キーが設定されていない場合は None を返す。
     """
-    # 1. ルーム個別の設定を確認
+    # ルーム名が指定されている場合、そのルームでのローテーション有効設定を確認
+    rotation_enabled_global = CONFIG_GLOBAL.get("enable_api_key_rotation", True)
+    rotation_enabled_room = True 
+    
     if room_name:
         room_config_path = os.path.join(constants.ROOMS_DIR, room_name, "room_config.json")
         if os.path.exists(room_config_path):
@@ -1049,7 +1082,14 @@ def get_active_gemini_api_key_name(room_name: str = None) -> Optional[str]:
                     room_config = json.load(f)
                 override_settings = room_config.get("override_settings", {})
                 
-                # プロバイダ設定を確認（Noneの場合は共通設定に従うため、個別キー設定も無視する）
+                # 個別設定でのスイッチ確認
+                room_rot_setting = override_settings.get("enable_api_key_rotation")
+                if room_rot_setting is not None:
+                    rotation_enabled_room = room_rot_setting
+                else:
+                    rotation_enabled_room = rotation_enabled_global
+
+                # プロバイダ設定を確認
                 room_provider = override_settings.get("provider")
                 
                 if room_provider is not None:
@@ -1058,9 +1098,21 @@ def get_active_gemini_api_key_name(room_name: str = None) -> Optional[str]:
                         # キー自体が存在することを確認
                         key_val = GEMINI_API_KEYS.get(room_api_key_name)
                         if key_val and not key_val.startswith("YOUR_API_KEY"):
-                            return room_api_key_name
+                            # キーが枯渇しているかチェック
+                            if rotation_enabled_room and is_key_exhausted(room_api_key_name):
+                                return get_next_available_gemini_key() or room_api_key_name # フォールバックしても見つからなければ元の名前を返す
+                            else:
+                                return room_api_key_name
             except Exception:
                 pass
+
+    rotation_enabled = rotation_enabled_room if room_name else rotation_enabled_global
+
+    # ローテーション有効なら、利用可能なキーを探す
+    if rotation_enabled:
+        available_key_name = get_next_available_gemini_key()
+        if available_key_name:
+            return available_key_name
 
     # 2. グローバル設定（最後に使ったキー、または最初の有効なキー）
     return get_latest_api_key_name_from_config()
@@ -1292,3 +1344,73 @@ def get_effective_internal_model(role: str) -> Tuple[str, str]:
     model_name = settings.get(model_key, constants.INTERNAL_PROCESSING_MODEL)
     
     return (provider, model_name)
+
+# --- APIキーローテーション関連 ---
+
+def mark_key_as_exhausted(key_name: str):
+    """
+    指定されたキーを「枯渇（exhausted）」状態としてマークする。
+    """
+    if not key_name: return
+    GEMINI_KEY_STATES[key_name] = {
+        'exhausted': True,
+        'exhausted_at': time.time()
+    }
+    print(f"--- [API Key Rotation] Key '{key_name}' marked as EXHAUSTED ---")
+
+def is_key_exhausted(key_name: str) -> bool:
+    """
+    指定されたキーが現在枯渇状態かどうかを返す。
+    一定時間（例: 1時間）経過後に自動復帰させるロジックを含める。
+    """
+    state = GEMINI_KEY_STATES.get(key_name)
+    if not state or not state.get('exhausted'):
+        return False
+    
+    # 自動復帰ロジック (1時間経過でリセット)
+    exhausted_at = state.get('exhausted_at', 0)
+    if time.time() - exhausted_at > 3600:
+        print(f"--- [API Key Rotation] Key '{key_name}' auto-recovered from exhausted state ---")
+        GEMINI_KEY_STATES[key_name]['exhausted'] = False
+        return False
+        
+    return True
+
+def clear_exhausted_keys():
+    """すべてのキーの枯渇状態を解除する"""
+    GEMINI_KEY_STATES.clear()
+    print("--- [API Key Rotation] All exhausted states cleared ---")
+
+def get_next_available_gemini_key() -> Optional[str]:
+    """
+    有効なキーの中から、枯渇していないものを探して返す。
+    現在選択中のキー（last_api_key_name）を優先的にチェックするわけではなく、
+    プール全体から「使えるもの」を探す。
+    
+    Returns:
+        利用可能なAPIキーの名前 (str) または None
+    """
+    config = load_config_file()
+    valid_keys = [
+        k for k, v in GEMINI_API_KEYS.items()
+        if v and isinstance(v, str) and not v.startswith("YOUR_API_KEY")
+    ]
+    
+    if not valid_keys:
+        return None
+
+    # まず、設定で選択されているキーが使えるならそれを優先したいところだが、
+    # 自動ローテーションの主旨としては「使えるものを自動で」なので、リスト順で探す。
+    # ただし、頻繁な切り替えを防ぐため、last_key が生きていればそれを優先するロジックを入れる。
+    last_key_name = config.get("last_api_key_name")
+    if last_key_name in valid_keys and not is_key_exhausted(last_key_name):
+        return last_key_name
+        
+    # それ以外から探索
+    for key_name in valid_keys:
+        if not is_key_exhausted(key_name):
+            return key_name
+            
+    # 全滅の場合... Noneを返す（呼び出し元でエラー処理）
+    print("--- [API Key Rotation] CRITICAL: All keys are exhausted! ---")
+    return None

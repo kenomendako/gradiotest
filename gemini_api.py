@@ -673,15 +673,16 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     display_thoughts = effective_settings.get("display_thoughts", True)
     send_thoughts_final = display_thoughts and effective_settings.get("send_thoughts", True)
     model_name = effective_settings["model_name"]
-    # APIキーの決定: ルーム個別設定があればそれを優先、なければUIからの引数を使用
+    # APIキーの初期化
+    current_retry_api_key_name = api_key_name
     room_api_key_name = effective_settings.get("api_key_name")
     if room_api_key_name:
-        api_key_name = room_api_key_name
+        current_retry_api_key_name = room_api_key_name
         
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    api_key = config_manager.GEMINI_API_KEYS.get(current_retry_api_key_name)
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
-        yield ("values", {"messages": [AIMessage(content=f"[エラー: APIキー '{api_key_name}' が無効です。]")]})
+        yield ("values", {"messages": [AIMessage(content=f"[エラー: APIキー '{current_retry_api_key_name}' が無効です。]")]})
         return
 
     # 履歴構築（ここでJSONからの署名注入が行われる）
@@ -822,49 +823,101 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     is_gemini_3_flash = "gemini-3-flash" in model_name
     tool_use_enabled = initial_state.get("tool_use_enabled", True)
     
-    if is_gemini_3_flash and tool_use_enabled:
-        print(f"  - [Gemini 3 Flash] ストリーミング無効化（ツール使用時のデッドロック対策）")
-        # 非ストリーミングモードで実行
-        final_state = app.invoke(initial_state)
+    # --- [Phase 1.5] API Key Rotation Loop ---
+    max_retries = 10
+    retry_count = 0
+    
+    while retry_count <= max_retries:
+        try:
+            # 実行前にAPIキーをStateに再設定（ローテーション反映）
+            initial_state["api_key"] = api_key
+            
+            if is_gemini_3_flash and tool_use_enabled:
+                if retry_count == 0:
+                     print(f"  - [Gemini 3 Flash] ストリーミング無効化（ツール使用時のデッドロック対策）")
+                # 非ストリーミングモードで実行
+                final_state = app.invoke(initial_state)
+                
+                # invoke結果から署名を抽出（ストリーミング時と同様の処理）
+                final_messages = final_state.get("messages", [])
+                for msg in final_messages:
+                    if isinstance(msg, AIMessage):
+                        sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                        if not sig:
+                            sig = msg.additional_kwargs.get("thought_signature")
+                        if not sig and hasattr(msg, "response_metadata"):
+                            sig = msg.response_metadata.get("thought_signature")
+                        t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+                        if sig or t_calls:
+                            signature_manager.save_turn_context(room_to_respond, sig, t_calls)
+                
+                # invoke結果をyield形式に変換（既存のインターフェースを維持）
+                yield ("values", final_state)
+                break # Success
+            else:
+                # --- 通常のストリーム実行とコンテキストの保存 ---
+                # Graphから返ってくるチャンクを監視する
+                for mode, payload in app.stream(initial_state, stream_mode=["messages", "values"]):
+                    if mode == "messages":
+                         msgs = payload if isinstance(payload, list) else [payload]
+                         for msg in msgs:
+                             if isinstance(msg, AIMessage):
+                                 # 署名を抽出（Gemini 3形式を優先）
+                                 sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
+                                 if not sig:
+                                     sig = msg.additional_kwargs.get("thought_signature")
+                                 if not sig and hasattr(msg, "response_metadata"):
+                                     sig = msg.response_metadata.get("thought_signature")
+                                 
+                                 # ツールコールがあれば抽出
+                                 t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
         
-        # invoke結果から署名を抽出（ストリーミング時と同様の処理）
-        final_messages = final_state.get("messages", [])
-        for msg in final_messages:
-            if isinstance(msg, AIMessage):
-                sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
-                if not sig:
-                    sig = msg.additional_kwargs.get("thought_signature")
-                if not sig and hasattr(msg, "response_metadata"):
-                    sig = msg.response_metadata.get("thought_signature")
-                t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
-                if sig or t_calls:
-                    signature_manager.save_turn_context(room_to_respond, sig, t_calls)
-        
-        # invoke結果をyield形式に変換（既存のインターフェースを維持）
-        yield ("values", final_state)
-    else:
-        # --- 通常のストリーム実行とコンテキストの保存 ---
-        # Graphから返ってくるチャンクを監視する
-        for mode, payload in app.stream(initial_state, stream_mode=["messages", "values"]):
-            if mode == "messages":
-                 msgs = payload if isinstance(payload, list) else [payload]
-                 for msg in msgs:
-                     if isinstance(msg, AIMessage):
-                         # 署名を抽出（Gemini 3形式を優先）
-                         sig = msg.additional_kwargs.get("__gemini_function_call_thought_signatures__")
-                         if not sig:
-                             sig = msg.additional_kwargs.get("thought_signature")
-                         if not sig and hasattr(msg, "response_metadata"):
-                             sig = msg.response_metadata.get("thought_signature")
-                         
-                         # ツールコールがあれば抽出
-                         t_calls = msg.tool_calls if hasattr(msg, "tool_calls") else []
+                                 # 署名またはツールコールがあれば、ターンコンテキストとして永続化
+                                 if sig or t_calls:
+                                     signature_manager.save_turn_context(room_to_respond, sig, t_calls)
+                                     
+                    yield (mode, payload)
+                break # Success
+                
+        except ResourceExhausted as e:
+            # 429 エラーハンドリング（ローテーション）
+            retry_count += 1
+            print(f"  [Error] ResourceExhausted: {e}")
+            
+            # Rotation有効確認
+            enable_rotation = effective_settings.get("enable_api_key_rotation")
+            if enable_rotation is None: # 個別未設定なら共通設定
+                 enable_rotation = config_manager.CONFIG_GLOBAL.get("enable_api_key_rotation", True)
+            
+            if not enable_rotation:
+                 yield ("values", {"messages": [AIMessage(content=f"[エラー: API割り当て制限(429)を超過しました。APIキーローテーションは無効です。]")]})
+                 return
 
-                         # 署名またはツールコールがあれば、ターンコンテキストとして永続化
-                         if sig or t_calls:
-                             signature_manager.save_turn_context(room_to_respond, sig, t_calls)
-                             
-            yield (mode, payload)
+            # キーを枯渇済みとしてマーク
+            config_manager.mark_key_as_exhausted(current_retry_api_key_name)
+            print(f"  [Rotation] Key '{current_retry_api_key_name}' marked as exhausted.")
+            
+            # 次のキーを取得
+            next_key_name = config_manager.get_next_available_gemini_key(current_exhausted_key=current_retry_api_key_name)
+            
+            if not next_key_name:
+                 yield ("values", {"messages": [AIMessage(content=f"[エラー: API割り当て制限(429)を超過しました。すべてのAPIキーが使い果たされました。]")]})
+                 return
+                 
+            print(f"  [Rotation] Switching to key '{next_key_name}'.")
+            
+            # 次の試行のために変数を更新
+            current_retry_api_key_name = next_key_name
+            api_key = config_manager.GEMINI_API_KEYS.get(next_key_name)
+            # persistent update (optional, but good for UX)
+            config_manager.CONFIG_GLOBAL["last_used_api_key_name"] = next_key_name
+            
+            time.sleep(1) # バックオフ
+            continue
+
+        except Exception as e:
+            yield ("values", {"messages": [AIMessage(content=f"[エラー: 予期せぬ例外が発生しました: {e}]")]})
+            return
 
 
 def count_input_tokens(**kwargs):
