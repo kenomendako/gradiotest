@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **APIキーローテーション実装 (2026-01-28):** Gemini APIの `ResourceExhausted` (429) エラー発生時に、自動的に次の利用可能なAPIキーへ切り替えてリトライする機能を実装。Global/Room別の有効化設定スイッチを追加。[レポート](docs/reports/2026-01-28_api_key_rotation.md)
-- **Zhipu AI (GLM-4) 完全統合と不具合修正 (2026-01-28):** ルーム設定UIへのZhipu AI統合、動的モデルリスト取得機能（API fetch）を実装。また、プロバイダ切り替え時の設定無視やモデル名不整合（Error 1211）などの重大なバグを修正し、`glm-4-plus` をデフォルトモデルに採用。[レポート](docs/reports/2026-01-28_Zhipu_Integration_Fix.md)
+- **Zhipu AI (GLM-4) 完全統合と不具合修正 (2026-01-28):** 最新モデル `glm-4.7-flash` の正式サポート、Zhipu/OpenAI パラメータフィルタリングの強化（ホワイトリスト導入による `TypeError` 回避）、ツール実行時のプロバイダ不整合修正、および重大なバグ（Error 1211等）の修正。[レポート](docs/reports/2026-01-28_Zhipu_Integration_Fix.md)
 - **APIキー・モデル名のターミナル表示 (2026-01-27):** APIキーローテーション機能の利用状況を可視化するため、使用中のAPIキー名とモデル名をターミナルログに出力する機能を追加。[レポート](docs/reports/2026-01-27_terminal_api_key_display.md)
 - **ツール出力のログ保存最適化 (2026-01-27):** ツール実行結果（生データ）がログに保存されコンテキストを圧迫する問題を解決。12種類の高ボリュームツールをアナウンスのみの保存に切り替え、APIコストを削減。[レポート](docs/reports/2026-01-27_tool_result_log_optimization.md)
 - **プロジェクト探索機能 (Project Explorer) の実装 (2026-01-27):** AIがプロジェクト内のファイルを探索・読解できるツール（`list_project_files`, `read_project_file`）を追加。ルームごとのルートパス・除外リスト設定、行範囲指定読み込み、行番号表示に対応。ツール実行結果の誤判定防止ロジックと、UI出力不整合エラー（170 vs 167）を修正。[レポート](docs/reports/2026-01-27_ProjectExplorerImplementation.md)
