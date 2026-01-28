@@ -621,7 +621,7 @@ try:
                                     zhipu_model_dropdown = gr.Dropdown(
                                         choices=config_manager.AVAILABLE_ZHIPU_MODELS,
                                         label="Zhipu AIモデル",
-                                        value="glm-4",
+                                        value="glm-4.7-flash",
                                         interactive=True
                                     )
                                     with gr.Row():
@@ -874,7 +874,7 @@ try:
                                     room_zhipu_model_dropdown = gr.Dropdown(
                                         choices=config_manager.AVAILABLE_ZHIPU_MODELS,
                                         label="このルームで使用するZhipu AIモデル",
-                                        value="glm-4",
+                                        value="glm-4.7-flash",
                                         interactive=True
                                     )
                                     with gr.Row():

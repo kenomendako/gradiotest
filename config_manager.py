@@ -171,13 +171,23 @@ def save_zhipu_models(models: list[str]) -> bool:
     """
     global AVAILABLE_ZHIPU_MODELS
     
-    # 既存のリストと比較して変更がなければスルー
-    if set(models) == set(AVAILABLE_ZHIPU_MODELS):
+    
+    # デフォルトモデルリスト（優先順位保持のため先頭に）
+    defaults = constants.ZHIPU_MODELS
+    
+    # マージ: デフォルト + (取得モデル - デフォルト)
+    merged_models = list(defaults)
+    for m in models:
+        if m not in defaults:
+            merged_models.append(m)
+            
+    # 既存のリストと比較して変更がなければスルー (`set`比較だと順序変更を検知できないためリスト比較も追加)
+    if merged_models == AVAILABLE_ZHIPU_MODELS:
         return False
         
-    if save_config_if_changed("zhipu_models", models):
+    if save_config_if_changed("zhipu_models", merged_models):
         # グローバル変数も更新
-        AVAILABLE_ZHIPU_MODELS = list(models) # コピーを保存
+        AVAILABLE_ZHIPU_MODELS = list(merged_models) # コピーを保存
         # constantsは書き換えない（定数なので）
         return True
     return False
@@ -939,7 +949,7 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
              effective_settings["model_name"] = room_zhipu_model
         else:
              # フォールバック: available_settings の先頭
-             effective_settings["model_name"] = AVAILABLE_ZHIPU_MODELS[0] if AVAILABLE_ZHIPU_MODELS else "glm-4"
+             effective_settings["model_name"] = AVAILABLE_ZHIPU_MODELS[0] if AVAILABLE_ZHIPU_MODELS else "glm-4.7-flash"
     else:
         # Googleモード: ルーム個別設定 > UI指定 > デフォルト の優先度でモデルを決定
         # ただし、room_providerがNone（共通設定に従う）の場合はルーム個別モデルを無視

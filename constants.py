@@ -178,9 +178,10 @@ EPISODIC_MONTHLY_BUDGET = 800           # 月次圧縮の目標文字数
 
 # --- Zhipu AI (GLM-4) Models ---
 ZHIPU_MODELS = [
+    "glm-4.7-flash",
+    "glm-4.7",
     "glm-4-plus",
-    "glm-4-air",
-    "glm-4-flash",
-    "glm-4-long",
-    "glm-4v"
+    "glm-4.5",
+    "glm-4.5-air",
+    "glm-zero-preview"
 ]
