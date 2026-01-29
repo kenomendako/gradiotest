@@ -990,6 +990,12 @@ class RAGManager:
                                 traceback.print_exc()
                             if self.embedding_mode == "api":
                                 time.sleep(2)
+
+                # 20バッチごとに途中保存
+                if db and batch_num % 20 == 0:
+                    current_log_index_path = self.room_dir / "rag_data" / "current_log_index"
+                    self._safe_save_index(db, current_log_index_path)
+                    gc.collect()
             
             if db:
                 current_log_index_path = self.room_dir / "rag_data" / "current_log_index"
