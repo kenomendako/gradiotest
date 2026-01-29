@@ -1,5 +1,10 @@
 # 📋 Nexus Ark タスクリスト
 
+- [x] **Moonshot AI (Kimi) 連携の実装** 🆕 ✅ (2026-01-29 完了)
+  - Moonshot AI (Kimi K2.5) をAPIキー設定およびプロバイダ選択肢（内部処理・ルーム個別）に追加
+  - OpenAI互換クライアントを通じて利用可能に
+  - [レポート](../reports/2026-01-29_moonshot_integration.md)
+
 - [x] **APIキーローテーション完全対応と429エラー対策** ✅ (2026-01-29 完了)
   - サブノードやバックグラウンドタスク（アラーム・タイマー）にもローテーションを適用
   - `ChatGoogleGenerativeAIError`も検知対象に追加し、情景描写の遅延生成（Lazy Generation）を実装
