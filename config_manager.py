@@ -800,6 +800,14 @@ def load_config():
                 p["api_key"] = zhipu_legacy_key
                 break
 
+    # [Patch] Moonshot API Key Injection
+    moonshot_legacy_key = config.get("moonshot_api_key")
+    if moonshot_legacy_key and "openai_provider_settings" in config:
+        for p in config["openai_provider_settings"]:
+            if p["name"] == "Moonshot AI" and not p.get("api_key"):
+                p["api_key"] = moonshot_legacy_key
+                break
+
     # ステップ6：不要なキーをクリーンアップ
     keys_to_remove = ["memos_config", "api_keys", "default_api_key_name"]
     config_keys_changed = False
@@ -1302,11 +1310,30 @@ def get_active_openai_setting() -> Optional[Dict]:
     """現在アクティブなOpenAIプロファイルの設定辞書を返す"""
     profile_name = get_active_openai_profile_name()
     settings = get_openai_settings_list()
+    target_setting = None
     for s in settings:
         if s.get("name") == profile_name:
-            return s
+            target_setting = s
+            break
     # 見つからない場合はリストの先頭を返す
-    return settings[0] if settings else None
+    if not target_setting and settings:
+        target_setting = settings[0]
+
+    if target_setting:
+        # [Dynamic Injection] グローバル設定のAPIキーをプロファイルに適用
+        # UIでキーを更新した直後など、プロファイル内のキーが古い/空の場合に対応
+        if target_setting.get("name") == "Zhipu AI":
+            global_key = CONFIG_GLOBAL.get("zhipu_api_key")
+            if global_key:
+                target_setting = target_setting.copy()
+                target_setting["api_key"] = global_key
+        elif target_setting.get("name") == "Moonshot AI":
+            global_key = CONFIG_GLOBAL.get("moonshot_api_key")
+            if global_key:
+                target_setting = target_setting.copy()
+                target_setting["api_key"] = global_key
+
+    return target_setting
 
 def is_tool_use_enabled(room_name: str = None) -> bool:
     """

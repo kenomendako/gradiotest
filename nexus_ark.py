@@ -521,7 +521,7 @@ try:
                                 
                                 # Zhipu AI [Phase 3]
                                 with gr.Accordion("Zhipu AI", open=False) as zhipu_api_key_group:
-                                    gr.Markdown("💡 **Zhipu AI APIキー**: [bigmodel.cn](https://open.bigmodel.cn/usercenter/apikeys) でAPIキーを取得してください（登録で500万トークン無料）。")
+                                    gr.Markdown("💡 **Zhipu AI APIキー**: `https://open.bigmodel.cn/usercenter/apikeys` でAPIキーを取得してください（登録で500万トークン無料）。")
                                     zhipu_api_key_input = gr.Textbox(
                                         label="Zhipu APIキー",
                                         type="password",
@@ -545,7 +545,7 @@ try:
                                 
                                 # Moonshot AI (Kimi) [Phase 3d]
                                 with gr.Accordion("Moonshot AI (Kimi)", open=False) as moonshot_api_key_group:
-                                    gr.Markdown("💡 **Moonshot APIキー**: [platform.moonshot.cn](https://platform.moonshot.cn) で取得")
+                                    gr.Markdown("💡 **Moonshot APIキー**: `https://platform.moonshot.cn` で取得")
                                     moonshot_api_key_input = gr.Textbox(
                                         label="Moonshot APIキー",
                                         type="password",
@@ -701,9 +701,8 @@ try:
                                         ("Google (Gemini)", "google"),
                                         ("Zhipu AI", "zhipu"),
                                         ("Groq", "groq"),
-                                        ("Moonshot AI", "moonshot"),
                                         ("ローカル (llama.cpp)", "local"),
-                                        ("OpenAI互換", "openai")
+                                        ("OpenAI互換 (Moonshot / OpenRouter / Zhipu AI / etc.)", "openai")
                                     ],
                                     value=_internal_settings.get("provider", "google"),
                                     label="内部処理プロバイダ",
@@ -812,8 +811,7 @@ try:
                                     choices=[
                                         ("共通設定に従う", "default"),
                                         ("Google (Gemini Native)", "google"),
-                                        ("Moonshot AI (Kimi)", "moonshot"),
-                                        ("OpenAI互換 (OpenRouter / Groq / Ollama / Zhipu AI)", "openai")
+                                        ("OpenAI互換 (OpenRouter / Groq / Moonshot / Zhipu AI / Ollama)", "openai")
                                     ],
                                     value="default",
                                     label="このルームで使用するプロバイダ",
