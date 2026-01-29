@@ -100,5 +100,6 @@
     "supervisor_model": "gemini-2.5-flash-lite"
   },
   "zhipu_api_key": "YOUR_API_KEY_HERE",
-  "groq_api_key": "YOUR_API_KEY_HERE"
+  "groq_api_key": "YOUR_API_KEY_HERE",
+  "moonshot_api_key": "YOUR_API_KEY_HERE"
 }

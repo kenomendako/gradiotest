@@ -22,6 +22,7 @@ NOTIFICATION_WEBHOOK_URL_GLOBAL = None
 PUSHOVER_CONFIG = {}
 ZHIPU_API_KEY = ""    # [Phase 3] Zhipu AI (GLM-4) 用APIキー
 GROQ_API_KEY = ""     # [Phase 3b] Groq用APIキー
+MOONSHOT_API_KEY = "" # [Phase 3d] Moonshot AI (Kimi) 用APIキー
 LOCAL_MODEL_PATH = "" # [Phase 3c] ローカルLLM (llama.cpp) 用GGUFモデルパス
 AVAILABLE_ZHIPU_MODELS = constants.ZHIPU_MODELS
 
@@ -563,7 +564,7 @@ def load_config():
     global initial_send_thoughts_to_api_global, initial_api_history_limit_option_global, initial_alarm_api_history_turns_global
     global AVAILABLE_MODELS_GLOBAL, DEFAULT_MODEL_GLOBAL, initial_streaming_speed_global
     global NOTIFICATION_SERVICE_GLOBAL, NOTIFICATION_WEBHOOK_URL_GLOBAL, PUSHOVER_CONFIG
-    global ZHIPU_API_KEY, GROQ_API_KEY, LOCAL_MODEL_PATH
+    global ZHIPU_API_KEY, GROQ_API_KEY, MOONSHOT_API_KEY, LOCAL_MODEL_PATH
 
     # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
 # ステップ1：全てのキーを含む、理想的なデフォルト設定を定義
@@ -636,6 +637,18 @@ def load_config():
                     "glm-4.5",
                     "glm-4.5-air",
                     "glm-zero-preview"
+                ]
+            },
+            {
+                "name": "Moonshot AI",
+                "base_url": "https://api.moonshot.cn/v1",
+                "api_key": "",
+                "default_model": "kimi-k2.5",
+                "available_models": [
+                    "kimi-k2.5",
+                    "moonshot-v1-8k",
+                    "moonshot-v1-32k",
+                    "moonshot-v1-128k"
                 ]
             }
         ],
@@ -803,23 +816,17 @@ def load_config():
         print("--- [情報] 設定ファイルに新しいキーやモデル、テーマを追加、または不要なキーを削除しました。config.jsonを更新します。 ---")
         _save_config_file(config)
 
-    # ステップ8：メモリ上の最終的な設定を、グローバル変数に反映
-    CONFIG_GLOBAL = config.copy()
-
+    # ステップ8：グローバル変数を更新
+    CONFIG_GLOBAL = config
     GEMINI_API_KEYS = config.get("gemini_api_keys", {})
-    if not GEMINI_API_KEYS:
-        GEMINI_API_KEYS = {"your_key_name": "YOUR_API_KEY_HERE"}
-
+    GEMINI_KEY_STATES = {k: {'exhausted': False} for k in GEMINI_API_KEYS}
     TAVILY_API_KEY = config.get("tavily_api_key", "")
     ZHIPU_API_KEY = config.get("zhipu_api_key", "")
     GROQ_API_KEY = config.get("groq_api_key", "")
+    MOONSHOT_API_KEY = config.get("moonshot_api_key", "")
     LOCAL_MODEL_PATH = config.get("local_model_path", "")
-
-    # [Phase 1.5] APIキーローテーション設定
-    CONFIG_GLOBAL["enable_api_key_rotation"] = config.get("enable_api_key_rotation", True)
-
-    AVAILABLE_MODELS_GLOBAL = config.get("available_models")
-    DEFAULT_MODEL_GLOBAL = config.get("default_model")
+    AVAILABLE_MODELS_GLOBAL = config.get("available_models", [])
+    DEFAULT_MODEL_GLOBAL = config.get("default_model", DEFAULT_MODEL_GLOBAL)
     initial_room_global = config.get("last_room")
     initial_model_global = config.get("last_model")
     initial_send_thoughts_to_api_global = config.get("last_send_thoughts_to_api")

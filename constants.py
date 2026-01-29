@@ -185,3 +185,11 @@ ZHIPU_MODELS = [
     "glm-4.5-air",
     "glm-zero-preview"
 ]
+
+# --- Moonshot AI (Kimi) Models ---
+MOONSHOT_MODELS = [
+    "kimi-k2.5",
+    "moonshot-v1-8k",
+    "moonshot-v1-32k",
+    "moonshot-v1-128k"
+]

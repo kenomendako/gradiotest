@@ -542,6 +542,18 @@ try:
                                         interactive=True
                                     )
                                     save_groq_key_button = gr.Button("Groq APIキーを保存", variant="primary", size="sm")
+                                
+                                # Moonshot AI (Kimi) [Phase 3d]
+                                with gr.Accordion("Moonshot AI (Kimi)", open=False) as moonshot_api_key_group:
+                                    gr.Markdown("💡 **Moonshot APIキー**: [platform.moonshot.cn](https://platform.moonshot.cn) で取得")
+                                    moonshot_api_key_input = gr.Textbox(
+                                        label="Moonshot APIキー",
+                                        type="password",
+                                        placeholder="sk-...",
+                                        value=config_manager.MOONSHOT_API_KEY or "",
+                                        interactive=True
+                                    )
+                                    save_moonshot_key_button = gr.Button("Moonshot APIキーを保存", variant="primary", size="sm")
 
                                 # ローカルLLM [Phase 3c]
                                 with gr.Accordion("ローカルLLM (llama.cpp)", open=False) as local_llm_group:
@@ -689,6 +701,7 @@ try:
                                         ("Google (Gemini)", "google"),
                                         ("Zhipu AI", "zhipu"),
                                         ("Groq", "groq"),
+                                        ("Moonshot AI", "moonshot"),
                                         ("ローカル (llama.cpp)", "local"),
                                         ("OpenAI互換", "openai")
                                     ],
@@ -799,6 +812,7 @@ try:
                                     choices=[
                                         ("共通設定に従う", "default"),
                                         ("Google (Gemini Native)", "google"),
+                                        ("Moonshot AI (Kimi)", "moonshot"),
                                         ("OpenAI互換 (OpenRouter / Groq / Ollama / Zhipu AI)", "openai")
                                     ],
                                     value="default",
@@ -4751,6 +4765,12 @@ try:
         save_groq_key_button.click(
             fn=ui_handlers.handle_save_groq_key,
             inputs=[groq_api_key_input],
+            outputs=None
+        )
+
+        save_moonshot_key_button.click(
+            fn=ui_handlers.handle_save_moonshot_key,
+            inputs=[moonshot_api_key_input],
             outputs=None
         )
         

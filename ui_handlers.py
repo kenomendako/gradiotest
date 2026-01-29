@@ -6195,6 +6195,13 @@ def handle_notification_service_change(service_choice: str):
         if config_manager.save_config_if_changed("notification_service", service_value):
             gr.Info(f"通知サービスを「{service_choice}」に設定しました。")
 
+def handle_save_moonshot_key(api_key: str):
+    """Moonshot AI (Kimi) APIキーを保存する。"""
+    if config_manager.save_config_if_changed("moonshot_api_key", api_key):
+        gr.Info("Moonshot APIキーを保存しました。")
+    config_manager.load_config()
+
+
 def handle_save_discord_webhook(webhook_url: str):
     if config_manager.save_config_if_changed("notification_webhook_url", webhook_url):
         gr.Info("Discord Webhook URLを保存しました。")

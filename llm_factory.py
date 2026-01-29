@@ -91,6 +91,21 @@ class LLMFactory:
                     max_retries=max_retries,
                     streaming=True
                 )
+            elif provider == "moonshot":
+                # [Phase 3d] Moonshot AI (Kimi) 対応
+                moonshot_api_key = api_key or config_manager.MOONSHOT_API_KEY
+                if not moonshot_api_key:
+                    raise ValueError("Moonshot AI provider requires an API key. Please set it in Settings.")
+                
+                print(f"--- [LLM Factory] Creating Moonshot (Kimi) client ---")
+                return ChatOpenAI(
+                    base_url="https://api.moonshot.cn/v1",
+                    api_key=moonshot_api_key,
+                    model=internal_model_name,
+                    temperature=temperature,
+                    max_retries=max_retries,
+                    streaming=True
+                )
             elif provider == "local":
                 # [Phase 3c] ローカルLLM対応 (llama-cpp-python)
                 local_model_path = config_manager.LOCAL_MODEL_PATH
