@@ -19,6 +19,19 @@ import contextlib
 
 _model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
+ 
+def sanitize_model_name(model_name: str) -> str:
+    """
+    モデル名からお気に入りマークや注釈（カッコ書き）を除去する。
+    例: "⭐ glm-4.7-flash (Recommended)" -> "glm-4.7-flash"
+    """
+    if not model_name:
+        return ""
+    # 1. お気に入りマークを除去
+    sanitized = model_name.replace("⭐ ", "").replace("⭐", "").strip()
+    # 2. 注釈（カッコ書き）を除去
+    sanitized = sanitized.split(" (")[0].strip()
+    return sanitized
 
 def acquire_lock() -> bool:
     print("--- アプリケーションの単一起動をチェックしています... ---")

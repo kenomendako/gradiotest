@@ -230,7 +230,7 @@ class UnifiedTimer:
                     content_to_log = raw_response
                 else:
                     # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
-                    timestamp = f"\n\n{dt_timers.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+                    timestamp = f"\n\n{dt_timers.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {utils.sanitize_model_name(actual_model_name)}"
                     content_to_log = raw_response + timestamp
                 
                 utils.save_message_to_log(log_f, f"## AGENT:{self.room_name}", content_to_log)

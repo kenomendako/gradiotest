@@ -4,6 +4,7 @@ import os
 from langchain_google_genai import ChatGoogleGenerativeAI, HarmBlockThreshold, HarmCategory
 from langchain_openai import ChatOpenAI
 import config_manager
+import utils
 import gemini_api # 既存のGemini設定ロジックを再利用するため
 
 class LLMFactory:
@@ -116,9 +117,9 @@ class LLMFactory:
         
         # --- 以下は既存ロジック（internal_role未指定時） ---
         
-        # モデル名から注釈（かっこ書き）を除去する
-        # 例: "gemini-3-flash-preview (Slow Response)" -> "gemini-3-flash-preview"
-        internal_model_name = model_name.split(" (")[0].strip() if model_name else model_name
+        # モデル名から注釈やお気に入りマークを除去するサニタイズ処理
+        # 例: "⭐ glm-4.7-flash (Recommended)" -> "glm-4.7-flash"
+        internal_model_name = utils.sanitize_model_name(model_name)
 
         # ルーム名を渡してルーム個別のプロバイダ設定を優先する
         active_provider = config_manager.get_active_provider(room_name)
@@ -161,55 +162,8 @@ class LLMFactory:
                 generation_config=generation_config
             )
 
-        # --- Zhipu AI (GLM-4) ---
-        elif active_provider == "zhipu":
-            zhipu_api_key = config_manager.ZHIPU_API_KEY
-            if not zhipu_api_key:
-                raise ValueError("Zhipu AI provider requires an API key. Please set it in Settings.")
-            
-            # generation_config から OpenAI/Zhipu がサポートするパラメータのみを抽出する（ホワイトリスト方式）
-            # アプリ固有設定やGoogle設定が混入して TypeError になるのを防ぐ
-            model_kwargs = {}
-            max_tokens = None
-            # OpenAI / Zhipu API が公式にサポートしているパラメータのリスト
-            openai_whitelist = [
-                "presence_penalty", "frequency_penalty", "logit_bias", "user",
-                "response_format", "seed", "stop", "n"
-            ]
-            
-            if generation_config and isinstance(generation_config, dict):
-                for k, v in generation_config.items():
-                    if k in openai_whitelist:
-                        model_kwargs[k] = v
-                
-                # max_tokens はコンストラクタ引数として個別に扱う（あれば）
-                if "max_tokens" in generation_config and max_tokens is None:
-                    max_tokens = generation_config["max_tokens"]
-
-            print(f"--- [LLM Factory] Creating ZhipuAI client ---")
-            print(f"  - Model: {internal_model_name}")
-            
-            # glm-4.7-flash 用の最適化パラメータ
-            if "glm-4.7-flash" in internal_model_name.lower():
-                # 智譜AI推奨値: temp=0.7, top_p=1.0
-                target_temp = 0.7 if temperature == 1.0 or temperature == 0.7 else temperature
-                target_top_p = 1.0 if top_p == 0.95 or top_p == 1.0 else top_p
-                print(f"  - [Optimization] Using recommended params for {internal_model_name}: temp={target_temp}, top_p={target_top_p}")
-            else:
-                target_temp = temperature
-                target_top_p = top_p
-
-            return ChatOpenAI(
-                base_url="https://open.bigmodel.cn/api/paas/v4/",
-                api_key=zhipu_api_key,
-                model=internal_model_name,
-                temperature=target_temp,
-                top_p=target_top_p,
-                max_tokens=max_tokens,
-                max_retries=max_retries,
-                streaming=True,
-                model_kwargs=model_kwargs
-            )
+        # --- (LEGACY) Zhipu AI (GLM-4) branch removed ---
+        # Now handled by "openai" branch below
 
 
         # --- OpenAI Compatible (OpenRouter, Groq, Ollama, etc.) ---
@@ -255,17 +209,27 @@ class LLMFactory:
                 if "max_tokens" in generation_config:
                     max_tokens = generation_config["max_tokens"]
 
+            # Zhipu AI 向けの最適化
+            target_temp = temperature
+            target_top_p = top_p
+            if provider_name == "Zhipu AI":
+                if "glm-4.7-flash" in internal_model_name.lower():
+                    # 智譜AI推奨値: temp=0.7, top_p=1.0
+                    target_temp = 0.7 if temperature == 1.0 or temperature == 0.7 else temperature
+                    target_top_p = 1.0 if top_p == 0.95 or top_p == 1.0 else top_p
+                    print(f"  - [Optimization] Using recommended params for {internal_model_name}: temp={target_temp}, top_p={target_top_p}")
+
             print(f"--- [LLM Factory] Creating OpenAI-compatible client ---")
             print(f"  - Provider: {provider_name}")
             print(f"  - Base URL: {base_url}")
-            print(f"  - Model: {model_name}")
+            print(f"  - Model: {internal_model_name}")
 
             return ChatOpenAI(
                 base_url=base_url,
                 api_key=openai_api_key,
-                model=model_name,
-                temperature=temperature,
-                top_p=top_p,
+                model=internal_model_name,
+                temperature=target_temp,
+                top_p=target_top_p,
                 max_tokens=max_tokens,
                 max_retries=max_retries,
                 streaming=True,

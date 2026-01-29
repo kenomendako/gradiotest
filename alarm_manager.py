@@ -363,7 +363,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
             content_to_log = raw_response
         else:
             # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
-            timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+            timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {utils.sanitize_model_name(actual_model_name)}"
             content_to_log = raw_response + timestamp
         
         utils.save_message_to_log(log_f, f"## AGENT:{room_name}", content_to_log)
@@ -597,7 +597,7 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
         content_to_log = final_response_text
     else:
         # AI応答にタイムスタンプとモデル名を追加（ui_handlers.pyと同じ形式）
-        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+        timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {utils.sanitize_model_name(actual_model_name)}"
         content_to_log = final_response_text + timestamp
     
     utils.save_message_to_log(log_f, f"## AGENT:{room_name}", content_to_log)
@@ -725,7 +725,7 @@ def trigger_research_analysis(room_name: str, api_key_name: str, reason: str, de
                 # ログ保存（システムトリガーとして）
                 utils.save_message_to_log(log_f, "## SYSTEM:research_analysis", f"（文脈分析を実行: {reason}）")
                 
-                timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {actual_model_name}"
+                timestamp = f"\n\n{datetime.datetime.now().strftime('%Y-%m-%d (%a) %H:%M:%S')} | {utils.sanitize_model_name(actual_model_name)}"
                 content_to_log = final_response_text + timestamp
                 utils.save_message_to_log(log_f, f"## AGENT:{room_name}", content_to_log)
                 print(f"  - {room_name} の文脈分析が完了しました。")

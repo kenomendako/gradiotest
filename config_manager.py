@@ -538,6 +538,20 @@ def _get_default_config() -> dict:
                     "gpt-5.2-2025-12-11",
                     "chatgpt-4o-latest"
                 ]
+            },
+            {
+                "name": "Zhipu AI",
+                "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key": "",
+                "default_model": "glm-4.7-flash",
+                "available_models": [
+                    "glm-4.7-flash",
+                    "glm-4.7",
+                    "glm-4-plus",
+                    "glm-4.5",
+                    "glm-4.5-air",
+                    "glm-zero-preview"
+                ]
             }
         ]
     }
@@ -606,9 +620,22 @@ def load_config():
                 "api_key": "",
                 "default_model": "gpt-5.2-2025-12-11",
                 "available_models": [
-                    # 最新・人気モデルのみ（他はユーザー追加）
                     "gpt-5.2-2025-12-11",   # 最新
                     "chatgpt-4o-latest"     # 人気（Keep4o運動）
+                ]
+            },
+            {
+                "name": "Zhipu AI",
+                "base_url": "https://open.bigmodel.cn/api/paas/v4",
+                "api_key": "",
+                "default_model": "glm-4.7-flash",
+                "available_models": [
+                    "glm-4.7-flash",
+                    "glm-4.7",
+                    "glm-4-plus",
+                    "glm-4.5",
+                    "glm-4.5-air",
+                    "glm-zero-preview"
                 ]
             }
         ],
@@ -749,6 +776,16 @@ def load_config():
     config["available_models"] = merged_models
     config["theme_settings"] = final_theme_settings
     config["openai_provider_settings"] = merged_openai_providers
+
+    # ステップ5.5：【移行処理】Zhipu AI APIキーの移行
+    # 既存の zhipu_api_key があり、かつ Zhipu AI プロファイルのキーが空の場合に移行
+    zhipu_legacy_key = config.get("zhipu_api_key", "")
+    if zhipu_legacy_key:
+        for p in config["openai_provider_settings"]:
+            if p.get("name") == "Zhipu AI" and not p.get("api_key"):
+                print(f"--- [Config Manager] Migrating Zhipu AI API Key to OpenAI profile ---")
+                p["api_key"] = zhipu_legacy_key
+                break
 
     # ステップ6：不要なキーをクリーンアップ
     keys_to_remove = ["memos_config", "api_keys", "default_api_key_name"]
