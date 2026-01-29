@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-29 | **APIキーローテーション完全対応と429エラー対策**<br>・サブノードやバックグラウンドタスク（アラーム・タイマー）にもローテーションを適用<br>・`ChatGoogleGenerativeAIError`も検知対象に追加<br>・情景描写の遅延生成（Lazy Generation）によるバックグラウンド処理の堅牢化 | [レポート](reports/2026-01-29_API_Key_Rotation_Fix.md) |
 | 2026-01-29 | **APIキーローテーションの1周制限とRAG安定化**<br>・利用可能な全キーを試行した後はリトライを停止し、無限ループを防止<br>・RAG現行ログ索引更新にチェックポイント（途中保存）機能を追加<br>・`RAGManager`の初期化バグ（tried_keys不足）を修正 | [レポート](reports/2026-01-29_api_key_rotation_limit_resilience.md) |
 | 2026-01-28 | **Zhipu AI (GLM-4) 統合と安定化の完了**<br>・`glm-4.7-flash` 正式サポート、パラメータのホワイトリスト化による不具合解消<br>・ツール実行時のプロバイダ不整合 (404) および Error 1210 の修正<br>・ルーム設定UIへの統合と動的モデルリスト取得の安定化 | [レポート](reports/2026-01-28_Zhipu_Stability_Final_Fixes.md) |
 | 2026-01-28 | **APIキーローテーション実装 (429対策)**<br>・ResourceExhaustedエラー捕捉時の自動キー切り替え<br>・グローバルおよびルーム個別の有効化設定スイッチ<br>・ユニットテストによるローテーション動作の保証 | [レポート](reports/2026-01-28_api_key_rotation.md) |
