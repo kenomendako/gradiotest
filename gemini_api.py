@@ -679,6 +679,10 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     if room_api_key_name:
         current_retry_api_key_name = room_api_key_name
         
+    # --- [API Key Rotation Limit] ---
+    # 試行済みのキーを記憶し、1回の実行中に一度試したキーは二度と使わないようにする
+    tried_keys = {current_retry_api_key_name}
+        
     api_key = config_manager.GEMINI_API_KEYS.get(current_retry_api_key_name)
 
     if not api_key or api_key.startswith("YOUR_API_KEY"):
@@ -898,12 +902,16 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
             print(f"  [Rotation] Key '{current_retry_api_key_name}' marked as exhausted.")
             
             # 次のキーを取得
-            next_key_name = config_manager.get_next_available_gemini_key(current_exhausted_key=current_retry_api_key_name)
+            next_key_name = config_manager.get_next_available_gemini_key(
+                current_exhausted_key=current_retry_api_key_name,
+                excluded_keys=tried_keys
+            )
             
             if not next_key_name:
-                 yield ("values", {"messages": [AIMessage(content=f"[エラー: API割り当て制限(429)を超過しました。すべてのAPIキーが使い果たされました。]")]})
+                 yield ("values", {"messages": [AIMessage(content=f"[エラー: API割り当て制限(429)を超過しました。利用可能なすべてのAPIキーを試しましたが、成功しませんでした。]")]})
                  return
                  
+            tried_keys.add(next_key_name)
             print(f"  [Rotation] Switching to key '{next_key_name}'.")
             
             # 次の試行のために変数を更新

@@ -1424,27 +1424,29 @@ def clear_exhausted_keys():
     GEMINI_KEY_STATES.clear()
     print("--- [API Key Rotation] All exhausted states cleared ---")
 
-def get_next_available_gemini_key() -> Optional[str]:
+def get_next_available_gemini_key(current_exhausted_key: str = None, excluded_keys: set = None) -> Optional[str]:
     """
     有効なキーの中から、枯渇していないものを探して返す。
-    現在選択中のキー（last_api_key_name）を優先的にチェックするわけではなく、
-    プール全体から「使えるもの」を探す。
+    現在選択中のキー（last_api_key_name）を優先的にチェックする。
+    Excluded_keysが与えられた場合、それらに含まれるキーは除外する。
     
     Returns:
         利用可能なAPIキーの名前 (str) または None
     """
+    if excluded_keys is None:
+        excluded_keys = set()
+        
     config = load_config_file()
     valid_keys = [
         k for k, v in GEMINI_API_KEYS.items()
         if v and isinstance(v, str) and not v.startswith("YOUR_API_KEY")
+        and k not in excluded_keys
     ]
     
     if not valid_keys:
         return None
 
-    # まず、設定で選択されているキーが使えるならそれを優先したいところだが、
-    # 自動ローテーションの主旨としては「使えるものを自動で」なので、リスト順で探す。
-    # ただし、頻繁な切り替えを防ぐため、last_key が生きていればそれを優先するロジックを入れる。
+    # 現在のキーが生きていればそれを優先
     last_key_name = config.get("last_api_key_name")
     if last_key_name in valid_keys and not is_key_exhausted(last_key_name):
         return last_key_name

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **APIキーローテーションの1周制限 (2026-01-29):** APIキーが枯渇した際、利用可能な全キーを一度ずつ試した後はリトライを停止する制限を実装。無限ループや過剰なAPI呼び出しを防止。[レポート](docs/reports/2026-01-29_api_key_rotation_limit.md)
 - **APIキーローテーション実装 (2026-01-28):** Gemini APIの `ResourceExhausted` (429) エラー発生時に、自動的に次の利用可能なAPIキーへ切り替えてリトライする機能を実装。Global/Room別の有効化設定スイッチを追加。[レポート](docs/reports/2026-01-28_api_key_rotation.md)
 - **Zhipu AI (GLM-4) 完全統合と不具合修正 (2026-01-28):** 最新モデル `glm-4.7-flash` の正式サポート、Zhipu/OpenAI パラメータフィルタリングの強化（ホワイトリスト導入による `TypeError` 回避）、ツール実行時のプロバイダ不整合修正、および重大なバグ（Error 1211等）の修正。[レポート](docs/reports/2026-01-28_Zhipu_Integration_Fix.md)
 - **APIキー・モデル名のターミナル表示 (2026-01-27):** APIキーローテーション機能の利用状況を可視化するため、使用中のAPIキー名とモデル名をターミナルログに出力する機能を追加。[レポート](docs/reports/2026-01-27_terminal_api_key_display.md)

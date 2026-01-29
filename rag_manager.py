@@ -53,6 +53,13 @@ class RAGManager:
     def __init__(self, room_name: str, api_key: str):
         self.room_name = room_name
         self.api_key = api_key
+        
+        # --- [API Key Rotation Limit] ---
+        # このセッションで試行したキーを記録（1周で止めるため）
+        self.tried_keys = set()
+        initial_key_name = config_manager.get_key_name_by_value(self.api_key)
+        if initial_key_name != "Unknown":
+            self.tried_keys.add(initial_key_name)
         self.room_dir = Path(constants.ROOMS_DIR) / room_name
         self.rag_data_dir = self.room_dir / "rag_data"
         
@@ -66,19 +73,9 @@ class RAGManager:
         effective_settings = config_manager.get_effective_settings(room_name)
         self.embedding_mode = effective_settings.get("embedding_mode", "api")
         
-        if self.embedding_mode == "local":
-            # ローカルエンベディングを使用
-            # メモリ節約のため、必要になるまでインポートを遅らせる
-            self.embeddings = None # 後で遅延初期化
-            print(f"[RAGManager] ローカルエンベディングモード (遅延初期化待ち)")
-        else:
-            # Gemini API エンベディングを使用
-            from langchain_google_genai import GoogleGenerativeAIEmbeddings
-            self.embeddings = GoogleGenerativeAIEmbeddings(
-                model=constants.EMBEDDING_MODEL,
-                google_api_key=self.api_key,
-                task_type="retrieval_document"
-            )
+        # エンベディングの初期化
+        self.embeddings = None  # 常に遅延初期化
+        print(f"[RAGManager] エンベディングモード: {self.embedding_mode} (遅延初期化待ち)")
 
     def _get_embeddings(self):
         """エンベディングインスタンスを取得（必要に応じて初期化）"""
@@ -100,7 +97,57 @@ class RAGManager:
                     google_api_key=self.api_key,
                     task_type="retrieval_document"
                 )
+        else:
+            # Gemini API エンベディングを使用
+            from langchain_google_genai import GoogleGenerativeAIEmbeddings
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model=constants.EMBEDDING_MODEL,
+                google_api_key=self.api_key,
+                task_type="retrieval_document"
+            )
+            print(f"[RAGManager] Gemini API エンベディングを初期化しました")
+            
         return self.embeddings
+        
+    def _rotate_api_key(self, error_str: str) -> bool:
+        """
+        429エラー時にAPIキーをローテーションする。
+        回転に成功した場合は True, 失敗した場合は False (待機してリトライ用) を返す。
+        """
+        if not ("429" in error_str or "ResourceExhausted" in error_str):
+            return False
+
+        if self.embedding_mode != "api":
+            return False
+
+        # 現在のキー名を特定
+        key_name = config_manager.get_key_name_by_value(self.api_key)
+        if key_name != "Unknown":
+            config_manager.mark_key_as_exhausted(key_name)
+            print(f"      [RAG Rotation] Key '{key_name}' marked as exhausted.")
+        
+        # ローテーション設定確認
+        effective_settings = config_manager.get_effective_settings(self.room_name)
+        rotation_enabled = effective_settings.get("enable_api_key_rotation")
+        if rotation_enabled is None:
+            rotation_enabled = config_manager.CONFIG_GLOBAL.get("enable_api_key_rotation", True)
+            
+        if rotation_enabled:
+            next_key_name = config_manager.get_next_available_gemini_key(
+                current_exhausted_key=key_name,
+                excluded_keys=self.tried_keys
+            )
+            if next_key_name and next_key_name not in self.tried_keys:
+                next_key_val = config_manager.GEMINI_API_KEYS.get(next_key_name)
+                if next_key_val:
+                    print(f"      [RAG Rotation] Switching key: {key_name} -> {next_key_name}")
+                    self.api_key = next_key_val
+                    self.tried_keys.add(next_key_name)
+                    self.embeddings = None # 次の _get_embeddings() で新キーで再生成
+                    return True
+        
+        print(f"      [RAG Rotation] No more keys available to try in this session.")
+        return False
 
     def _load_processed_record(self) -> Set[str]:
         if self.processed_files_record.exists():
@@ -401,7 +448,7 @@ class RAGManager:
             for attempt in range(max_retries):
                 try:
                     if db is None:
-                        db = FAISS.from_documents(batch, self.embeddings)
+                        db = FAISS.from_documents(batch, self._get_embeddings())
                     else:
                         db.add_documents(batch)
                     
@@ -417,8 +464,15 @@ class RAGManager:
                     error_str = str(e)
                     print(f"      ! ベクトル化エラー (試行 {attempt+1}/{max_retries}): {e}")
                     if "429" in error_str or "ResourceExhausted" in error_str:
+                        # --- [API Key Rotation] ---
+                        if self._rotate_api_key(error_str):
+                            if status_callback:
+                                status_callback(f"API制限検知 - キーを切り替えてリトライします...")
+                            # time.sleep(1) # 短いバックオフ
+                            continue # 同じバッチ番号でリトライ (attemptはリセットされないが、next tryで新キー使用)
+
                         wait_time = 10 * (attempt + 1)
-                        print(f"      ! API制限検知。{wait_time}秒待機してリトライ...")
+                        print(f"      ! API制限検知（ローテーション不可）。{wait_time}秒待機してリトライ...")
                         if status_callback:
                             status_callback(f"API制限 - {wait_time}秒待機中...")
                         time.sleep(wait_time)
@@ -768,7 +822,7 @@ class RAGManager:
                 for attempt in range(max_retries):
                     try:
                         if static_db is None:
-                            static_db = FAISS.from_documents(batch, self.embeddings)
+                            static_db = FAISS.from_documents(batch, self._get_embeddings())
                         else:
                             static_db.add_documents(batch)
                         
@@ -777,10 +831,16 @@ class RAGManager:
                         break
                     except Exception as e:
                         error_str = str(e)
-                        is_retryable = any(code in error_str for code in ["429", "ResourceExhausted", "503", "504", "502", "UNAVAILABLE"])
-                        
-                        wait_time = (2 ** attempt) * 10 + (5 * (attempt + 1))
                         print(f"      ! ベクトル化エラー (試行 {attempt+1}/{max_retries}): {e}")
+
+                        if "429" in error_str or "ResourceExhausted" in error_str:
+                            # --- [API Key Rotation] ---
+                            if self._rotate_api_key(error_str):
+                                yield (group_num, total_groups, "API制限検知 - キーを切り替えてリトライ...")
+                                continue
+
+                        is_retryable = any(code in error_str for code in ["429", "ResourceExhausted", "503", "504", "502", "UNAVAILABLE"])
+                        wait_time = (2 ** attempt) * 10 + (5 * (attempt + 1))
                         
                         if is_retryable and attempt < max_retries - 1:
                             print(f"      ! 待機してリトライします（{wait_time}秒）...")
@@ -915,6 +975,11 @@ class RAGManager:
                         error_str = str(e)
                         print(f"      ! [CurrentLog] ベクトル化エラー (試行 {attempt+1}/{max_retries}): {e}")
                         if "429" in error_str or "ResourceExhausted" in error_str:
+                            # --- [API Key Rotation] ---
+                            if self._rotate_api_key(error_str):
+                                yield (batch_num, total_batches, "API制限検知 - キーを切り替えてリトライ...")
+                                continue
+
                             wait_time = 10 * (attempt + 1)
                             yield (batch_num, total_batches, f"API制限 - {wait_time}秒待機中...")
                             time.sleep(wait_time)
