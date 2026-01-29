@@ -20,6 +20,7 @@ import google.genai.errors
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, AIMessageChunk
 from langchain_google_genai import HarmCategory, HarmBlockThreshold, ChatGoogleGenerativeAI
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 
 import config_manager
 import constants
@@ -799,7 +800,8 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     # Agent State 初期化
     initial_state = {
         "messages": messages, "room_name": room_to_respond,
-        "api_key": api_key, "model_name": model_name,
+        "api_key": api_key, "api_key_name": current_retry_api_key_name,
+        "model_name": model_name,
         "generation_config": effective_settings,
         "send_core_memory": effective_settings.get("send_core_memory", True),
         "send_scenery": effective_settings.get("send_scenery", True),
@@ -833,8 +835,19 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     
     while retry_count <= max_retries:
         try:
+            # 情景描写が未取得の場合は、現在のAPIキーで取得を試みる（ローテーション対象にするため）
+            if not initial_state.get("scenery_text") or not initial_state.get("location_name"):
+                print(f"  - [Invoke] 情景描写を遅延生成中... (Key: {current_retry_api_key_name})")
+                from agent.scenery_manager import generate_scenery_context
+                loc_name, _, scen_text = generate_scenery_context(
+                    room_to_respond, api_key, season_en=season_en, time_of_day_en=time_of_day_en
+                )
+                initial_state["location_name"] = loc_name
+                initial_state["scenery_text"] = scen_text
+
             # 実行前にAPIキーをStateに再設定（ローテーション反映）
             initial_state["api_key"] = api_key
+            initial_state["api_key_name"] = current_retry_api_key_name
             
             if is_gemini_3_flash and tool_use_enabled:
                 if retry_count == 0:
@@ -883,8 +896,19 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
                     yield (mode, payload)
                 break # Success
                 
-        except ResourceExhausted as e:
+        except (ResourceExhausted, ChatGoogleGenerativeAIError) as e:
             # 429 エラーハンドリング（ローテーション）
+            is_429 = isinstance(e, ResourceExhausted)
+            if not is_429:
+                err_str = str(e).upper()
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    is_429 = True
+            
+            if not is_429:
+                # 429以外のエラーは通常のエラーハンドリングへ
+                yield ("values", {"messages": [AIMessage(content=f"[エラー: AIモデル実行中にエラーが発生しました: {e}]")]})
+                return
+
             retry_count += 1
             print(f"  [Error] ResourceExhausted: {e}")
             

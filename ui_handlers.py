@@ -47,7 +47,7 @@ from langchain_community.docstore.document import Document
 import gemini_api, config_manager, alarm_manager, room_manager, utils, constants, chatgpt_importer, claude_importer, generic_importer
 from utils import _overwrite_log_file
 from tools import timer_tools, memory_tools
-from agent.graph import generate_scenery_context
+from agent.scenery_manager import generate_scenery_context
 from room_manager import get_room_files_paths, get_world_settings_path
 from memory_manager import load_memory_data_safe, save_memory_data
 from episodic_memory_manager import EpisodicMemoryManager

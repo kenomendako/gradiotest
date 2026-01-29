@@ -121,13 +121,12 @@ class UnifiedTimer:
             if not current_api_key_name or not log_f:
                 print(f"警告: APIキーまたはログファイルが見つかりません。")
                 return
-            api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name)
 
-            from agent.graph import generate_scenery_context
+
+            # --- [Lazy Scenery] ---
             season_en, time_of_day_en = utils._get_current_time_context(self.room_name)
-            location_name, _, scenery_text = generate_scenery_context(
-                self.room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
-            )
+            location_name = None
+            scenery_text = None
             global_model_for_bg = config_manager.get_current_global_model()
 
             agent_args_dict = {

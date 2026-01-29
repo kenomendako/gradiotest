@@ -106,6 +106,7 @@ class AgentState(TypedDict):
     messages: Annotated[List[BaseMessage], add_messages]
     room_name: str
     api_key: str
+    api_key_name: str
     model_name: str
     system_prompt: SystemMessage
     generation_config: dict
@@ -126,7 +127,6 @@ class AgentState(TypedDict):
     force_end: bool
     skip_tool_execution: bool
     retrieved_context: str
-    retrieved_context: str
     tool_use_enabled: bool  # 【ツール不使用モード】ツール使用の有効/無効
     next: str
     enable_supervisor: bool # Supervisor機能の有効/無効
@@ -146,98 +146,7 @@ def get_location_list(room_name: str) -> List[str]:
             locations.add(place_name)
     return sorted(list(locations))
 
-def generate_scenery_context(
-    room_name: str, 
-    api_key: str, 
-    force_regenerate: bool = False, 
-    season_en: 'Optional[str]' = None, 
-    time_of_day_en: 'Optional[str]' = None
-) -> Tuple[str, str, str]:
-    scenery_text = "（現在の場所の情景描写は、取得できませんでした）"
-    space_def = "（現在の場所の定義・設定は、取得できませんでした）"
-    location_display_name = "（不明な場所）"
-    try:
-        current_location_name = utils.get_current_location(room_name)
-        if not current_location_name:
-            current_location_name = "リビング"
-            location_display_name = "リビング"
-
-        world_settings_path = get_world_settings_path(room_name)
-        world_data = utils.parse_world_file(world_settings_path)
-        found_location = False
-        for area, places in world_data.items():
-            if current_location_name in places:
-                space_def = places[current_location_name]
-                location_display_name = f"[{area}] {current_location_name}"
-                found_location = True
-                break
-        if not found_location:
-            space_def = f"（場所「{current_location_name}」の定義が見つかりません）"
-
-        from utils import get_season, get_time_of_day, load_scenery_cache, save_scenery_cache
-        import hashlib
-        import datetime
-
-        now = datetime.datetime.now()
-        effective_season = season_en or get_season(now.month)
-        effective_time_of_day = time_of_day_en or get_time_of_day(now.hour)
-
-        content_hash = hashlib.md5(space_def.encode('utf-8')).hexdigest()[:8]
-        cache_key = f"{current_location_name}_{content_hash}_{effective_season}_{effective_time_of_day}"
-
-        if not force_regenerate:
-            scenery_cache = load_scenery_cache(room_name)
-            if cache_key in scenery_cache:
-                cached_data = scenery_cache[cache_key]
-                print(f"--- [有効な情景キャッシュを発見] ({cache_key})。APIコールをスキップします ---")
-                return location_display_name, space_def, cached_data["scenery_text"]
-
-        if not space_def.startswith("（"):
-            effective_settings = config_manager.get_effective_settings(room_name)
-            # 【マルチモデル対応】内部処理はGemini固定のため force_google=True
-            llm_flash = LLMFactory.create_chat_model(
-                model_name=constants.INTERNAL_PROCESSING_MODEL,
-                api_key=api_key,
-                generation_config=effective_settings,
-                force_google=True
-            )
-
-            season_map_en_to_ja = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
-            season_ja = season_map_en_to_ja.get(effective_season, "不明な季節")
-            
-            time_map_en_to_ja = {
-                "early_morning": "早朝", "morning": "朝", "late_morning": "昼前",
-                "afternoon": "昼下がり", "evening": "夕方", "night": "夜", "midnight": "深夜"
-            }
-            time_of_day_ja = time_map_en_to_ja.get(effective_time_of_day, "不明な時間帯")
-
-            scenery_prompt = (
-                "あなたは、与えられた二つの情報源から、一つのまとまった情景を描き出す、情景描写の専門家です。\n\n"
-                f"【情報源1：適用すべき時間・季節】\n- 時間帯: {time_of_day_ja}\n- 季節: {season_ja}\n\n"
-                f"【情報源2：この空間が持つ固有の設定】\n---\n{space_def}\n---\n\n"
-                "【あなたのタスク】\n"
-                "まず、心の中で【情報源1】と【情報源2】を比較し、矛盾があるかないかを判断してください。\n"
-                "その判断に基づき、**最終的な情景描写の文章のみを、2〜3文で生成してください。**\n\n"
-                "  - **矛盾がある場合** (例: 現実は昼なのに、空間は常に夜の設定など):\n"
-                "    その**『にも関わらず』**という感覚や、その空間だけが持つ**不思議な空気感**に焦点を当てて描写してください。\n\n"
-                "  - **矛盾がない場合**:\n"
-                "    二つの情報を自然に**統合・融合**させ、その場のリアルな雰囲気をそのまま描写してください。\n\n"
-                "【厳守すべきルール】\n"
-                "- **あなたの思考過程や判断理由は、絶対に出力に含めないでください。**\n"
-                "- 具体的な時刻（例：「23時42分」）は文章に含めないでください。\n"
-                "- 人物やキャラクターの描写は絶対に含めないでください。\n"
-                "- 五感に訴えかける、**空気感まで伝わるような**精緻で写実的な描写を重視してください。"
-            )
-            scenery_text = llm_flash.invoke(scenery_prompt).content
-            save_scenery_cache(room_name, cache_key, location_display_name, scenery_text)
-        else:
-            scenery_text = "（場所の定義がないため、情景を描写できません）"
-    except Exception as e:
-        print(f"--- 警告: 情景描写の生成中にエラーが発生しました ---\n{traceback.format_exc()}")
-        location_display_name = "（エラー）"
-        scenery_text = "（情景描写の生成中にエラーが発生しました）"
-        space_def = "（エラー）"
-    return location_display_name, space_def, scenery_text
+from agent.scenery_manager import generate_scenery_context
 
 # ▼▼▼ [2026-01-07 ハイブリッド検索] キーワード検索用内部関数 ▼▼▼
 def _keyword_search_for_retrieval(
@@ -669,6 +578,11 @@ def retrieval_node(state: AgentState):
         return {"retrieved_context": final_context}
 
     except Exception as e:
+        # 429 エラー（ResourceExhausted）の場合は、上位でキャッチしてローテーションさせるために再送出する
+        err_str = str(e).upper()
+        if isinstance(e, google_exceptions.ResourceExhausted) or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+             print(f"  - [Retrieval Error] Quota limit hit (429). Re-raising for rotation. {e}")
+             raise e
         print(f"  - [Retrieval Error] 検索処理中にエラー: {e}")
         traceback.print_exc()
         return {"retrieved_context": ""}
@@ -1883,21 +1797,35 @@ def safe_tool_executor(state: AgentState):
                     response = llm_persona.invoke(final_context_for_editing)
                     edited_content_document = utils.get_content_as_string(response).strip()
                     break
-                except google_exceptions.ResourceExhausted as e:
-                    error_str = str(e)
-                    if "PerDay" in error_str or "Daily" in error_str:
-                        raise RuntimeError("回復不能なAPIレート上限（日間など）に達したため、処理を中断しました。") from e
-                    wait_time = base_delay * (2 ** attempt)
-                    match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", error_str)
-                    if match: wait_time = int(match.group(1)) + 1
-                    if attempt < max_retries - 1:
-                        time.sleep(wait_time)
-                    else: raise e
-                except (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError) as e:
-                    if attempt < max_retries - 1:
+                except Exception as e:
+                    err_str = str(e).upper()
+                    is_429 = isinstance(e, google_exceptions.ResourceExhausted) or "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+                    
+                    if is_429:
+                        if "PERDAY" in err_str or "DAILY" in err_str:
+                            raise RuntimeError("回復不能なAPIレート上限（日間など）に達したため、処理を中断しました。") from e
+                        
                         wait_time = base_delay * (2 ** attempt)
-                        time.sleep(wait_time)
-                    else: raise e
+                        match = re.search(r"retry_delay {\s*seconds: (\d+)\s*}", err_str)
+                        if match: wait_time = int(match.group(1)) + 1
+                        
+                        if attempt < max_retries - 1:
+                            print(f"  - [Persona Edit] 429 Error. Waiting {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                            time.sleep(wait_time)
+                            continue
+                        else:
+                            print(f"  - [Persona Edit] 429 Error. Max retries reached. Re-raising for rotation.")
+                            raise e
+
+                    if isinstance(e, (google_exceptions.ServiceUnavailable, google_exceptions.InternalServerError)):
+                        if attempt < max_retries - 1:
+                            wait_time = base_delay * (2 ** attempt)
+                            time.sleep(wait_time)
+                            continue
+                        else: raise e
+                    
+                    # それ以外は即座にエラー
+                    raise e
 
             if edited_content_document is None:
                 raise RuntimeError("編集AIからの応答が、リトライ後も得られませんでした。")

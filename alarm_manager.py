@@ -247,9 +247,7 @@ def trigger_alarm(alarm_config, current_api_key_name):
     print(f"⏰ アラーム発火. ID: {alarm_id}, ルーム: {room_name}, コンテキスト: '{context_to_use}'")
 
     log_f, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
-    api_key = config_manager.GEMINI_API_KEYS.get(current_api_key_name)
-
-    if not log_f or not api_key:
+    if not log_f:
         print(f"警告: アラーム (ID:{alarm_id}) のルームファイルまたはAPIキーが見つからないため、処理をスキップします。")
         return
 
@@ -258,14 +256,10 @@ def trigger_alarm(alarm_config, current_api_key_name):
     synthesized_user_message = f"（システムアラーム：設定時刻 {scheduled_time} になりました。コンテキスト「{context_to_use}」について、**アラームが作動したことをユーザーに通知してください。新しいタイマーやアラームを設定してはいけません。**）"
     message_for_log = f"（システムアラーム：{alarm_config.get('time', '指定時刻')}）"
 
-    from agent.graph import generate_scenery_context
-
-    # 1. 適用すべき時間コンテキストを取得
-    season_en, time_of_day_en = utils._get_current_time_context(room_name) # utilsから呼び出す
-    # 2. 情景生成時に時間コンテキストを渡す
-    location_name, _, scenery_text = generate_scenery_context(
-        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
-    )
+    # --- [Lazy Scenery] ---
+    season_en, time_of_day_en = utils._get_current_time_context(room_name)
+    location_name = None
+    scenery_text = None
 
     # バックグラウンド処理で使用すべきグローバルモデル名を取得
     global_model_for_bg = config_manager.get_current_global_model()
@@ -408,9 +402,7 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
     print(f"🤖 自律行動トリガー: {room_name} (Quiet: {quiet_mode})")
     
     log_f, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    
-    if not log_f or not api_key: return
+    if not log_f: return
 
     # --- 書き置き機能: ユーザーからのメモを読み込む ---
     user_memo = ""
@@ -504,11 +496,10 @@ def trigger_autonomous_action(room_name: str, api_key_name: str, quiet_mode: boo
         print(f"  ✅ 書き置きをクリアしました")
 
     # 共通処理（情景生成など）
-    from agent.graph import generate_scenery_context
+    # --- [Lazy Scenery] ---
     season_en, time_of_day_en = utils._get_current_time_context(room_name)
-    location_name, _, scenery_text = generate_scenery_context(
-        room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en
-    )
+    location_name = None
+    scenery_text = None
     global_model = config_manager.get_current_global_model()
 
     agent_args = {
@@ -615,8 +606,7 @@ def trigger_research_analysis(room_name: str, api_key_name: str, reason: str, de
     print(f"🔬 文脈分析トリガー: {room_name} (理由: {reason})")
     
     log_f, _, _, _, _, _ = room_manager.get_room_files_paths(room_name)
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not log_f or not api_key: return
+    if not log_f: return
 
     # 分析理由に応じたプロンプト
     if reason == "watchlist":
@@ -668,9 +658,10 @@ def trigger_research_analysis(room_name: str, api_key_name: str, reason: str, de
     else:
         instruction = f"（システム通知：文脈分析を実行してください。理由: {reason}）"
 
-    from agent.graph import generate_scenery_context
+    # --- [Lazy Scenery] ---
     season_en, time_of_day_en = utils._get_current_time_context(room_name)
-    location_name, _, scenery_text = generate_scenery_context(room_name, api_key, season_en=season_en, time_of_day_en=time_of_day_en)
+    location_name = None
+    scenery_text = None
     global_model = config_manager.get_current_global_model()
 
     agent_args = {
