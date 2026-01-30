@@ -372,6 +372,12 @@ class DreamingManager:
                 resolved = mm.auto_resolve_questions(recent_context, self.api_key)
                 if resolved:
                     print(f"  - [Dreaming] 未解決の問い {len(resolved)}件を解決済みとしてマーク")
+                    
+                    # 問い解決による充足感 - Arousalスパイクを発生
+                    import session_arousal_manager
+                    satisfaction_arousal = min(0.7, 0.3 + len(resolved) * 0.1)
+                    session_arousal_manager.add_arousal_score(self.room_name, satisfaction_arousal)
+                    print(f"  - [Dreaming] ✨ 問い解決による充足感 (Arousal: {satisfaction_arousal:.2f})")
             except Exception as re:
                 print(f"  - [Dreaming] 問い自動解決エラー: {re}")
             

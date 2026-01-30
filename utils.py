@@ -373,6 +373,9 @@ def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]
     ]
     
     for pattern in error_patterns:
+        # 開発者ツールの場合、ファイル内容にマッチしがちなパターンをスキップ
+        if is_developer_tool and pattern in [r"Exception:", r"^Error:"]:
+            continue
         if re.search(pattern, tool_result, re.IGNORECASE | re.MULTILINE):
             return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
             
