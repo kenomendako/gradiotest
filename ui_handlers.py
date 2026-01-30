@@ -5631,17 +5631,15 @@ def handle_show_scenery_prompt(room_name: str, api_key_name: str, style_choice: 
 
 def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: str, style_choice: str) -> Optional[Image.Image]:
     """
-    【v5: 最終FIX版】
-    現在の時間と季節に一致するファイル名を事前に確定し、そのファイル名で画像を生成・上書き保存する。
-    他の季節や時間帯の画像には一切触れず、UIの表示更新を保証する。
+    【v6: マルチプロバイダ対応版】
+    画像生成設定に基づき、GeminiまたはOpenAI互換プロバイダで情景画像を生成する。
     """    
-    # --- [究極ガード要塞:一本道ルール] ---
+    # --- 設定読み込み ---
     latest_config = config_manager.load_config_file()
-    image_gen_mode = latest_config.get("image_generation_mode", "new")
-    paid_key_names = latest_config.get("paid_api_key_names", [])
+    provider = latest_config.get("image_generation_provider", "gemini")
 
-    # 第1の門: 機能が無効化されているか？
-    if image_gen_mode == "disabled":
+    # 機能が無効化されているか？
+    if provider == "disabled":
         gr.Info("画像生成機能は、現在「共通設定」で無効化されています。")
         location_id_fb = utils.get_current_location(room_name)
         if location_id_fb:
@@ -5650,30 +5648,10 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
                 return Image.open(fallback_image_path_fb)
         return None
 
-    # 第2の門: そもそもAPIキーが有効か？
-    if not room_name or not api_key_name:
-        gr.Warning("ルームとAPIキーを選択してください。")
+    # ルーム名チェック
+    if not room_name:
+        gr.Warning("ルームを選択してください。")
         return None
-    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
-    if not api_key or (isinstance(api_key, str) and api_key.startswith("YOUR_API_KEY")):
-        gr.Warning(f"APIキー '{api_key_name}' が見つかりません。")
-        return None
-
-    # 第3の門: 有料モデルを無料キーで使おうとしていないか？
-    if image_gen_mode == "new" and api_key_name not in paid_key_names:
-        gr.Warning(f"選択中のAPIキー「{api_key_name}」は有料プランとして登録されていません。新しい画像生成モデルは利用できません。「共通設定」からキーの設定を確認してください。")
-        location_id_fb = utils.get_current_location(room_name)
-        if location_id_fb:
-            fallback_image_path_fb = utils.find_scenery_image(room_name, location_id_fb)
-            if fallback_image_path_fb:
-                return Image.open(fallback_image_path_fb)
-        return None
-
-    # ガードを通過したので、利用するモデルについて情報を表示
-    if image_gen_mode == "new":
-        gr.Info("新しい画像生成モデル(有料)を使用して情景を生成します。")
-    elif image_gen_mode == "old":
-        gr.Info("古い画像生成モデル(無料・廃止予定)を使用して情景を生成します。")
 
     # 1. 適用すべき季節と時間帯を取得
     season_en, time_of_day_en = utils._get_current_time_context(room_name)
@@ -5692,15 +5670,16 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
     # フォールバック用に、現在の画像パスを先に探しておく
     fallback_image_path = utils.find_scenery_image(room_name, location_id)
 
-    # --- [ガード完了、生成へ進む] ---
-
-    # プロンプト生成
+    # --- プロンプト生成（Gemini APIキーが必要）---
     final_prompt = ""
     try:
-        # 新しいヘルパー関数を呼び出す
+        # プロンプト生成はGemini APIを使用
+        if not api_key_name:
+            gr.Warning("プロンプト生成用のAPIキーを選択してください。")
+            if fallback_image_path: return Image.open(fallback_image_path)
+            return None
         final_prompt = _generate_scenery_prompt(room_name, api_key_name, style_choice)
     except Exception as e:
-        # gr.Errorはヘルパー関数内で発生済みなので、ここではログ出力とフォールバックのみ
         print(f"シーンディレクターAIによるプロンプト生成中にエラーが発生しました: {e}")
         if fallback_image_path: return Image.open(fallback_image_path)
         return None
@@ -5710,13 +5689,15 @@ def handle_generate_or_regenerate_scenery_image(room_name: str, api_key_name: st
         if fallback_image_path: return Image.open(fallback_image_path)
         return None
 
-    gr.Info(f"「{style_choice}」で画像を生成します...")
-    # 二重防御のため、api_key_name も渡す
+    # --- 画像生成 ---
+    gr.Info(f"「{style_choice}」で画像を生成します... (プロバイダ: {provider})")
+    
+    # generate_image ツールを呼び出し（設定は内部で読み込まれる）
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name, "")
     result = generate_image_tool_func.func(prompt=final_prompt, room_name=room_name, api_key=api_key, api_key_name=api_key_name)
 
     # 確定パスで上書き保存し、そのパスを返す
     if "Generated Image:" in result:
-        # [修正] 正規表現を使って、改行を含む文字列からでも正確にパスを抽出する
         match = re.search(r"\[Generated Image: (.*?)\]", result, re.DOTALL)
         generated_path = match.group(1).strip() if match else None
 
@@ -11757,3 +11738,61 @@ def handle_reset_internal_model_settings():
             gr.update(value=f"❌ エラー: {e}", visible=True)
         )
 
+
+# --- 画像生成マルチプロバイダ設定ハンドラ ---
+
+def handle_save_image_generation_settings(
+    provider: str, 
+    gemini_model: str,
+    openai_base_url: str,
+    openai_api_key: str,
+    openai_model: str
+):
+    """
+    画像生成設定を保存する。
+    
+    Args:
+        provider: 画像生成プロバイダ ("gemini", "openai", "disabled")
+        gemini_model: Gemini画像生成モデル名
+        openai_base_url: OpenAI互換のBase URL
+        openai_api_key: OpenAI互換のAPIキー
+        openai_model: OpenAI互換のモデル名
+    """
+    try:
+        # プロバイダを保存
+        config_manager.save_config_if_changed("image_generation_provider", provider)
+        
+        # Geminiモデルを保存
+        if provider == "gemini":
+            config_manager.save_config_if_changed("image_generation_model", gemini_model)
+        
+        # OpenAI互換設定を保存
+        if provider == "openai":
+            openai_settings = {
+                "base_url": openai_base_url.strip(),
+                "api_key": openai_api_key.strip(),
+                "model": openai_model.strip()
+            }
+            config_manager.save_config_if_changed("image_generation_openai_settings", openai_settings)
+            config_manager.save_config_if_changed("image_generation_model", openai_model.strip())
+        
+        provider_labels = {"gemini": "Gemini", "openai": "OpenAI互換", "disabled": "無効"}
+        gr.Info(f"✅ 画像生成設定を保存しました (プロバイダ: {provider_labels.get(provider, provider)})")
+        
+    except Exception as e:
+        print(f"[ui_handlers] 画像生成設定保存エラー: {e}")
+        traceback.print_exc()
+        gr.Error(f"画像生成設定の保存に失敗しました: {e}")
+
+
+def handle_image_gen_provider_change(provider: str):
+    """
+    画像生成プロバイダが変更されたときにUIの表示を更新する。
+    
+    Returns:
+        (gemini_section_visible, openai_section_visible)
+    """
+    return (
+        gr.update(visible=(provider == "gemini")),
+        gr.update(visible=(provider == "openai"))
+    )

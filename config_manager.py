@@ -668,7 +668,18 @@ def load_config():
             "gemini-3-pro-preview"
         ],
         "default_model": "gemini-2.5-flash",
-        "image_generation_mode": "new", 
+        # --- 画像生成設定（マルチプロバイダ対応）---
+        "image_generation_provider": "gemini",  # gemini | openai | disabled
+        "image_generation_model": "gemini-2.5-flash-image",  # 使用するモデル名
+        "image_generation_openai_settings": {
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "",
+            "model": "gpt-image-1"
+        },
+        "available_image_models": {
+            "gemini": ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"],
+            "openai": ["gpt-image-1", "gpt-image-1.5", "dall-e-3", "dall-e-2"]
+        }, 
         "search_provider": constants.DEFAULT_SEARCH_PROVIDER,
         "tavily_api_key": "",  # Tavily検索用APIキー
         "last_room": "Default",

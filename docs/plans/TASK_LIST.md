@@ -1,5 +1,10 @@
 # 📋 Nexus Ark タスクリスト
 
+- [/] **画像生成モデルの拡張対応（OpenAI互換・新Geminiモデル）** 🆕
+  - OpenAI互換モデル（gpt-image-1, gpt-image-1.5 等）および新Gemini画像モデル（gemini-3-pro-image-preview 等）への対応
+  - 設定UI簡素化：有料キーチェック撤廃 → プロバイダ・モデル選択方式に変更
+  - 計画中
+
 - [x] **Moonshot AI (Kimi) 連携の実装** 🆕 ✅ (2026-01-29 完了)
   - Moonshot AI (Kimi K2.5) をAPIキー設定およびプロバイダ選択肢（内部処理・ルーム個別）に追加
   - OpenAI互換クライアントを通じて利用可能に

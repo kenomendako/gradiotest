@@ -738,21 +738,60 @@ try:
                                 internal_model_status = gr.Markdown("", visible=False)
 
                             with gr.Accordion("🎨 画像生成設定", open=False):
-                                # Configから値を読み込み、廃止された "old" が設定されていた場合は "new" にフォールバックする
-                                current_img_gen_mode = config_manager.CONFIG_GLOBAL.get("image_generation_mode", "new")
-                                if current_img_gen_mode == "old":
-                                    current_img_gen_mode = "new"
+                                # Configから現在の設定を読み込む
+                                current_img_provider = config_manager.CONFIG_GLOBAL.get("image_generation_provider", "gemini")
+                                current_img_model = config_manager.CONFIG_GLOBAL.get("image_generation_model", "gemini-2.5-flash-image")
+                                available_gemini_models = config_manager.CONFIG_GLOBAL.get("available_image_models", {}).get("gemini", ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"])
+                                available_openai_models = config_manager.CONFIG_GLOBAL.get("available_image_models", {}).get("openai", ["gpt-image-1", "dall-e-3"])
+                                openai_settings = config_manager.CONFIG_GLOBAL.get("image_generation_openai_settings", {})
 
-                                image_generation_mode_radio = gr.Radio(
+                                image_gen_provider_radio = gr.Radio(
                                     choices=[
-                                        ("有効 (新モデル: gemini-2.5-flash-image - 有料)", "new"),
+                                        ("Gemini", "gemini"),
+                                        ("OpenAI互換", "openai"),
                                         ("無効", "disabled")
                                     ],
-                                    value=current_img_gen_mode,
-                                    label="画像生成機能 (generate_imageツール)",
+                                    value=current_img_provider,
+                                    label="画像生成プロバイダ",
                                     interactive=True,
                                     info="「無効」にすると、AIのプロンプトからも画像生成に関する項目が削除されます。"
                                 )
+
+                                # Geminiモデル選択
+                                with gr.Column(visible=(current_img_provider == "gemini")) as gemini_model_section:
+                                    gemini_image_model_dropdown = gr.Dropdown(
+                                        choices=available_gemini_models,
+                                        value=current_img_model if current_img_model in available_gemini_models else available_gemini_models[0],
+                                        label="Gemini画像生成モデル",
+                                        interactive=True
+                                    )
+
+                                # OpenAI互換設定
+                                with gr.Column(visible=(current_img_provider == "openai")) as openai_image_section:
+                                    openai_image_base_url = gr.Textbox(
+                                        label="Base URL (OpenAI互換エンドポイント)",
+                                        value=openai_settings.get("base_url", "https://api.openai.com/v1"),
+                                        placeholder="https://api.openai.com/v1",
+                                        interactive=True
+                                    )
+                                    openai_image_api_key = gr.Textbox(
+                                        label="API Key",
+                                        value=openai_settings.get("api_key", ""),
+                                        type="password",
+                                        placeholder="sk-...",
+                                        interactive=True
+                                    )
+                                    openai_image_model_dropdown = gr.Dropdown(
+                                        choices=available_openai_models,
+                                        value=openai_settings.get("model", "gpt-image-1"),
+                                        label="OpenAI画像生成モデル",
+                                        interactive=True,
+                                        allow_custom_value=True,
+                                        info="カスタムモデル名も入力可能（ComfyUI等）"
+                                    )
+
+                                # 設定保存ボタン
+                                save_image_gen_button = gr.Button("画像生成設定を保存", variant="primary")
 
                             with gr.Accordion("🔍 検索プロバイダ設定", open=False):
                                 current_search_provider = config_manager.CONFIG_GLOBAL.get("search_provider", constants.DEFAULT_SEARCH_PROVIDER)
@@ -2898,9 +2937,11 @@ try:
             pushover_user_key_input,
             pushover_app_token_input,
             discord_webhook_input,
-            image_generation_mode_radio,
+            image_gen_provider_radio,
+            gemini_image_model_dropdown,
+            openai_image_model_dropdown,
             paid_keys_checkbox_group,
-            allow_external_connection_checkbox,  # [追加] 外部接続設定
+            allow_external_connection_checkbox,
             custom_scenery_location_dropdown,
             custom_scenery_time_dropdown,
             # --- [追加] OpenAI設定UIへの反映 ---
@@ -4827,6 +4868,19 @@ try:
             fn=ui_handlers.handle_reset_internal_model_settings,
             inputs=None,
             outputs=[internal_provider_radio, internal_processing_model_input, internal_summarization_model_input, internal_fallback_checkbox, internal_model_status]
+        )
+        
+        # --- 画像生成マルチプロバイダ設定のイベント ---
+        image_gen_provider_radio.change(
+            fn=ui_handlers.handle_image_gen_provider_change,
+            inputs=[image_gen_provider_radio],
+            outputs=[gemini_model_section, openai_image_section]
+        )
+        
+        save_image_gen_button.click(
+            fn=ui_handlers.handle_save_image_generation_settings,
+            inputs=[image_gen_provider_radio, gemini_image_model_dropdown, openai_image_base_url, openai_image_api_key, openai_image_model_dropdown],
+            outputs=None
         )
         
         # カスタムモデル追加ボタンのイベント
