@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-30 | **Moonshot AI (Kimi) 認証・パラメータ修正**<br>・401 Unauthorized (エンドポイント不整合) と 400 Bad Request (温度パラメータ制約) の完全修正<br>・動的キー注入とパラメータ強制オーバーライドの実装 | [レポート](reports/2026-01-30_Moonshot_Auth_Fix.md) |
 | 2026-01-29 | **Moonshot AI (Kimi) 連携の実装**<br>・Moonshot AI (Kimi K2.5) をAPIキー設定およびプロバイダ選択肢（内部処理・ルーム個別）に追加<br>・OpenAI互換クライアントを通じて利用可能に | [レポート](reports/2026-01-29_moonshot_integration.md) |
 | 2026-01-29 | **APIキーローテーション完全対応と429エラー対策**<br>・サブノードやバックグラウンドタスク（アラーム・タイマー）にもローテーションを適用<br>・`ChatGoogleGenerativeAIError`も検知対象に追加<br>・情景描写の遅延生成（Lazy Generation）によるバックグラウンド処理の堅牢化 | [レポート](reports/2026-01-29_API_Key_Rotation_Fix.md) |
 | 2026-01-29 | **APIキーローテーションの1周制限とRAG安定化**<br>・利用可能な全キーを試行した後はリトライを停止し、無限ループを防止<br>・RAG現行ログ索引更新にチェックポイント（途中保存）機能を追加<br>・`RAGManager`の初期化バグ（tried_keys不足）を修正 | [レポート](reports/2026-01-29_api_key_rotation_limit_resilience.md) |

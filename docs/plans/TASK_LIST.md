@@ -3,7 +3,7 @@
 - [x] **Moonshot AI (Kimi) 連携の実装** 🆕 ✅ (2026-01-29 完了)
   - Moonshot AI (Kimi K2.5) をAPIキー設定およびプロバイダ選択肢（内部処理・ルーム個別）に追加
   - OpenAI互換クライアントを通じて利用可能に
-  - [レポート](../reports/2026-01-29_moonshot_integration.md)
+  - [連携レポート](../reports/2026-01-29_moonshot_integration.md) / [修正レポート](../reports/2026-01-30_Moonshot_Auth_Fix.md)
 
 - [x] **APIキーローテーション完全対応と429エラー対策** ✅ (2026-01-29 完了)
   - サブノードやバックグラウンドタスク（アラーム・タイマー）にもローテーションを適用

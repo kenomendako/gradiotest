@@ -391,6 +391,10 @@ def fetch_models_from_api(base_url: str, api_key: str = "") -> list[str]:
     
     try:
         response = requests.get(models_url, headers=headers, timeout=10)
+        # エラー詳細確認のため、raise_for_statusの前に内容をチェック
+        if response.status_code != 200:
+            print(f"[config_manager] モデルリスト取得失敗: Status={response.status_code}, Body={response.text}")
+        
         response.raise_for_status()
         data = response.json()
         
@@ -641,7 +645,7 @@ def load_config():
             },
             {
                 "name": "Moonshot AI",
-                "base_url": "https://api.moonshot.cn/v1",
+                "base_url": "https://api.moonshot.ai/v1",
                 "api_key": "",
                 "default_model": "kimi-k2.5",
                 "available_models": [
@@ -985,6 +989,20 @@ def get_effective_settings(room_name: str, **kwargs) -> dict:
     if active_provider == "openai":
         # OpenAI互換モード: ルーム個別のopenai_settings > グローバルなアクティブプロファイル の優先度
         room_openai_settings = effective_settings.get("openai_settings")
+        
+        # [Dynamic Injection] ルーム個別設定の場合も、APIキーはグローバル設定の最新値を注入する
+        # これにより、ルーム設定保存後にAPIキーが変更された場合でも認証エラーを防ぐ
+        if room_openai_settings:
+            provider_name = room_openai_settings.get("name")
+            if provider_name == "Zhipu AI":
+                global_key = CONFIG_GLOBAL.get("zhipu_api_key")
+                if global_key:
+                    room_openai_settings["api_key"] = global_key
+            elif provider_name == "Moonshot AI":
+                global_key = CONFIG_GLOBAL.get("moonshot_api_key")
+                if global_key:
+                    room_openai_settings["api_key"] = global_key
+        
         if room_openai_settings and room_openai_settings.get("model"):
             # ルーム個別のOpenAI設定でモデルが指定されている場合
             effective_settings["model_name"] = room_openai_settings["model"]

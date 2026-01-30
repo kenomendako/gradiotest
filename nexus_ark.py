@@ -4763,7 +4763,7 @@ try:
         save_groq_key_button.click(
             fn=ui_handlers.handle_save_groq_key,
             inputs=[groq_api_key_input],
-            outputs=None
+            outputs=[groq_api_key_input]
         )
 
         save_moonshot_key_button.click(
@@ -4775,7 +4775,7 @@ try:
         save_local_model_path_button.click(
             fn=ui_handlers.handle_save_local_model_path,
             inputs=[local_model_path_input],
-            outputs=None
+            outputs=[local_model_path_input]
         )
 
 # --- API Key / Webhook Events ---

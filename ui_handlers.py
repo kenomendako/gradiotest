@@ -393,6 +393,24 @@ def handle_save_zhipu_key(api_key: str):
     else:
         gr.Info("Zhipu APIキーは既に保存されています。")
 
+
+def handle_save_moonshot_key(key_value: str):
+    """Moonshot AI APIキーを保存する"""
+    if not key_value or not key_value.strip():
+        gr.Warning("APIキーを入力してください。")
+        return
+
+    key_value = key_value.strip()
+
+    # config.jsonに保存
+    if config_manager.save_config_if_changed("moonshot_api_key", key_value):
+        # グローバル変数も更新
+        config_manager.MOONSHOT_API_KEY = key_value
+        gr.Info("Moonshot AI APIキーを保存しました。")
+    else:
+        gr.Info("Moonshot AI APIキーは既に保存されています。")
+
+
 def handle_save_groq_key(api_key: str):
     """
     Groq APIキーを保存する。
@@ -8547,6 +8565,16 @@ def handle_fetch_models(profile_name: str, base_url: str, api_key: str):
         gr.Warning("Base URLが設定されていません。")
         return gr.update()
     
+    # [Dynamic Injection] マネージドプロバイダの場合はグローバルAPIキーを優先/補完使用
+    if profile_name == "Zhipu AI":
+        global_key = config_manager.CONFIG_GLOBAL.get("zhipu_api_key")
+        if global_key:
+            api_key = global_key
+    elif profile_name == "Moonshot AI":
+        global_key = config_manager.CONFIG_GLOBAL.get("moonshot_api_key")
+        if global_key:
+            api_key = global_key
+
     # APIからモデルリストを取得
     fetched_models = config_manager.fetch_models_from_api(base_url, api_key)
     

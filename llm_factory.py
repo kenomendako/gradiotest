@@ -233,6 +233,12 @@ class LLMFactory:
                     target_temp = 0.7 if temperature == 1.0 or temperature == 0.7 else temperature
                     target_top_p = 1.0 if top_p == 0.95 or top_p == 1.0 else top_p
                     print(f"  - [Optimization] Using recommended params for {internal_model_name}: temp={target_temp}, top_p={target_top_p}")
+            elif provider_name == "Moonshot AI" or "moonshot" in base_url:
+                # Moonshot AI (Kimi) は temperature=1.0 以外を受け付けない場合がある
+                # Error: "invalid temperature: only 1 is allowed for this model"
+                if target_temp != 1.0:
+                    print(f"  - [Override] Moonshot AI requires temperature=1.0 (was {target_temp}). Adjusting.")
+                    target_temp = 1.0
 
             print(f"--- [LLM Factory] Creating OpenAI-compatible client ---")
             print(f"  - Provider: {provider_name}")
