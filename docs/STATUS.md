@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-30 | **問いの自動解決機能修正**<br>・睡眠時処理に問い自動解決判定を追加<br>・会話中の解決判定コメントアウト＋睡眠時処理での解決判定欠如を修正<br>・直近の会話から解決された問いを自動的にマーク | [レポート](reports/2026-01-30_question_auto_resolve_fix.md) |
 | 2026-01-30 | **Moonshot AI (Kimi) 認証・パラメータ修正**<br>・401 Unauthorized (エンドポイント不整合) と 400 Bad Request (温度パラメータ制約) の完全修正<br>・動的キー注入とパラメータ強制オーバーライドの実装 | [レポート](reports/2026-01-30_Moonshot_Auth_Fix.md) |
 | 2026-01-29 | **Moonshot AI (Kimi) 連携の実装**<br>・Moonshot AI (Kimi K2.5) をAPIキー設定およびプロバイダ選択肢（内部処理・ルーム個別）に追加<br>・OpenAI互換クライアントを通じて利用可能に | [レポート](reports/2026-01-29_moonshot_integration.md) |
 | 2026-01-29 | **APIキーローテーション完全対応と429エラー対策**<br>・サブノードやバックグラウンドタスク（アラーム・タイマー）にもローテーションを適用<br>・`ChatGoogleGenerativeAIError`も検知対象に追加<br>・情景描写の遅延生成（Lazy Generation）によるバックグラウンド処理の堅牢化 | [レポート](reports/2026-01-29_API_Key_Rotation_Fix.md) |

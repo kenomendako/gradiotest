@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **問いの自動解決機能修正 (2026-01-30):** 睡眠時処理に問い自動解決判定を追加。会話中の解決判定がコメントアウトされ、睡眠時処理でも解決判定がなかったため問いが永久に蓄積されていた問題を修正。`auto_resolve_questions` を睡眠時に呼び出し、直近会話から解決された問いを自動的にマーク。[レポート](docs/reports/2026-01-30_question_auto_resolve_fix.md)
 - **Moonshot AI (Kimi) 連携 (2026-01-29):** Moonshot AI (Kimi K2.5) をAPIキー設定およびプロバイダ選択肢（内部処理・ルーム個別）に追加。OpenAI互換クライアントを通じて利用可能に。[レポート](docs/reports/2026-01-29_moonshot_integration.md)
 - **Moonshot AI 認証・パラメータ修正 (2026-01-30):** 401 Unauthorized (エンドポイント不整合) と 400 Bad Request (温度パラメータ制約) を修正。動的キー注入とパラメータ強制オーバーライドにより完全動作を確認。[レポート](docs/reports/2026-01-30_Moonshot_Auth_Fix.md)
 - **APIキーローテーション完全対応と429エラー対策 (2026-01-29):** APIキーローテーション機能の適用範囲をサブノード（retrieval_node等）やバックグラウンドタスク（アラーム・タイマー）に拡大。`ResourceExhausted`に加えて`ChatGoogleGenerativeAIError`も検知対象とし、情景描写の遅延生成（Lazy Generation）によりバックグラウンド処理の堅牢性を大幅に向上。[レポート](docs/reports/2026-01-29_API_Key_Rotation_Fix.md)
