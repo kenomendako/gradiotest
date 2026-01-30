@@ -364,6 +364,17 @@ class DreamingManager:
                 except Exception as me:
                     print(f"  - [Dreaming] 未解決の問い保存エラー: {me}")
             
+            # --- [Motivation] 未解決の問いの自動解決判定 ---
+            # 睡眠時に直近の会話を分析し、解決された問いをマークする
+            try:
+                from motivation_manager import MotivationManager
+                mm = MotivationManager(self.room_name)
+                resolved = mm.auto_resolve_questions(recent_context, self.api_key)
+                if resolved:
+                    print(f"  - [Dreaming] 未解決の問い {len(resolved)}件を解決済みとしてマーク")
+            except Exception as re:
+                print(f"  - [Dreaming] 問い自動解決エラー: {re}")
+            
             # --- [Motivation] 解決済み質問の記憶変換（Phase B） ---
             try:
                 from motivation_manager import MotivationManager
