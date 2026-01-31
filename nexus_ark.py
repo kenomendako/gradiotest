@@ -768,18 +768,14 @@ try:
 
                                 # OpenAI互換設定
                                 with gr.Column(visible=(current_img_provider == "openai")) as openai_image_section:
-                                    openai_image_base_url = gr.Textbox(
-                                        label="Base URL (OpenAI互換エンドポイント)",
-                                        value=openai_settings.get("base_url", "https://api.openai.com/v1"),
-                                        placeholder="https://api.openai.com/v1",
-                                        interactive=True
-                                    )
-                                    openai_image_api_key = gr.Textbox(
-                                        label="API Key",
-                                        value=openai_settings.get("api_key", ""),
-                                        type="password",
-                                        placeholder="sk-...",
-                                        interactive=True
+                                    # 既存のOpenAI互換プロファイルから選択
+                                    openai_provider_names = [s.get("name", "") for s in config_manager.CONFIG_GLOBAL.get("openai_provider_settings", [])]
+                                    openai_image_profile_dropdown = gr.Dropdown(
+                                        choices=openai_provider_names,
+                                        value=openai_settings.get("profile_name", openai_provider_names[0] if openai_provider_names else "OpenAI Official"),
+                                        label="使用するプロファイル（APIキー/Webhook管理で設定）",
+                                        interactive=True,
+                                        info="プロファイルのAPIキーとBase URLを使用します"
                                     )
                                     openai_image_model_dropdown = gr.Dropdown(
                                         choices=available_openai_models,
@@ -4879,7 +4875,7 @@ try:
         
         save_image_gen_button.click(
             fn=ui_handlers.handle_save_image_generation_settings,
-            inputs=[image_gen_provider_radio, gemini_image_model_dropdown, openai_image_base_url, openai_image_api_key, openai_image_model_dropdown],
+            inputs=[image_gen_provider_radio, gemini_image_model_dropdown, openai_image_profile_dropdown, openai_image_model_dropdown],
             outputs=None
         )
         

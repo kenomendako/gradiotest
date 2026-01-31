@@ -117,13 +117,26 @@ def generate_image(prompt: str, room_name: str, api_key: str, api_key_name: str 
             return _generate_with_gemini(prompt, model_name, api_key, save_dir, room_name)
         
         elif provider == "openai":
-            # OpenAI互換設定を使用
-            openai_base_url = openai_settings.get("base_url", "https://api.openai.com/v1")
-            openai_api_key = openai_settings.get("api_key", "")
+            # OpenAI互換設定を取得（プロファイル名から設定を参照）
+            profile_name = openai_settings.get("profile_name", "")
             openai_model = openai_settings.get("model", model_name)
             
+            # プロファイルからBase URLとAPIキーを取得
+            openai_provider_settings = latest_config.get("openai_provider_settings", [])
+            target_profile = None
+            for profile in openai_provider_settings:
+                if profile.get("name") == profile_name:
+                    target_profile = profile
+                    break
+            
+            if not target_profile:
+                return f"【エラー】画像生成用のOpenAI互換プロファイル '{profile_name}' が見つかりません。「共通設定」→「画像生成設定」でプロファイルを設定してください。"
+            
+            openai_base_url = target_profile.get("base_url", "https://api.openai.com/v1")
+            openai_api_key = target_profile.get("api_key", "")
+            
             if not openai_api_key:
-                return "【エラー】OpenAI画像生成にはAPIキーが必要です。「共通設定」→「画像生成設定」でAPIキーを設定してください。"
+                return f"【エラー】プロファイル '{profile_name}' にAPIキーが設定されていません。「APIキー / Webhook管理」でAPIキーを設定してください。"
             
             return _generate_with_openai(prompt, openai_model, openai_base_url, openai_api_key, save_dir, room_name)
         

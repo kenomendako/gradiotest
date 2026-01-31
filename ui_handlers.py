@@ -11755,8 +11755,7 @@ def handle_reset_internal_model_settings():
 def handle_save_image_generation_settings(
     provider: str, 
     gemini_model: str,
-    openai_base_url: str,
-    openai_api_key: str,
+    openai_profile_name: str,
     openai_model: str
 ):
     """
@@ -11765,8 +11764,7 @@ def handle_save_image_generation_settings(
     Args:
         provider: 画像生成プロバイダ ("gemini", "openai", "disabled")
         gemini_model: Gemini画像生成モデル名
-        openai_base_url: OpenAI互換のBase URL
-        openai_api_key: OpenAI互換のAPIキー
+        openai_profile_name: OpenAI互換プロファイル名（APIキー/Webhook管理で設定済み）
         openai_model: OpenAI互換のモデル名
     """
     try:
@@ -11777,15 +11775,14 @@ def handle_save_image_generation_settings(
         if provider == "gemini":
             config_manager.save_config_if_changed("image_generation_model", gemini_model)
         
-        # OpenAI互換設定を保存
+        # OpenAI互換設定を保存（プロファイル名とモデルのみ）
         if provider == "openai":
             openai_settings = {
-                "base_url": openai_base_url.strip(),
-                "api_key": openai_api_key.strip(),
-                "model": openai_model.strip()
+                "profile_name": openai_profile_name.strip() if openai_profile_name else "",
+                "model": openai_model.strip() if openai_model else ""
             }
             config_manager.save_config_if_changed("image_generation_openai_settings", openai_settings)
-            config_manager.save_config_if_changed("image_generation_model", openai_model.strip())
+            config_manager.save_config_if_changed("image_generation_model", openai_model.strip() if openai_model else "")
         
         provider_labels = {"gemini": "Gemini", "openai": "OpenAI互換", "disabled": "無効"}
         gr.Info(f"✅ 画像生成設定を保存しました (プロバイダ: {provider_labels.get(provider, provider)})")
