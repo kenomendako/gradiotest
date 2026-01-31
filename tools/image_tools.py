@@ -52,6 +52,9 @@ def _generate_with_openai(prompt: str, model_name: str, base_url: str, api_key: 
     from openai import OpenAI
     import requests
     
+    print(f"  [OpenAI Image] base_url={base_url}, model={model_name}")
+    print(f"  [OpenAI Image] api_key set: {bool(api_key and len(api_key) > 5)}")
+    
     client = OpenAI(base_url=base_url, api_key=api_key)
     
     # モデルによってサイズを調整
@@ -61,26 +64,39 @@ def _generate_with_openai(prompt: str, model_name: str, base_url: str, api_key: 
     
     # gpt-image-1系モデルはresponse_formatをサポートしない（URLベースのみ）
     is_gpt_image = "gpt-image" in model_name.lower()
+    print(f"  [OpenAI Image] is_gpt_image={is_gpt_image}, size={size}")
     
     if is_gpt_image:
-        # GPT Image モデル用（response_formatなし）
+        # GPT Image モデル用（response_formatパラメータを渡さないが、b64_jsonで返る）
+        print(f"  [OpenAI Image] Calling images.generate (gpt-image mode, no response_format param)...")
         response = client.images.generate(
             model=model_name,
             prompt=prompt,
             n=1,
             size=size
         )
+        print(f"  [OpenAI Image] Response received")
         
-        if not response.data or not response.data[0].url:
-            return "【エラー】APIから画像URLが返されませんでした。"
+        # gpt-image-1は実際にはb64_jsonで返す（urlはNone）
+        if response.data and response.data[0].b64_json:
+            print(f"  [OpenAI Image] Found b64_json data, decoding...")
+            image_data = base64.b64decode(response.data[0].b64_json)
+            image = Image.open(io.BytesIO(image_data))
+        elif response.data and response.data[0].url:
+            # フォールバック: URLがある場合
+            image_url = response.data[0].url
+            print(f"  [OpenAI Image] Downloading from URL: {image_url[:100]}...")
+            img_response = requests.get(image_url, timeout=60)
+            img_response.raise_for_status()
+            image = Image.open(io.BytesIO(img_response.content))
+        else:
+            print(f"  [OpenAI Image] ERROR: No image data in response")
+            return "【エラー】APIから画像データが返されませんでした。"
         
-        # URLから画像をダウンロード
-        image_url = response.data[0].url
-        img_response = requests.get(image_url, timeout=60)
-        img_response.raise_for_status()
-        image = Image.open(io.BytesIO(img_response.content))
+        print(f"  [OpenAI Image] Image processed successfully")
     else:
         # DALL-E等（b64_json対応）
+        print(f"  [OpenAI Image] Calling images.generate (b64_json mode)...")
         response = client.images.generate(
             model=model_name,
             prompt=prompt,
@@ -88,8 +104,10 @@ def _generate_with_openai(prompt: str, model_name: str, base_url: str, api_key: 
             size=size,
             response_format="b64_json"
         )
+        print(f"  [OpenAI Image] Response received")
         
         if not response.data or not response.data[0].b64_json:
+            print(f"  [OpenAI Image] ERROR: No b64_json in response.data")
             return "【エラー】APIから画像データが返されませんでした。"
         
         image_data = base64.b64decode(response.data[0].b64_json)

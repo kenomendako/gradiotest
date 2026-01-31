@@ -5591,6 +5591,10 @@ This is the undeniable truth for all physical structures, objects, furniture, an
 **--- [Current Scene Conditions] ---**
         - Time of Day: {time_of_day_en}
         - Season: {season_en}
+        - **CRITICAL LIGHTING INSTRUCTION**: The scene lighting MUST match the time of day. 
+            - Daytime (morning, late_morning, afternoon): Bright natural sunlight, blue sky visible through windows, warm sun rays.
+            - Evening: Golden hour, warm orange sunset colors.
+            - Night/Midnight: Dark sky, moonlight or artificial lighting, stars visible.
 
 **--- [Your Task: The Fusion] ---**
 Your task is to **merge** these two sources into a single, coherent visual description, following the absolute rules below.
@@ -5598,6 +5602,7 @@ Your task is to **merge** these two sources into a single, coherent visual descr
 **--- [The Golden Rule for Windows & Exteriors] ---**
 **If the Architectural Blueprint mentions a window, door, or any view to the outside, you MUST explicitly describe the exterior view *as it would appear* within the Temporal Context.**
 -   **Example:** If the context is `night` and the blueprint mentions "a garden," you MUST describe a `dark garden under the moonlight` or `a rainy night landscape`, not just `a garden`.
+-   **Example:** If the context is `afternoon` and the blueprint mentions "a garden," you MUST describe a `sunlit garden under bright blue sky` or `a garden bathed in warm afternoon sunlight`.
 -   **This rule is absolute and overrides any ambiguity.**
 
 **--- [Core Principles & Hierarchy] ---**
