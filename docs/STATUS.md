@@ -1,5 +1,6 @@
 # 📊 プロジェクトステータス
 
+| 2026-01-31 | **内省ツール実装**<br>・`manage_open_questions` / `manage_goals` ツール追加<br>・問い解決時にArousalスパイク + エピソード記憶生成<br>・目標達成時の記憶を意味のある形式に改善 | [レポート](reports/2026-01-31_introspection_tools.md) |
 | 2026-01-31 | **画像生成マルチプロバイダ対応**<br>・Gemini/OpenAI互換/無効の3プロバイダ選択<br>・プロファイル選択方式（APIキー一元管理）<br>・gpt-image-1対応、照明指示改善 | [レポート](reports/2026-01-31_ImageGenMultiProvider.md) |
 | 2026-01-30 | **問いの自動解決機能修正 + Arousalスパイク**<br>・睡眠時処理に問い自動解決判定を追加<br>・問い解決時に充足感（Arousal）スパイクを発生<br>・ツール失敗誤検知（read_project_file）を修正 | [レポート](reports/2026-01-30_question_auto_resolve_fix.md) |
 | 2026-01-30 | **Moonshot AI (Kimi) 認証・パラメータ修正**<br>・401 Unauthorized (エンドポイント不整合) と 400 Bad Request (温度パラメータ制約) の完全修正<br>・動的キー注入とパラメータ強制オーバーライドの実装 | [レポート](reports/2026-01-30_Moonshot_Auth_Fix.md) |

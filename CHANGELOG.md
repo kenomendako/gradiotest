@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **画像生成マルチプロバイダ対応 (2026-01-31):** 画像生成機能がGemini、OpenAI互換、無効の3プロバイダから選択可能に。有料キーチェックを撤廃し、シンプルなプロバイダ・モデル選択方式に刷新。OpenAI互換では既存プロファイルを使用（APIキー管理の一元化）。gpt-image-1モデル対応。情景描写プロンプトに時間帯別照明指示を追加。[レポート](docs/reports/2026-01-31_ImageGenMultiProvider.md)
+- **内省ツール実装 (2026-01-31):** ペルソナが自律行動中に未解決の問い・目標を確認・編集できるツール `manage_open_questions` と `manage_goals` を追加。問い解決時にArousalスパイクと高Arousalエピソード記憶を生成。[レポート](docs/reports/2026-01-31_introspection_tools.md)
 - **問いの自動解決機能修正 (2026-01-30):** 睡眠時処理に問い自動解決判定を追加。会話中の解決判定がコメントアウトされ、睡眠時処理でも解決判定がなかったため問いが永久に蓄積されていた問題を修正。`auto_resolve_questions` を睡眠時に呼び出し、直近会話から解決された問いを自動マーク。問い解決時のArousalスパイク（充足感）機能も追加。[レポート](docs/reports/2026-01-30_question_auto_resolve_fix.md)
 - **Moonshot AI (Kimi) 連携 (2026-01-29):** Moonshot AI (Kimi K2.5) をAPIキー設定およびプロバイダ選択肢（内部処理・ルーム個別）に追加。OpenAI互換クライアントを通じて利用可能に。[レポート](docs/reports/2026-01-29_moonshot_integration.md)
 - **Moonshot AI 認証・パラメータ修正 (2026-01-30):** 401 Unauthorized (エンドポイント不整合) と 400 Bad Request (温度パラメータ制約) を修正。動的キー注入とパラメータ強制オーバーライドにより完全動作を確認。[レポート](docs/reports/2026-01-30_Moonshot_Auth_Fix.md)
