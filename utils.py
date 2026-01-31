@@ -350,36 +350,37 @@ def save_scenery_cache(room_name: str, cache_key: str, location_name: str, scene
 def format_tool_result_for_ui(tool_name: str, tool_result: str) -> Optional[str]:
     if not tool_name or not tool_result: return None
     
-    # エラー判定：ツールの実行エラー特有のパターンのみを検出
-    # 一般的な文章中の "Error" や "エラー" を誤検出しないよう、より厳密なパターンにする
-    # 特に、ファイル内容を返すツールについては「行頭が【エラー】」であることを必須とする
+    # 開発者ツールには特別なエラー検知ロジックを適用
+    # ファイル内容に "Exception:" や "Error:" などが含まれることが頻繁にあるため、
+    # ツール自体のエラーメッセージ（「【エラー】」で始まる行）のみを検出する
     is_developer_tool = tool_name in ["list_project_files", "read_project_file"]
     
-    error_patterns = [
-        r"^Error:",           # 行頭の "Error:"
-        r"^【エラー】",        # 行頭の "【エラー】" (developer_toolsの標準)
-        r"^エラー:",           # 行頭の "エラー:"
-        r"Exception:",         # Python例外
-    ]
-    
-    # 一般的な不具合パターン（開発者ツール以外で適用）
-    generic_error_patterns = [
-        r"ツールエラー",        # ツール実行時のエラー
-        r"実行エラー",          # 実行時エラー
-        r"failed to",          # 失敗パターン（英語）
-        r"に失敗しました",      # 失敗パターン（日本語）
-        r"could not",          # 失敗パターン（英語）
-        r"できませんでした",    # 失敗パターン（日本語）
-    ]
-    
-    for pattern in error_patterns:
-        # 開発者ツールの場合、ファイル内容にマッチしがちなパターンをスキップ
-        if is_developer_tool and pattern in [r"Exception:", r"^Error:"]:
-            continue
-        if re.search(pattern, tool_result, re.IGNORECASE | re.MULTILINE):
+    if is_developer_tool:
+        # 開発者ツールの標準エラーフォーマットのみ検出
+        if re.search(r"^【エラー】", tool_result, re.MULTILINE):
             return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
-            
-    if not is_developer_tool:
+    else:
+        # 他のツール向けのエラー検知パターン
+        error_patterns = [
+            r"^Error:",           # 行頭の "Error:"
+            r"^【エラー】",        # 行頭の "【エラー】"
+            r"^エラー:",           # 行頭の "エラー:"
+            r"Exception:",         # Python例外
+        ]
+        
+        generic_error_patterns = [
+            r"ツールエラー",        # ツール実行時のエラー
+            r"実行エラー",          # 実行時エラー
+            r"failed to",          # 失敗パターン（英語）
+            r"に失敗しました",      # 失敗パターン（日本語）
+            r"could not",          # 失敗パターン（英語）
+            r"できませんでした",    # 失敗パターン（日本語）
+        ]
+        
+        for pattern in error_patterns:
+            if re.search(pattern, tool_result, re.IGNORECASE | re.MULTILINE):
+                return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
+                
         for pattern in generic_error_patterns:
             if re.search(pattern, tool_result, re.IGNORECASE | re.MULTILINE):
                 return f"⚠️ ツール「{tool_name}」の実行に失敗しました。"
