@@ -966,6 +966,14 @@ def handle_initial_load(room_name: str = None, expected_count: int = 171):
         chat_input_update = gr.update(interactive=True)
 
     # --- 4. [v9] その他の共通設定の初期値を決定 ---
+    
+    # 画像生成マルチプロバイダ設定を取得
+    img_gen_provider = config.get("image_generation_provider", "gemini")
+    img_gen_model = config.get("image_generation_model", "gemini-2.5-flash-image")
+    available_gemini_img_models = config.get("available_image_models", {}).get("gemini", ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"])
+    available_openai_img_models = config.get("available_image_models", {}).get("openai", ["gpt-image-1", "dall-e-3"])
+    openai_img_settings = config.get("image_generation_openai_settings", {})
+    
     common_settings_updates = (
         gr.update(value=config.get("last_model", config_manager.DEFAULT_MODEL_GLOBAL)),
         gr.update(value=config.get("debug_mode", False)),
@@ -974,7 +982,10 @@ def handle_initial_load(room_name: str = None, expected_count: int = 171):
         gr.update(value=config.get("pushover_user_key", "")),
         gr.update(value=config.get("pushover_app_token", "")),
         gr.update(value=config.get("notification_webhook_url", "")),
-        gr.update(value=config.get("image_generation_mode", "new")),
+        # 画像生成マルチプロバイダ対応(3コンポーネント)
+        gr.update(value=img_gen_provider),  # image_gen_provider_radio
+        gr.update(choices=available_gemini_img_models, value=img_gen_model if img_gen_model in available_gemini_img_models else available_gemini_img_models[0]),  # gemini_image_model_dropdown
+        gr.update(choices=available_openai_img_models, value=openai_img_settings.get("model", "gpt-image-1")),  # openai_image_model_dropdown
         gr.update(choices=[p[1] for p in latest_api_key_choices], value=config.get("paid_api_key_names", [])),
         gr.update(value=config.get("allow_external_connection", False)),  # [追加] 外部接続設定
     )
