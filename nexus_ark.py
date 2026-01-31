@@ -3013,10 +3013,10 @@ try:
             # --- 索引ステータス欄（最終更新日時表示用）---
             memory_reindex_status,
             current_log_reindex_status,
-            # --- [Phase 3] 内部モデル設定 ---
+            # --- [Phase 3] 内部モデル設定（統合後） ---
             internal_provider_radio,
-            internal_processing_model_input,
-            internal_summarization_model_input,
+            internal_google_processing_model,
+            internal_google_summarization_model,
             internal_fallback_checkbox, # [Phase 4]
             groq_api_key_input, # [Phase 3b]
             local_model_path_input, # [Phase 3c]
