@@ -49,6 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **エピソード記憶UIの改善 (2026-01-17):** 同じ日付に複数エピソードがある場合に全て表示するよう修正。作成順ソート、件数案内、ドロップダウン重複排除、自動スクロール無効化を実装。[レポート](docs/reports/2026-01-16_episodic_memory_fixes.md)
 
 ### Fixed
+- **read_project_file ツール失敗誤検知の根本修正 (2026-01-31):** ファイル内容に `Exception:`、`Error:`、`エラー:` 等が含まれていると誤ってエラー表示されていた問題を修正。開発者ツールのエラー検知を `【エラー】` で始まる行のみに限定。[レポート](docs/reports/2026-01-31_tool_error_false_detection_fix.md)
 - **過去の会話検索結果のヘッダー簡略化 (2026-01-27):** 検索結果に含まれる `## AGENT:ルシアン` 等のロールヘッダーを `ルシアン` のように簡略化。LLMのコンテキスト内の可視性向上と、現在の会話との混同を防止。[レポート](docs/reports/2026-01-27_Search_Header_Simplification.md)
 - **Zhipu AIツール実行エラー (404) の修正 (2026-01-28):** ツール実行用LLM初期化時にルーム名が渡されず、Zhipu設定時でもGoogle APIを使用してしまう不具合を修正。ファイル編集などの自律動作がZhipuモデルで正常に行えるようになりました。[レポート](docs/reports/2026-01-28_Zhipu_Tool_Provider_Fix.md)
 - **Zhipu AIモデル名エラー (Code 1211) の修正 (2026-01-28):** Zhipu AI選択時にGeminiのモデル名が誤って使用されるバグと、デフォルトモデル `glm-4` が廃止されていた問題を修正。[レポート](docs/reports/2026-01-28_Zhipu_Integration_Fix.md)
