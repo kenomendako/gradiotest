@@ -50,27 +50,50 @@ def _generate_with_gemini(prompt: str, model_name: str, api_key: str, save_dir: 
 def _generate_with_openai(prompt: str, model_name: str, base_url: str, api_key: str, save_dir: str, room_name: str) -> str:
     """OpenAI互換API (Images API) で画像を生成する"""
     from openai import OpenAI
+    import requests
     
     client = OpenAI(base_url=base_url, api_key=api_key)
     
-    # モデルによってサイズを調整（DALL-E 2は1024x1024まで）
+    # モデルによってサイズを調整
     size = "1024x1024"
     if "dall-e-3" in model_name:
         size = "1024x1024"  # DALL-E 3は1024x1024, 1792x1024, 1024x1792
     
-    response = client.images.generate(
-        model=model_name,
-        prompt=prompt,
-        n=1,
-        size=size,
-        response_format="b64_json"
-    )
+    # gpt-image-1系モデルはresponse_formatをサポートしない（URLベースのみ）
+    is_gpt_image = "gpt-image" in model_name.lower()
     
-    if not response.data or not response.data[0].b64_json:
-        return "【エラー】APIから画像データが返されませんでした。"
-    
-    image_data = base64.b64decode(response.data[0].b64_json)
-    image = Image.open(io.BytesIO(image_data))
+    if is_gpt_image:
+        # GPT Image モデル用（response_formatなし）
+        response = client.images.generate(
+            model=model_name,
+            prompt=prompt,
+            n=1,
+            size=size
+        )
+        
+        if not response.data or not response.data[0].url:
+            return "【エラー】APIから画像URLが返されませんでした。"
+        
+        # URLから画像をダウンロード
+        image_url = response.data[0].url
+        img_response = requests.get(image_url, timeout=60)
+        img_response.raise_for_status()
+        image = Image.open(io.BytesIO(img_response.content))
+    else:
+        # DALL-E等（b64_json対応）
+        response = client.images.generate(
+            model=model_name,
+            prompt=prompt,
+            n=1,
+            size=size,
+            response_format="b64_json"
+        )
+        
+        if not response.data or not response.data[0].b64_json:
+            return "【エラー】APIから画像データが返されませんでした。"
+        
+        image_data = base64.b64decode(response.data[0].b64_json)
+        image = Image.open(io.BytesIO(image_data))
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{room_name.lower()}_{timestamp}.png"
