@@ -679,6 +679,21 @@ def invoke_nexus_agent_stream(agent_args: dict) -> Iterator[Dict[str, Any]]:
     room_api_key_name = effective_settings.get("api_key_name")
     if room_api_key_name:
         current_retry_api_key_name = room_api_key_name
+    
+    # --- [2026-01-31 FIX] 初回キー選択時の枯渇チェック ---
+    # 指定されたキーが枯渇状態の場合、自動で代替キーに切り替える
+    # これにより、無料キーが枯渇しても有料キーに自動フォールバックできる
+    if config_manager.is_key_exhausted(current_retry_api_key_name):
+        print(f"  [Rotation] 指定キー '{current_retry_api_key_name}' は枯渇状態。代替キーを探索中...")
+        alternative_key = config_manager.get_next_available_gemini_key(
+            current_exhausted_key=current_retry_api_key_name
+        )
+        if alternative_key:
+            print(f"  [Rotation] 代替キー '{alternative_key}' に切り替えます")
+            current_retry_api_key_name = alternative_key
+        else:
+            yield ("values", {"messages": [AIMessage(content="[エラー: 利用可能なAPIキーがありません。しばらく時間をおいてから再試行してください。]")]})
+            return
         
     # --- [API Key Rotation Limit] ---
     # 試行済みのキーを記憶し、1回の実行中に一度試したキーは二度と使わないようにする
