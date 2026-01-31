@@ -2968,7 +2968,7 @@ try:
             episodic_update_status, # [Phase 14 追加] エピソード更新ステータス
             entity_dropdown,
             entity_content_editor,
-            embedding_mode_radio, # [Phase 16 追加] エンベディングモード同期用
+            embedding_provider_radio, # [Phase 16 → 統合] エンベディングプロバイダ同期用
             dream_status_display,  # [Phase 17 追加] 睡眠時記憶整理ステータス
             room_auto_summary_checkbox,
             room_auto_summary_threshold_slider,
@@ -4245,10 +4245,10 @@ try:
         
 
         
-        # --- エンベディングモード設定 ---
-        embedding_mode_radio.change(
+        # --- エンベディングプロバイダ設定（統合後） ---
+        embedding_provider_radio.change(
             fn=ui_handlers.handle_embedding_mode_change,
-            inputs=[current_room_name, embedding_mode_radio],
+            inputs=[current_room_name, embedding_provider_radio],
             outputs=None
         )
 
