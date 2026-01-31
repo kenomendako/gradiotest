@@ -1411,13 +1411,18 @@ def get_internal_model_settings() -> Dict[str, Any]:
     設定がない場合はデフォルト値を返す。
     """
     default_settings = {
-        "provider": "google",  # "google", "zhipu", "groq", "local", "openai"
+        "provider": "google",  # "google", "openai"
         "processing_model": constants.INTERNAL_PROCESSING_MODEL,  # 軽量タスク
         "summarization_model": constants.SUMMARIZATION_MODEL,    # 要約・文章生成
         "supervisor_model": constants.INTERNAL_PROCESSING_MODEL,  # グループ司会
-        # [Phase 4] フォールバック設定
-        "fallback_enabled": True,  # フォールバック有効/無効
-        "fallback_order": ["google"],  # フォールバック順序（プライマリ以外）
+        # OpenAI互換設定
+        "openai_profile": None,  # 使用するプロファイル名
+        # エンベディング設定
+        "embedding_provider": "gemini",  # "gemini", "openai", "local"
+        "embedding_model": "gemini-embedding-001",
+        # フォールバック設定
+        "fallback_enabled": True,
+        "fallback_order": ["google"],
     }
     
     user_settings = CONFIG_GLOBAL.get("internal_model_settings", {})
@@ -1458,6 +1463,11 @@ def reset_internal_model_settings() -> Dict[str, Any]:
         "processing_model": constants.INTERNAL_PROCESSING_MODEL,
         "summarization_model": constants.SUMMARIZATION_MODEL,
         "supervisor_model": constants.INTERNAL_PROCESSING_MODEL,
+        "openai_profile": None,
+        "embedding_provider": "gemini",
+        "embedding_model": "gemini-embedding-001",
+        "fallback_enabled": True,
+        "fallback_order": ["google"],
     }
     
     save_internal_model_settings(default_settings)

@@ -11682,27 +11682,55 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
 
 # --- [Phase 3] 内部処理モデル設定ハンドラ ---
 
-def handle_save_internal_model_settings(provider: str, processing_model: str, summarization_model: str, fallback_enabled: bool = True):
+def handle_save_internal_model_settings(
+    provider: str,
+    google_processing_model: str,
+    google_summarization_model: str,
+    openai_profile: str,
+    openai_processing_model: str,
+    openai_summarization_model: str,
+    embedding_provider: str,
+    embedding_model: str,
+    fallback_enabled: bool = True
+):
     """
     内部処理モデル設定を保存する。
     
     Args:
-        provider: 使用するプロバイダ ("google", "zhipu", "groq", "local", "openai")
-        processing_model: 処理モデル名
-        summarization_model: 要約モデル名
+        provider: 使用するプロバイダ ("google", "openai")
+        google_processing_model: Google使用時の処理モデル名
+        google_summarization_model: Google使用時の要約モデル名
+        openai_profile: OpenAI互換使用時のプロファイル名
+        openai_processing_model: OpenAI互換使用時の処理モデル名
+        openai_summarization_model: OpenAI互換使用時の要約モデル名
+        embedding_provider: エンベディングプロバイダ ("gemini", "openai", "local")
+        embedding_model: エンベディングモデル名
         fallback_enabled: フォールバック有効/無効
         
     Returns:
         (status_markdown,) - ステータスメッセージ
     """
     try:
+        # プロバイダに応じてモデル名を選択
+        if provider == "google":
+            processing_model = google_processing_model.strip() if google_processing_model else constants.INTERNAL_PROCESSING_MODEL
+            summarization_model = google_summarization_model.strip() if google_summarization_model else constants.SUMMARIZATION_MODEL
+        else:
+            processing_model = openai_processing_model.strip() if openai_processing_model else "llama-3.1-8b-instant"
+            summarization_model = openai_summarization_model.strip() if openai_summarization_model else "glm-4.7-flash"
+        
         settings = {
             "provider": provider,
-            "processing_model": processing_model.strip(),
-            "summarization_model": summarization_model.strip(),
+            "processing_model": processing_model,
+            "summarization_model": summarization_model,
             # supervisorは処理モデルと同じ値を使用
-            "supervisor_model": processing_model.strip(),
-            # [Phase 4] フォールバック設定
+            "supervisor_model": processing_model,
+            # OpenAI互換設定
+            "openai_profile": openai_profile if provider == "openai" else None,
+            # エンベディング設定
+            "embedding_provider": embedding_provider,
+            "embedding_model": embedding_model.strip() if embedding_model else "gemini-embedding-001",
+            # フォールバック設定
             "fallback_enabled": fallback_enabled,
             "fallback_order": ["google"],  # デフォルトはGoogleにフォールバック
         }
@@ -11730,28 +11758,39 @@ def handle_reset_internal_model_settings():
     内部処理モデル設定をデフォルトにリセットする。
     
     Returns:
-        (provider, processing_model, summarization_model, fallback_enabled, status_markdown)
+        11個の値:
+        - provider, google_processing_model, google_summarization_model,
+        - openai_processing_model, openai_summarization_model,
+        - embedding_provider, embedding_model,
+        - fallback_enabled, status_markdown,
+        - internal_google_group (visible), internal_openai_group (visible)
     """
     try:
         default_settings = config_manager.reset_internal_model_settings()
+        provider = default_settings.get("provider", "google")
         
         return (
-            default_settings.get("provider", "google"),
-            default_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL),
-            default_settings.get("summarization_model", constants.SUMMARIZATION_MODEL),
+            provider,
+            default_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL),  # google_processing_model
+            default_settings.get("summarization_model", constants.SUMMARIZATION_MODEL),     # google_summarization_model
+            "llama-3.1-8b-instant",  # openai_processing_model (デフォルト)
+            "glm-4.7-flash",         # openai_summarization_model (デフォルト)
+            "gemini",                # embedding_provider
+            "gemini-embedding-001",  # embedding_model
             default_settings.get("fallback_enabled", True),
-            gr.update(value="✅ デフォルト設定にリセットしました。", visible=True)
+            gr.update(value="✅ デフォルト設定にリセットしました。", visible=True),
+            gr.update(visible=(provider == "google")),   # internal_google_group
+            gr.update(visible=(provider == "openai"))    # internal_openai_group
         )
         
     except Exception as e:
         print(f"[ui_handlers] 内部モデル設定リセットエラー: {e}")
         traceback.print_exc()
         return (
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(value=f"❌ エラー: {e}", visible=True)
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(),
+            gr.update(value=f"❌ エラー: {e}", visible=True),
+            gr.update(), gr.update()
         )
 
 
