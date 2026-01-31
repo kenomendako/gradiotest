@@ -378,8 +378,8 @@ class DreamingManager:
                     satisfaction_arousal = min(0.7, 0.3 + len(resolved) * 0.1)
                     session_arousal_manager.add_arousal_score(self.room_name, satisfaction_arousal)
                     print(f"  - [Dreaming] ✨ 問い解決による充足感 (Arousal: {satisfaction_arousal:.2f})")
-            except Exception as re:
-                print(f"  - [Dreaming] 問い自動解決エラー: {re}")
+            except Exception as qe:
+                print(f"  - [Dreaming] 問い自動解決エラー: {qe}")
             
             # --- [Motivation] 解決済み質問の記憶変換（Phase B） ---
             try:
