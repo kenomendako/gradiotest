@@ -689,104 +689,92 @@ try:
 
                             with gr.Accordion("🔧 内部処理モデル設定", open=False):
                                 gr.Markdown(
-                                    "要約・RAGクエリ生成など、バックグラウンド処理に使用するモデルを設定します。\n\n"
-                                    "💡 調査報告の推奨モデルがプリセットで選択可能です"
+                                    "要約・RAGクエリ生成・エンベディングなど、バックグラウンド処理に使用するモデルを設定します。\n"
+                                    "各タスクごとにプロバイダとモデルを自由に組み合わせできます。"
                                 )
                                 
                                 # 現在の設定を取得
                                 _internal_settings = config_manager.get_internal_model_settings()
                                 _openai_provider_names = [s.get("name", "") for s in config_manager.CONFIG_GLOBAL.get("openai_provider_settings", [])]
+                                _provider_choices = [("Google (Gemini)", "google")] + [(name, name) for name in _openai_provider_names] + [("ローカル", "local")]
                                 
-                                # --- プロバイダ選択（2グループ化） ---
-                                internal_provider_radio = gr.Radio(
-                                    choices=[
-                                        ("Google (Gemini)", "google"),
-                                        ("OpenAI互換 (Groq / Zhipu AI / Moonshot / OpenRouter)", "openai")
-                                    ],
-                                    value=_internal_settings.get("provider", "google"),
-                                    label="内部処理プロバイダ",
-                                    interactive=True
-                                )
-                                
-                                # --- Google設定グループ ---
-                                with gr.Group(visible=(_internal_settings.get("provider", "google") == "google")) as internal_google_group:
-                                    internal_google_processing_model = gr.Textbox(
-                                        label="処理モデル（軽量タスク用）",
+                                # --- 処理モデル（軽量タスク用） ---
+                                gr.Markdown("### 🚀 処理モデル（軽量タスク）")
+                                gr.Markdown("RAGクエリ生成、Intent分類、グループ会話の司会などに使用します。", elem_classes=["info-text"])
+                                with gr.Row():
+                                    internal_processing_provider = gr.Dropdown(
+                                        choices=_provider_choices,
+                                        value=_internal_settings.get("processing_provider", "google"),
+                                        label="プロバイダ",
+                                        scale=1,
+                                        interactive=True
+                                    )
+                                    internal_processing_model = gr.Dropdown(
+                                        choices=[
+                                            (constants.INTERNAL_PROCESSING_MODEL + " (Gemini)", constants.INTERNAL_PROCESSING_MODEL),
+                                            ("llama-3.1-8b-instant (Groq推奨)", "llama-3.1-8b-instant"),
+                                            ("glm-4.7-flash (Zhipu)", "glm-4.7-flash"),
+                                            ("qwen3-32b (Groq)", "qwen3-32b"),
+                                        ],
                                         value=_internal_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL),
-                                        info="RAGクエリ生成、Intent分類、グループ会話の司会などに使用",
+                                        label="モデル",
+                                        scale=2,
+                                        allow_custom_value=True,
                                         interactive=True
                                     )
-                                    internal_google_summarization_model = gr.Textbox(
-                                        label="要約モデル（文章生成用）",
+                                
+                                # --- 要約モデル（文章生成用） ---
+                                gr.Markdown("### 📝 要約モデル（文章生成）")
+                                gr.Markdown("日次/週次要約、コアメモリ圧縮、ペルソナデータ圧縮などに使用します。", elem_classes=["info-text"])
+                                with gr.Row():
+                                    internal_summarization_provider = gr.Dropdown(
+                                        choices=_provider_choices,
+                                        value=_internal_settings.get("summarization_provider", "google"),
+                                        label="プロバイダ",
+                                        scale=1,
+                                        interactive=True
+                                    )
+                                    internal_summarization_model = gr.Dropdown(
+                                        choices=[
+                                            (constants.SUMMARIZATION_MODEL + " (Gemini)", constants.SUMMARIZATION_MODEL),
+                                            ("glm-4.7-flash (Zhipu推奨)", "glm-4.7-flash"),
+                                            ("meta-llama/llama-4-scout-17b-16e-instruct (Groq)", "meta-llama/llama-4-scout-17b-16e-instruct"),
+                                        ],
                                         value=_internal_settings.get("summarization_model", constants.SUMMARIZATION_MODEL),
-                                        info="日次/週次要約、コアメモリ圧縮、ペルソナデータ圧縮などに使用",
-                                        interactive=True
-                                    )
-                                
-                                # --- OpenAI互換設定グループ（推奨モデルプリセット付き） ---
-                                with gr.Group(visible=(_internal_settings.get("provider", "google") == "openai")) as internal_openai_group:
-                                    internal_openai_profile_dropdown = gr.Dropdown(
-                                        choices=_openai_provider_names,
-                                        value=_internal_settings.get("openai_profile", _openai_provider_names[0] if _openai_provider_names else "Groq"),
-                                        label="使用するプロファイル",
-                                        info="APIキー管理で設定したプロファイルを選択",
-                                        interactive=True
-                                    )
-                                    internal_openai_processing_model = gr.Dropdown(
-                                        choices=[
-                                            ("Llama 3.1 8B Instant (Groq推奨・840TPS)", "llama-3.1-8b-instant"),
-                                            ("GLM-4.7-Flash (Zhipu)", "glm-4.7-flash"),
-                                            ("Qwen3 32B (Groq)", "qwen3-32b"),
-                                        ],
-                                        value=_internal_settings.get("processing_model", "llama-3.1-8b-instant"),
-                                        label="処理モデル（軽量タスク用）",
-                                        info="💡 調査報告推奨: Groq Llama 3.1 8B (840 TPS・無料)",
-                                        allow_custom_value=True,
-                                        interactive=True
-                                    )
-                                    internal_openai_summarization_model = gr.Dropdown(
-                                        choices=[
-                                            ("GLM-4.7-Flash (Zhipu推奨・MoE)", "glm-4.7-flash"),
-                                            ("Llama 4 Scout 17B (Groq)", "meta-llama/llama-4-scout-17b-16e-instruct"),
-                                        ],
-                                        value=_internal_settings.get("summarization_model", "glm-4.7-flash"),
-                                        label="要約モデル（文章生成用）",
-                                        info="💡 調査報告推奨: Zhipu GLM-4.7-Flash (MoE・高精度)",
+                                        label="モデル",
+                                        scale=2,
                                         allow_custom_value=True,
                                         interactive=True
                                     )
                                 
-                                # --- エンベディング設定（統合） ---
-                                gr.Markdown("---")
-                                gr.Markdown("### 🧠 エンベディング設定")
-                                gr.Markdown("記憶の検索（RAG）と話題クラスタリングで使用するベクトル化方式を選択します。")
-                                
-                                embedding_provider_radio = gr.Radio(
-                                    choices=[
-                                        ("Gemini API (gemini-embedding-001)", "gemini"),
-                                        ("OpenAI互換 (text-embedding-3-small等)", "openai"),
-                                        ("ローカル (multilingual-e5-small)", "local")
-                                    ],
-                                    value=_internal_settings.get("embedding_provider", "gemini"),
-                                    label="エンベディングプロバイダ",
-                                    info="ローカルは初回のみモデルをダウンロードし、以降はオフラインで動作",
-                                    interactive=True
-                                )
-                                
-                                # エンベディングモデル選択（プロバイダに応じた推奨モデル）
-                                embedding_model_dropdown = gr.Dropdown(
-                                    choices=[
-                                        ("gemini-embedding-001 (Google推奨)", "gemini-embedding-001"),
-                                        ("text-embedding-3-small (OpenAI)", "text-embedding-3-small"),
-                                        ("multilingual-e5-small (ローカル推奨)", "multilingual-e5-small"),
-                                        ("paraphrase-multilingual-MiniLM-L12-v2 (旧)", "paraphrase-multilingual-MiniLM-L12-v2"),
-                                    ],
-                                    value=_internal_settings.get("embedding_model", "gemini-embedding-001"),
-                                    label="エンベディングモデル",
-                                    info="💡 調査報告推奨: ローカルはmultilingual-e5-small (384次元・高精度)",
-                                    allow_custom_value=True,
-                                    interactive=True
-                                )
+                                # --- エンベディングモデル ---
+                                gr.Markdown("### 🧠 エンベディングモデル")
+                                gr.Markdown("記憶の検索（RAG）と話題クラスタリングで使用します。ローカルは初回のみダウンロードし、以降はオフラインで動作します。", elem_classes=["info-text"])
+                                with gr.Row():
+                                    embedding_provider_radio = gr.Dropdown(
+                                        choices=[
+                                            ("Google (Gemini)", "gemini"),
+                                            ("OpenAI互換", "openai"),
+                                            ("ローカル (推奨)", "local")
+                                        ],
+                                        value=_internal_settings.get("embedding_provider", "gemini"),
+                                        label="プロバイダ",
+                                        scale=1,
+                                        interactive=True
+                                    )
+                                    embedding_model_dropdown = gr.Dropdown(
+                                        choices=[
+                                            ("gemini-embedding-001 (Google)", "gemini-embedding-001"),
+                                            ("text-embedding-3-small (OpenAI)", "text-embedding-3-small"),
+                                            ("multilingual-e5-small (ローカル推奨)", "multilingual-e5-small"),
+                                            ("paraphrase-multilingual-MiniLM-L12-v2", "paraphrase-multilingual-MiniLM-L12-v2"),
+                                        ],
+                                        value=_internal_settings.get("embedding_model", "gemini-embedding-001"),
+                                        label="モデル",
+                                        scale=2,
+                                        allow_custom_value=True,
+                                        interactive=True
+                                    )
                                 
                                 # --- フォールバック設定 ---
                                 gr.Markdown("---")
@@ -3013,10 +3001,11 @@ try:
             # --- 索引ステータス欄（最終更新日時表示用）---
             memory_reindex_status,
             current_log_reindex_status,
-            # --- [Phase 3] 内部モデル設定（統合後） ---
-            internal_provider_radio,
-            internal_google_processing_model,
-            internal_google_summarization_model,
+            # --- [Phase 3] 内部モデル設定（混合編成対応） ---
+            internal_processing_provider,
+            internal_processing_model,
+            internal_summarization_provider,
+            internal_summarization_model,
             internal_fallback_checkbox, # [Phase 4]
             groq_api_key_input, # [Phase 3b]
             local_model_path_input, # [Phase 3c]
@@ -4917,28 +4906,14 @@ try:
         
         # --- [Phase 3] 内部処理モデル設定ボタンのイベント ---
         
-        # プロバイダ切り替え時のグループ表示/非表示
-        def _toggle_internal_provider_groups(provider):
-            return (
-                gr.update(visible=(provider == "google")),  # internal_google_group
-                gr.update(visible=(provider == "openai"))   # internal_openai_group
-            )
-        
-        internal_provider_radio.change(
-            fn=_toggle_internal_provider_groups,
-            inputs=[internal_provider_radio],
-            outputs=[internal_google_group, internal_openai_group]
-        )
         
         save_internal_model_button.click(
             fn=ui_handlers.handle_save_internal_model_settings,
             inputs=[
-                internal_provider_radio,
-                internal_google_processing_model,
-                internal_google_summarization_model,
-                internal_openai_profile_dropdown,
-                internal_openai_processing_model,
-                internal_openai_summarization_model,
+                internal_processing_provider,
+                internal_processing_model,
+                internal_summarization_provider,
+                internal_summarization_model,
                 embedding_provider_radio,
                 embedding_model_dropdown,
                 internal_fallback_checkbox
@@ -4950,17 +4925,14 @@ try:
             fn=ui_handlers.handle_reset_internal_model_settings,
             inputs=None,
             outputs=[
-                internal_provider_radio, 
-                internal_google_processing_model, 
-                internal_google_summarization_model, 
-                internal_openai_processing_model,
-                internal_openai_summarization_model,
+                internal_processing_provider,
+                internal_processing_model,
+                internal_summarization_provider,
+                internal_summarization_model,
                 embedding_provider_radio,
                 embedding_model_dropdown,
                 internal_fallback_checkbox, 
-                internal_model_status,
-                internal_google_group,
-                internal_openai_group
+                internal_model_status
             ]
         )
         

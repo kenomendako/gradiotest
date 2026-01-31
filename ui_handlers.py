@@ -11683,27 +11683,23 @@ def handle_refresh_internal_state(room_name: str) -> Tuple[float, float, float, 
 # --- [Phase 3] 内部処理モデル設定ハンドラ ---
 
 def handle_save_internal_model_settings(
-    provider: str,
-    google_processing_model: str,
-    google_summarization_model: str,
-    openai_profile: str,
-    openai_processing_model: str,
-    openai_summarization_model: str,
+    processing_provider: str,
+    processing_model: str,
+    summarization_provider: str,
+    summarization_model: str,
     embedding_provider: str,
     embedding_model: str,
     fallback_enabled: bool = True
 ):
     """
-    内部処理モデル設定を保存する。
+    内部処理モデル設定を保存する（混合編成対応）。
     
     Args:
-        provider: 使用するプロバイダ ("google", "openai")
-        google_processing_model: Google使用時の処理モデル名
-        google_summarization_model: Google使用時の要約モデル名
-        openai_profile: OpenAI互換使用時のプロファイル名
-        openai_processing_model: OpenAI互換使用時の処理モデル名
-        openai_summarization_model: OpenAI互換使用時の要約モデル名
-        embedding_provider: エンベディングプロバイダ ("gemini", "openai", "local")
+        processing_provider: 処理モデルのプロバイダ
+        processing_model: 処理モデル名
+        summarization_provider: 要約モデルのプロバイダ
+        summarization_model: 要約モデル名
+        embedding_provider: エンベディングプロバイダ
         embedding_model: エンベディングモデル名
         fallback_enabled: フォールバック有効/無効
         
@@ -11711,28 +11707,22 @@ def handle_save_internal_model_settings(
         (status_markdown,) - ステータスメッセージ
     """
     try:
-        # プロバイダに応じてモデル名を選択
-        if provider == "google":
-            processing_model = google_processing_model.strip() if google_processing_model else constants.INTERNAL_PROCESSING_MODEL
-            summarization_model = google_summarization_model.strip() if google_summarization_model else constants.SUMMARIZATION_MODEL
-        else:
-            processing_model = openai_processing_model.strip() if openai_processing_model else "llama-3.1-8b-instant"
-            summarization_model = openai_summarization_model.strip() if openai_summarization_model else "glm-4.7-flash"
-        
         settings = {
-            "provider": provider,
-            "processing_model": processing_model,
-            "summarization_model": summarization_model,
-            # supervisorは処理モデルと同じ値を使用
-            "supervisor_model": processing_model,
-            # OpenAI互換設定
-            "openai_profile": openai_profile if provider == "openai" else None,
+            # 処理モデル設定
+            "processing_provider": processing_provider or "google",
+            "processing_model": (processing_model.strip() if processing_model else constants.INTERNAL_PROCESSING_MODEL),
+            # 要約モデル設定
+            "summarization_provider": summarization_provider or "google",
+            "summarization_model": (summarization_model.strip() if summarization_model else constants.SUMMARIZATION_MODEL),
+            # supervisorは処理モデルと同じ設定を使用
+            "supervisor_provider": processing_provider or "google",
+            "supervisor_model": (processing_model.strip() if processing_model else constants.INTERNAL_PROCESSING_MODEL),
             # エンベディング設定
-            "embedding_provider": embedding_provider,
-            "embedding_model": embedding_model.strip() if embedding_model else "gemini-embedding-001",
+            "embedding_provider": embedding_provider or "gemini",
+            "embedding_model": (embedding_model.strip() if embedding_model else "gemini-embedding-001"),
             # フォールバック設定
             "fallback_enabled": fallback_enabled,
-            "fallback_order": ["google"],  # デフォルトはGoogleにフォールバック
+            "fallback_order": ["google"],
         }
         
         print(f"[Phase 3] 内部モデル設定保存: {settings}")  # DEBUG
@@ -11755,42 +11745,36 @@ def handle_save_internal_model_settings(
 
 def handle_reset_internal_model_settings():
     """
-    内部処理モデル設定をデフォルトにリセットする。
+    内部処理モデル設定をデフォルトにリセットする（混合編成対応）。
     
     Returns:
-        11個の値:
-        - provider, google_processing_model, google_summarization_model,
-        - openai_processing_model, openai_summarization_model,
+        8個の値:
+        - processing_provider, processing_model,
+        - summarization_provider, summarization_model,
         - embedding_provider, embedding_model,
-        - fallback_enabled, status_markdown,
-        - internal_google_group (visible), internal_openai_group (visible)
+        - fallback_enabled, status_markdown
     """
     try:
         default_settings = config_manager.reset_internal_model_settings()
-        provider = default_settings.get("provider", "google")
         
         return (
-            provider,
-            default_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL),  # google_processing_model
-            default_settings.get("summarization_model", constants.SUMMARIZATION_MODEL),     # google_summarization_model
-            "llama-3.1-8b-instant",  # openai_processing_model (デフォルト)
-            "glm-4.7-flash",         # openai_summarization_model (デフォルト)
-            "gemini",                # embedding_provider
-            "gemini-embedding-001",  # embedding_model
+            "google",                           # processing_provider
+            constants.INTERNAL_PROCESSING_MODEL, # processing_model
+            "google",                           # summarization_provider
+            constants.SUMMARIZATION_MODEL,       # summarization_model
+            "gemini",                           # embedding_provider
+            "gemini-embedding-001",             # embedding_model
             default_settings.get("fallback_enabled", True),
-            gr.update(value="✅ デフォルト設定にリセットしました。", visible=True),
-            gr.update(visible=(provider == "google")),   # internal_google_group
-            gr.update(visible=(provider == "openai"))    # internal_openai_group
+            gr.update(value="✅ デフォルト設定にリセットしました。", visible=True)
         )
         
     except Exception as e:
         print(f"[ui_handlers] 内部モデル設定リセットエラー: {e}")
         traceback.print_exc()
         return (
-            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(), gr.update(), gr.update(),
-            gr.update(value=f"❌ エラー: {e}", visible=True),
-            gr.update(), gr.update()
+            gr.update(value=f"❌ エラー: {e}", visible=True)
         )
 
 
