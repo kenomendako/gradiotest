@@ -707,6 +707,7 @@ try:
                                         value=_internal_settings.get("processing_provider", "google"),
                                         label="プロバイダ",
                                         scale=1,
+                                        allow_custom_value=True,
                                         interactive=True
                                     )
                                     internal_processing_model = gr.Dropdown(
@@ -732,6 +733,7 @@ try:
                                         value=_internal_settings.get("summarization_provider", "google"),
                                         label="プロバイダ",
                                         scale=1,
+                                        allow_custom_value=True,
                                         interactive=True
                                     )
                                     internal_summarization_model = gr.Dropdown(
@@ -760,6 +762,7 @@ try:
                                         value=_internal_settings.get("embedding_provider", "gemini"),
                                         label="プロバイダ",
                                         scale=1,
+                                        allow_custom_value=True,
                                         interactive=True
                                     )
                                     embedding_model_dropdown = gr.Dropdown(
