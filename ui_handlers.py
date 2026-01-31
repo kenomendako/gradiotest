@@ -611,7 +611,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(value="待機中"), # episodic_update_status
             gr.update(choices=[], value=None), # entity_dropdown
             gr.update(value=""), # entity_content_editor
-            gr.update(value="api") # embedding_mode_radio
+            gr.update(value="gemini") # embedding_provider_radio (旧: embedding_mode_radio)
         )
 
     # --- 【通常モード】 ---
@@ -882,7 +882,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
         gr.update(value=last_episodic_update), # episodic_update_status
         gr.update(choices=entity_choices, value=None), # entity_dropdown
         gr.update(value=""), # entity_content_editor
-        gr.update(value=effective_settings.get("embedding_mode", "api")), # embedding_mode_radio
+        gr.update(value="gemini" if effective_settings.get("embedding_mode", "api") == "api" else effective_settings.get("embedding_mode", "gemini")), # embedding_provider_radio (旧: embedding_mode_radio)
         gr.update(value=last_dream_time), # dream_status_display
         gr.update(value=effective_settings.get("auto_summary_enabled", False)), # room_auto_summary_checkbox
         gr.update(value=effective_settings.get("auto_summary_threshold", constants.AUTO_SUMMARY_DEFAULT_THRESHOLD), visible=effective_settings.get("auto_summary_enabled", False)), # room_auto_summary_threshold_slider
@@ -2602,7 +2602,7 @@ def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name:
                 gr.update(value="未実行"), # episodic_update_status
                 gr.update(choices=[], value=None), # entity_dropdown
                 gr.update(value=""), # entity_content_editor
-                gr.update(value="api"), # embedding_mode_radio
+                gr.update(value="gemini"), # embedding_provider_radio (旧: embedding_mode_radio)
                 gr.update(value="未実行") # dream_status_display
             )
 
