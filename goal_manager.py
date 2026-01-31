@@ -190,11 +190,14 @@ class GoalManager:
             today = datetime.datetime.now().strftime('%Y-%m-%d')
             now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # 達成内容を要約
+            # 達成内容を要約（意味のある記憶に）
             goal_text = goal.get("goal", "目標")
-            summary = f"【達成】目標「{goal_text}」を達成した。"
             if completion_note:
-                summary += f" {completion_note}"
+                # 学び・気づきがある場合は、それを中心に記憶を構築
+                summary = f"目標「{goal_text}」を達成した。{completion_note}"
+            else:
+                # 学びがない場合はシンプルに
+                summary = f"目標「{goal_text}」を達成した。"
             
             # 高Arousalエピソード記憶を生成
             em._append_single_episode({

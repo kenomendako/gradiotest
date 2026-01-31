@@ -35,6 +35,7 @@ from tools.knowledge_tools import search_knowledge_base
 from tools.entity_tools import read_entity_memory, write_entity_memory, list_entity_memories, search_entity_memory
 from tools.chess_tools import read_board_state, perform_move, get_legal_moves, reset_game as reset_chess_game
 from tools.developer_tools import list_project_files, read_project_file
+from tools.introspection_tools import manage_open_questions, manage_goals
 
 from room_manager import get_world_settings_path, get_room_files_paths
 from episodic_memory_manager import EpisodicMemoryManager
@@ -91,7 +92,9 @@ all_tools = [
     # --- チェスツール ---
     read_board_state, perform_move, get_legal_moves, reset_chess_game,
     # --- 開発者ツール ---
-    list_project_files, read_project_file
+    list_project_files, read_project_file,
+    # --- 内省ツール ---
+    manage_open_questions, manage_goals
 ]
 
 side_effect_tools = [
