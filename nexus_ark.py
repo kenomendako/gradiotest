@@ -2999,8 +2999,6 @@ try:
             openai_api_key_input,
             openai_model_dropdown,
             openai_tool_use_checkbox,
-            # --- [追加] 個別設定OpenAI互換のモデルドロップダウン ---
-            room_openai_model_dropdown,
             # --- 索引ステータス欄（最終更新日時表示用）---
             memory_reindex_status,
             current_log_reindex_status,
@@ -3009,6 +3007,7 @@ try:
             internal_processing_model,
             internal_summarization_provider,
             internal_summarization_model,
+            embedding_model_dropdown, # エンベディングモデルをここに追加
             internal_fallback_checkbox, # [Phase 4]
             groq_api_key_input, # [Phase 3b]
             local_model_path_input, # [Phase 3c]

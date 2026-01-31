@@ -501,7 +501,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
             gr.update(choices=room_manager.get_room_list_for_ui(), value=room_name),
-            gr.update(choices=[], value=None),
+            gr.update(choices=[], value=None), # archive_date_dropdown
             "（APIキーが設定されていません）",
             list(config_manager.SUPPORTED_VOICES.values())[0], # voice_dropdown
             "", True, 0.01,  # voice_style_prompt, enable_typewriter, streaming_speed
@@ -532,16 +532,14 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
             # [Phase 3] 個別プロバイダ設定
             gr.update(value="default"),  # room_provider_radio
             gr.update(visible=False),  # room_google_settings_group
-            gr.update(visible=False),  # room_zhipu_settings_group
             gr.update(visible=False),  # room_openai_settings_group
             gr.update(value=None),  # room_api_key_dropdown
-            gr.update(value=None),  # room_zhipu_model_dropdown
             gr.update(value=None),  # room_openai_profile_dropdown
             gr.update(value=""),  # room_openai_base_url_input
             gr.update(value=""),  # room_openai_api_key_input
             gr.update(value=None),  # room_openai_model_dropdown
             gr.update(value=True),  # room_openai_tool_use_checkbox
-            gr.update(value=effective_settings.get("enable_api_key_rotation", None)),  # room_rotation_dropdown
+            gr.update(value=config_manager.CONFIG_GLOBAL.get("enable_api_key_rotation", None)),  # room_rotation_dropdown
             # --- 睡眠時記憶整理 (Default values) ---
             gr.update(value=True),  # sleep_episodic
             gr.update(value=True),  # sleep_memory_index
@@ -892,7 +890,7 @@ def _update_chat_tab_for_room_change(room_name: str, api_key_name: str):
     )
 
 
-def handle_initial_load(room_name: str = None, expected_count: int = 171):
+def handle_initial_load(room_name: str = None, expected_count: int = 174):
     """
     【v11: 時間デフォルト対応版】
     UIセッションが開始されるたびに、UIコンポーネントの初期状態を完全に再構築する、唯一の司令塔。
@@ -1014,9 +1012,11 @@ def handle_initial_load(room_name: str = None, expected_count: int = 171):
     # --- 7. [Phase 3] 内部モデル設定を取得 ---
     internal_model_settings = config_manager.get_internal_model_settings()
     internal_model_updates = (
-        gr.update(value=internal_model_settings.get("provider", "google")),
+        gr.update(value=internal_model_settings.get("processing_provider", "google")),
         gr.update(value=internal_model_settings.get("processing_model", constants.INTERNAL_PROCESSING_MODEL)),
+        gr.update(value=internal_model_settings.get("summarization_provider", "google")),
         gr.update(value=internal_model_settings.get("summarization_model", constants.SUMMARIZATION_MODEL)),
+        gr.update(value=internal_model_settings.get("embedding_model", "gemini-embedding-001")),
         gr.update(value=internal_model_settings.get("fallback_enabled", True)),  # [Phase 4]
     )
 
@@ -1035,10 +1035,9 @@ def handle_initial_load(room_name: str = None, expected_count: int = 171):
         custom_scenery_dd_update,
         custom_scenery_time_dd_update,
         *openai_updates,
-        room_openai_model_dropdown_update,  # 個別設定のOpenAI互換モデルドロップダウン
         f"最終更新: {memory_index_last_updated}",  # memory_reindex_status
         f"最終更新: {current_log_index_last_updated}",  # current_log_reindex_status
-        *internal_model_updates,  # [Phase 3] 内部モデル設定
+        *internal_model_updates,  # [Phase 3] 内部モデル設定 (6個)
         config_manager.GROQ_API_KEY or "", # [Phase 3b] groq_api_key_input
         config_manager.LOCAL_MODEL_PATH or "", # [Phase 3c] local_model_path_input
         config_manager.TAVILY_API_KEY or "", # [Phase 3] tavily_api_key_input
@@ -2026,8 +2025,8 @@ def handle_message_submission(
         effective_settings = config_manager.get_effective_settings(soul_vessel_room)
         add_timestamp = effective_settings.get("add_timestamp", False)
         history, mapping = reload_chat_log(soul_vessel_room, api_history_limit, add_timestamp)
-        # 戻り値の数を15個に合わせる
-        yield (history, mapping, *([gr.update()] * 10), gr.update(visible=False), gr.update(interactive=True), gr.update())
+        # 戻り値の数を16個に合わせる
+        yield (history, mapping, *([gr.update()] * 10), gr.update(visible=False), gr.update(interactive=True), gr.update(), gr.update())
         return
 
     # ▼▼▼【ここからが修正の核心】▼▼▼
@@ -2213,7 +2212,7 @@ def handle_rerun_button_click(
         gr.Warning("再生成の起点となるメッセージが選択されていません。")
         yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                gr.update(), gr.update(), gr.update(), console_content, console_content,
-               gr.update(visible=True, interactive=True), gr.update(interactive=True), gr.update(), gr.update())
+               gr.update(visible=True, interactive=True), gr.update(interactive=True), gr.update(), gr.update(), gr.update())
         return
 
     # 1. ログを巻き戻し、再送信するユーザー発言を取得
@@ -2512,7 +2511,7 @@ def handle_save_room_config(folder_name: str, room_name: str, user_display_name:
         traceback.print_exc()
         return gr.update(), gr.update()
 
-def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name: str, current_room_name: str = None, expected_count: int = 148):
+def handle_delete_room(confirmed: str, folder_name_to_delete: str, api_key_name: str, current_room_name: str = None, expected_count: int = 151):
     """
     【v7: 引数順序修正版】
     ルームを削除し、統一契約に従って常に正しい数の戻り値を返す。
@@ -5812,7 +5811,7 @@ def handle_world_builder_load(room_name: str):
         gr.update(choices=place_choices_for_selected_area, value=current_location)
     )
 
-def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 148):
+def handle_room_change_for_all_tabs(room_name: str, api_key_name: str, current_room_state: str, expected_count: int = 151):
     """
     【v11: 最終契約遵守版】
     ルーム変更時に、全てのUI更新と内部状態の更新を、この単一の関数で完結させる。
