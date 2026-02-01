@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **RAG モデル不整合対策と内部処理モデルの最適化 (2026-02-01):** 索引作成時のエンベディングモデル ID を保存し、検索時に整合性を検証する機能を実装。UI に「索引を初期化して再構築」ボタンを追加。また、Llama 3.1 等の高速モデル使用時に RAG クエリ抽出が冗長になる問題をプロンプト厳格化と正規表現パースで解決。フォールバック発生時のシステム通知機能も統合。[レポート](docs/reports/2026-02-01_rag_consistency_and_fallback_optimization.md)
 - **画像生成マルチプロバイダ対応 (2026-01-31):** 画像生成機能がGemini、OpenAI互換、無効の3プロバイダから選択可能に。有料キーチェックを撤廃し、シンプルなプロバイダ・モデル選択方式に刷新。OpenAI互換では既存プロファイルを使用（APIキー管理の一元化）。gpt-image-1モデル対応。情景描写プロンプトに時間帯別照明指示を追加。[レポート](docs/reports/2026-01-31_ImageGenMultiProvider.md)
 - **内省ツール実装 (2026-01-31):** ペルソナが自律行動中に未解決の問い・目標を確認・編集できるツール `manage_open_questions` と `manage_goals` を追加。問い解決時にArousalスパイクと高Arousalエピソード記憶を生成。[レポート](docs/reports/2026-01-31_introspection_tools.md)
 - **問いの自動解決機能修正 (2026-01-30):** 睡眠時処理に問い自動解決判定を追加。会話中の解決判定がコメントアウトされ、睡眠時処理でも解決判定がなかったため問いが永久に蓄積されていた問題を修正。`auto_resolve_questions` を睡眠時に呼び出し、直近会話から解決された問いを自動マーク。問い解決時のArousalスパイク（充足感）機能も追加。[レポート](docs/reports/2026-01-30_question_auto_resolve_fix.md)

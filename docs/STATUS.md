@@ -1,5 +1,7 @@
 # 📊 プロジェクトステータス
 
+| 2026-02-01 | **RAG モデル不整合対策と内部処理モデルの最適化**<br>・索引作成時のモデルID保存と検証ロジックを実装<br>・Llama 3.1 等の内部処理モデルの出力冗長化をプロンプトとパースで解決<br>・フォールバック発生時のチャット UI 通知機能を実装 | [レポート](reports/2026-02-01_rag_consistency_and_fallback_optimization.md) |
+
 | 2026-01-31 | **APIキーローテーション初回選択時の枯渇チェック追加**<br>・指定キーが枯渇状態でも使用される問題を修正<br>・初回選択時に自動で代替キーへ切り替え | [レポート](reports/2026-01-31_api_key_rotation_initial_check.md) |
 | 2026-01-31 | **read_project_fileツール失敗誤検知の根本修正**<br>・ファイル内容に `Exception:` 等が含まれていても誤検知しなくなった<br>・開発者ツールのエラー検知を `【エラー】` 行のみに限定 | [レポート](reports/2026-01-31_tool_error_false_detection_fix.md) |
 | 2026-01-31 | **内省ツール実装**<br>・`manage_open_questions` / `manage_goals` ツール追加<br>・問い解決時にArousalスパイク + エピソード記憶生成<br>・目標達成時の記憶を意味のある形式に改善 | [レポート](reports/2026-01-31_introspection_tools.md) |
