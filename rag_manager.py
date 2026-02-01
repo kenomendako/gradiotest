@@ -77,6 +77,15 @@ class RAGManager:
         self.embeddings = None  # 常に遅延初期化
         print(f"[RAGManager] エンベディングモード: {self.embedding_mode} (遅延初期化待ち)")
 
+    def _get_embedding_model_id(self) -> str:
+        """現在のエンベディング設定を識別するユニークなIDを返す"""
+        if self.embedding_mode == "local":
+            settings = config_manager.get_internal_model_settings()
+            model_name = settings.get("embedding_model", "unknown-local")
+            return f"local:{model_name}"
+        else:
+            return f"google:{constants.EMBEDDING_MODEL}"
+
     def _get_embeddings(self):
         """エンベディングインスタンスを取得（必要に応じて初期化）"""
         if self.embeddings is not None:
@@ -88,9 +97,21 @@ class RAGManager:
                 from topic_cluster_manager import LocalEmbeddingProvider
                 local_provider = LocalEmbeddingProvider()
                 self.embeddings = LangChainEmbeddingWrapper(local_provider)
-                print(f"[RAGManager] ローカルエンベディングを初期化しました")
+                print(f"[RAGManager] ローカルエンベディング ({self._get_embedding_model_id()}) を初期化しました")
             except Exception as e:
-                print(f"[RAGManager] ローカルエンベディング初期化失敗、APIにフォールバック: {e}")
+                # 警告を強調
+                print(f"\n" + "!"*60)
+                print(f"[RAGManager] 警告: ローカルエンベディングの初期化に失敗しました。")
+                print(f"  - 原因: {e}")
+                
+                # システム通知を追加
+                utils.add_system_notice(
+                    f"RAG警告: ローカルエンベディングの初期化に失敗し、Google APIにフォールバックしました (原因: {e})",
+                    level="warning"
+                )
+                print(f"  - 処置: Google API (gemini-embedding-001) にフォールバックします。")
+                print(f"!"*60 + "\n")
+                
                 from langchain_google_genai import GoogleGenerativeAIEmbeddings
                 self.embeddings = GoogleGenerativeAIEmbeddings(
                     model=constants.EMBEDDING_MODEL,
@@ -105,7 +126,7 @@ class RAGManager:
                 google_api_key=self.api_key,
                 task_type="retrieval_document"
             )
-            print(f"[RAGManager] Gemini API エンベディングを初期化しました")
+            print(f"[RAGManager] Gemini API エンベディング ({self._get_embedding_model_id()}) を初期化しました")
             
         return self.embeddings
         
@@ -327,14 +348,20 @@ class RAGManager:
                             if target_path.exists():
                                 shutil.rmtree(str(target_path))
                     
-                    # 新しいインデックスを rename で配置（同一ディレクトリ内なので一瞬）
-                    temp_path = Path(temp_dir)
-                    # 既に temp_dir 内にファイルがある状態。そのディレクトリごと移動しようとすると
-                    # shutil.move は賢いので、ここでは target_path への rename を試みる。
-                    # shutil.move(str(temp_path), str(target_path)) を使うのが無難（同一ディスクなら内部で rename になる）
-                    # ただし target_path が存在しないことが確実（上で rename/rmtree 済み）なので move が確実。
+                    # 新しいインデックスを rename で配置
                     shutil.move(str(temp_path), str(target_path))
                     
+                    # モデル情報を保存
+                    try:
+                        model_info = {
+                            "model_id": self._get_embedding_model_id(),
+                            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        with open(target_path / "model_info.json", 'w', encoding='utf-8') as f:
+                            json.dump(model_info, f, indent=2)
+                    except Exception as e:
+                        print(f"  - [RAG Warning] モデル情報の保存に失敗: {e}")
+
                     # キャッシュをクリア
                     cache_key = str(target_path.absolute())
                     if cache_key in RAGManager._index_cache:
@@ -381,7 +408,27 @@ class RAGManager:
         # FAISS.load_local は読み込み中もディレクトリ内のファイルを継続的に参照する場合があるため
         # 一時ディレクトリに完全にコピーしてからロードを完了させる方式が最も安全
         try:
-            # メモリ節約のため、まず一時コピーを作成
+            # 1. 整合性チェック
+            model_info_path = target_path / "model_info.json"
+            if model_info_path.exists():
+                try:
+                    with open(model_info_path, 'r', encoding='utf-8') as f:
+                        info = json.load(f)
+                    saved_model_id = info.get("model_id")
+                    current_model_id = self._get_embedding_model_id()
+                    
+                    if saved_model_id and saved_model_id != current_model_id:
+                        print(f"\n" + "="*60)
+                        print(f"⚠️ [RAG 警告] エンベディングモデルの不一致を検知しました！")
+                        print(f"  - 索引作成時: {saved_model_id}")
+                        print(f"  - 現在の設定: {current_model_id}")
+                        print(f"  ※このまま検索すると、精度が著しく低下するか、エラーが発生します。")
+                        print(f"  ※解決するには『索引の完全再構築』を行ってください。")
+                        print("="*60 + "\n")
+                except Exception:
+                    pass
+
+            # 2. メモリ節約のため、まず一時コピーを作成
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_index_dir = Path(temp_dir) / "index"
                 shutil.copytree(str(target_path), str(temp_index_dir))
@@ -1131,3 +1178,46 @@ class RAGManager:
             print(f"  - [RAG] 高Arousal記憶: {arousal_boost_count}件がブースト対象")
 
         return filtered_docs[:k]
+    def rebuild_all_indices(self, status_callback=None) -> str:
+        """
+        既存のすべてのインデックスを破棄し、ゼロから再構築する。
+        モデル変更時や索引が破損した時に使用。
+        """
+        def report(message):
+            print(f"--- [RAG Rebuild] {message}")
+            if status_callback: status_callback(message)
+
+        report("インデックスの完全再構築を開始します...")
+        
+        # 1. 既存のディレクトリとファイルを削除
+        paths_to_delete = [
+            self.static_index_path,
+            self.dynamic_index_path,
+            self.processed_files_record,
+            self.room_dir / "rag_data" / "current_log_index"
+        ]
+        
+        for p in paths_to_delete:
+            if p.exists():
+                try:
+                    if p.is_dir():
+                        shutil.rmtree(str(p))
+                    else:
+                        p.unlink()
+                    report(f"削除完了: {p.name}")
+                except Exception as e:
+                    report(f"警告: {p.name} の削除に失敗: {e}")
+
+        # キャッシュもクリア
+        RAGManager._index_cache.clear()
+
+        # 2. 再構築（通常の更新メソッドを呼ぶが、ファイルがないので全件処理になる）
+        report("記憶索引の再構築を開始...")
+        memory_result = self.update_memory_index(status_callback)
+        
+        report("知識索引の再構築を開始...")
+        knowledge_result = self.update_knowledge_index(status_callback)
+        
+        final_msg = f"再構築完了: {memory_result} / {knowledge_result}"
+        report(final_msg)
+        return final_msg

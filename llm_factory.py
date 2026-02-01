@@ -41,94 +41,83 @@ class LLMFactory:
         
         # --- [Phase 2] internal_role優先ロジック ---
         if internal_role:
-            # config_managerから内部モデル設定を取得
-            provider, internal_model_name = config_manager.get_effective_internal_model(internal_role)
-            print(f"--- [LLM Factory] Internal role mode: {internal_role} ---")
-            print(f"  - Provider: {provider}")
-            print(f"  - Model: {internal_model_name}")
+            # 1. プロバイダとモデル名の決定
+            active_provider, effective_model_name = config_manager.get_effective_internal_model(internal_role)
+            print(f"--- [LLM Factory] 内部モデル設定（混合編成）適用: {internal_role} ---")
+            print(f"  - Provider: {active_provider}")
+            print(f"  - Model: {effective_model_name}")
             
-            # プロバイダに応じて処理を分岐
-            if provider == "google":
-                # api_key が未指定なら自動補完
+            # 2. モデル名のサニタイズ
+            sanitized_model_name = utils.sanitize_model_name(effective_model_name or "")
+
+            # 3. プロバイダごとの分岐処理
+            if active_provider == "google":
                 if not api_key:
                     api_key = config_manager.get_active_gemini_api_key(room_name)
-                    
                 if not api_key:
                     raise ValueError("Google provider requires an API key. No valid key found.")
-                    
                 return gemini_api.get_configured_llm(
-                    model_name=internal_model_name,
+                    model_name=sanitized_model_name,
                     api_key=api_key,
                     generation_config=generation_config or {}
                 )
-            elif provider == "zhipu":
-                # [Phase 3] Zhipu AI (GLM-4) 対応
-                zhipu_api_key = config_manager.ZHIPU_API_KEY
-                if not zhipu_api_key:
-                    raise ValueError("Zhipu AI provider requires an API key. Please set it in Settings.")
-                
-                print(f"--- [LLM Factory] Creating ZhipuAI client ---")
-                return ChatOpenAI(
-                    base_url="https://open.bigmodel.cn/api/paas/v4/",
-                    api_key=zhipu_api_key,
-                    model=internal_model_name,
-                    temperature=temperature,
-                    max_retries=max_retries,
-                    streaming=True
-                )
-            elif provider == "groq":
-                # [Phase 3b] Groq対応
-                groq_api_key = config_manager.GROQ_API_KEY
-                if not groq_api_key:
-                    raise ValueError("Groq provider requires an API key. Please set it in Settings.")
-                
-                print(f"--- [LLM Factory] Creating Groq client ---")
-                return ChatOpenAI(
-                    base_url="https://api.groq.com/openai/v1",
-                    api_key=groq_api_key,
-                    model=internal_model_name,
-                    temperature=temperature,
-                    max_retries=max_retries,
-                    streaming=True
-                )
-            elif provider == "moonshot":
-                # [Phase 3d] Moonshot AI (Kimi) 対応
-                moonshot_api_key = api_key or config_manager.MOONSHOT_API_KEY
-                if not moonshot_api_key:
-                    raise ValueError("Moonshot AI provider requires an API key. Please set it in Settings.")
-                
-                print(f"--- [LLM Factory] Creating Moonshot (Kimi) client ---")
-                return ChatOpenAI(
-                    base_url="https://api.moonshot.cn/v1",
-                    api_key=moonshot_api_key,
-                    model=internal_model_name,
-                    temperature=temperature,
-                    max_retries=max_retries,
-                    streaming=True
-                )
-            elif provider == "local":
-                # [Phase 3c] ローカルLLM対応 (llama-cpp-python)
+            elif active_provider == "local":
                 local_model_path = config_manager.LOCAL_MODEL_PATH
                 if not local_model_path or not os.path.exists(local_model_path):
                     raise ValueError(f"Local LLM requires a valid GGUF model path. Current: '{local_model_path}'")
-                
-                print(f"--- [LLM Factory] Creating Local LLM client (llama.cpp) ---")
-                print(f"  - Model path: {local_model_path}")
-                
                 try:
                     from langchain_community.chat_models import ChatLlamaCpp
                     return ChatLlamaCpp(
                         model_path=local_model_path,
                         temperature=temperature,
-                        n_ctx=4096,  # コンテキスト長（設定可能にする余地あり）
-                        n_gpu_layers=0,  # CPU版デフォルト（0=CPU、-1=全層GPU）
+                        n_ctx=4096,
+                        n_gpu_layers=0,
                         verbose=False
                     )
                 except ImportError:
-                    raise ValueError("llama-cpp-python is not installed. Run: pip install llama-cpp-python")
+                    raise ValueError("llama-cpp-python is not installed.")
             else:
-                # 未対応プロバイダ - エラーを投げる（フォールバックはPhase 4で実装）
-                raise ValueError(f"Unsupported internal model provider: {provider}")
+                # OpenAI互換としての処理
+                openai_setting = config_manager.get_openai_setting_by_name(active_provider)
+                # レガシーキーワード対応
+                if not openai_setting:
+                    if active_provider == "zhipu":
+                        openai_setting = {"base_url": "https://open.bigmodel.cn/api/paas/v4/", "api_key": config_manager.ZHIPU_API_KEY, "name": "Zhipu AI"}
+                    elif active_provider == "groq":
+                        openai_setting = {"base_url": "https://api.groq.com/openai/v1", "api_key": config_manager.GROQ_API_KEY, "name": "Groq"}
+                    elif active_provider == "moonshot":
+                        openai_setting = {"base_url": "https://api.moonshot.cn/v1", "api_key": config_manager.MOONSHOT_API_KEY, "name": "Moonshot AI"}
+                
+                if not openai_setting:
+                    # アクティブなプロファイルをフォールバックとして試行
+                    openai_setting = config_manager.get_active_openai_setting()
+                
+                if not openai_setting:
+                    raise ValueError(f"Unsupported internal model provider: {active_provider}")
+
+                base_url = openai_setting.get("base_url")
+                openai_api_key = openai_setting.get("api_key", "dummy")
+                provider_name = openai_setting.get("name", active_provider)
+
+                # パラメータ最適化
+                target_temp = temperature
+                target_top_p = top_p
+                if provider_name == "Zhipu AI" or "glm" in sanitized_model_name.lower():
+                    if "glm-4.7-flash" in sanitized_model_name.lower():
+                        target_temp = 0.7 if temperature == 1.0 or temperature == 0.7 else temperature
+                        target_top_p = 1.0 if top_p == 0.95 or top_p == 1.0 else top_p
+                elif provider_name == "Moonshot AI" or "moonshot" in base_url:
+                    if target_temp != 1.0: target_temp = 1.0
+
+                return ChatOpenAI(
+                    base_url=base_url,
+                    api_key=openai_api_key,
+                    model=sanitized_model_name,
+                    temperature=target_temp,
+                    top_p=target_top_p,
+                    max_retries=max_retries,
+                    streaming=True
+                )
         
         # --- 以下は既存ロジック（internal_role未指定時） ---
         
@@ -142,7 +131,7 @@ class LLMFactory:
         # 【マルチモデル対応】内部処理用モデルは強制的にGemini APIを使用
         # ユーザー設定のプロバイダ（OpenAI等）に関係なく、Gemini固定が必要な処理用
         if force_google:
-            print(f"--- [LLM Factory] Force Google mode: Using Gemini Native for internal processing ---")
+            print(f"--- [LLM Factory] Force Google mode (Legacy): Using Gemini Native ---")
             print(f"  - Model: {internal_model_name}")
             active_provider = "google"
 
@@ -323,6 +312,11 @@ class LLMFactory:
                 error_msg = f"{provider}: {str(e)}"
                 errors.append(error_msg)
                 print(f"[LLM Factory] Fallback: Provider '{provider}' failed: {e}")
+                # システム通知を追加
+                utils.add_system_notice(
+                    f"LLM警告: プロバイダ '{provider}' が失敗し、フォールバックを試行しています (原因: {e})",
+                    level="warning"
+                )
                 continue
         
         # すべてのプロバイダで失敗

@@ -149,10 +149,14 @@ class MotivationManager:
             User Input: "{user_text[:500]}"
             """
             
-            # 簡易モデル設定 (設定取得が面倒なので簡易的に構築するか、引数で貰う)
-            # ここでは引数の model_name, api_key を使用
-            # generation_config は空でデフォルト動作させる
-            llm = get_configured_llm(model_name, api_key, {})
+            # 簡易モデル設定
+            # 【マルチモデル対応】内部モデル設定（混合編成）に基づいてモデルを取得
+            from llm_factory import LLMFactory
+            llm = LLMFactory.create_chat_model(
+                api_key=api_key,
+                internal_role="processing",
+                room_name=self.room_name
+            )
             
             response = llm.invoke(prompt).content.strip().lower()
             
@@ -757,10 +761,10 @@ class MotivationManager:
         
         try:
             llm_flash = LLMFactory.create_chat_model(
-                model_name=constants.INTERNAL_PROCESSING_MODEL,
                 api_key=api_key,
                 generation_config={},
-                force_google=True
+                internal_role="processing",
+                room_name=self.room_name
             )
             
             prompt = f"""あなたはAIの記憶管理アシスタントです。

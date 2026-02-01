@@ -356,95 +356,65 @@ def retrieval_node(state: AgentState):
     room_name = state['room_name']
     
     # 高速なモデルを使用
-    # 【マルチモデル対応】内部処理はGemini固定のため force_google=True
+    # 【マルチモデル対応】内部モデル設定（混合編成）に基づいてモデルを取得
     llm_flash = LLMFactory.create_chat_model(
-        model_name=constants.INTERNAL_PROCESSING_MODEL,
         api_key=api_key,
         generation_config={},
-        force_google=True
+        internal_role="processing"
     )
     
-    decision_prompt = f"""
-    あなたは、検索クエリ生成の専門家です。
-    ユーザーの発言から、検索キーワードとクエリの意図を抽出してください。
+    # プロンプトの改善（System/Human分離）
+    system_prompt = """あなたは、情報の抽出と検索クエリ生成の専門家です。
+ユーザーの発言から、指定されたフォーマットに従って「検索キーワード」と「意図(INTENT)」のみを抽出してください。
+解説、前置き、思考プロセスは絶対に含めないでください。出力は、指定された3行の形式、または「NONE」のみである必要があります。"""
 
-    【ユーザーの発言】
-    {query_source}
+    human_prompt = f"""以下のユーザーの発言を分析し、検索クエリを生成してください。
 
-    【タスク】
-    1.  **検索不要な場合**: `NONE` とだけ出力。
-    2.  **検索必要な場合**: 以下の形式で3行出力。
+【ユーザーの発言】
+{query_source}
 
-    【出力形式】（必ずこの形式で）
-    RAG: [意味検索用キーワード（類義語・関連語を含む広いキーワード群）]
-    KEYWORD: [完全一致検索用キーワード（固有名詞・特定フレーズのみ、0-3語）]
-    INTENT: [emotional/factual/technical/temporal/relational]
+【出力形式】
+RAG: [意味検索用キーワード]
+KEYWORD: [完全一致検索用キーワード（または NONE）]
+INTENT: [emotional/factual/technical/temporal/relational]
 
-    【RAG行のルール】
-    *   「検索対象そのもの」だけを抽出する。
-    *   「前置き」「検索する理由」は絶対に含めない。
-    *   類義語や関連語も想像して含める（意味検索の精度向上のため）。
-    *   名詞（固有名詞、専門用語）を中心に構成する。
-
-    【KEYWORD行のルール】
-    *   過去ログで完全一致検索するための「特徴的な固有名詞・フレーズ」のみ抽出。
-    *   特徴的なキーワードがなければ KEYWORD: NONE と出力。
-    *   最大3語まで。無理に最大数抽出しなくてよい。
-    *   一般的な単語（例：話、こと、とき）は含めない。
-
-    【INTENT行のルール】
-    *   クエリの意図を以下の5つから1つ選ぶ:
-        - emotional: 感情・体験・思い出を問う（例：「あの時どう思った？」「嬉しかったこと」）
-        - factual: 事実・属性を問う（例：「猫の名前は？」「誕生日いつ？」）
-        - technical: 技術・手順・設定を問う（例：「設定方法は？」「どうやって動かす？」）
-        - temporal: 時間軸で問う（例：「最近何した？」「昨日の話」）
-        - relational: 関係性を問う（例：「〇〇との関係は？」「誰と仲良い？」）
-
-    【出力例1】
-    ユーザー：「田中さんのこと覚えてる？」
-    RAG: 田中さん 友人 知り合い
-    KEYWORD: 田中
-    INTENT: relational
-
-    【出力例2】
-    ユーザー：「初めて会った日のこと」
-    RAG: 初めて 会った日 出会い 思い出
-    KEYWORD: NONE
-    INTENT: emotional
-
-    【出力例3】
-    ユーザー：「今日は何してたの？」
-    NONE
-
-    【制約事項】
-    - 思考プロセスや解説は一切出力しないこと。
-    - 必ずRAG: とKEYWORD: とINTENT: の3行形式、またはNONEのみを出力。
-    """
+【ルール】
+- 解説は一切不要。
+- 文字列 'RAG:', 'KEYWORD:', 'INTENT:' で始まる3行のみを出力せよ。
+- 検索が不要な場合は 'NONE' とのみ出力せよ。
+"""
 
     try:
-        decision_response = llm_flash.invoke(decision_prompt).content.strip()
+        # メッセージリスト形式で送信
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_prompt)
+        ]
+        decision_response = llm_flash.invoke(messages).content.strip()
         
-        if decision_response.upper() == "NONE":
+        if "NONE" in decision_response.upper() and len(decision_response) < 10:
             print("  - [Retrieval] 判断: 検索不要 (AI判断)")
             return {"retrieved_context": ""}
         
-        # RAG: とKEYWORD: とINTENT: の3行形式をパース
+        # 正規表現による柔軟なパース
         rag_query = ""
         keyword_query = ""
-        intent = constants.DEFAULT_INTENT  # デフォルト値
-        for line in decision_response.split("\n"):
-            line = line.strip()
-            if line.upper().startswith("RAG:"):
-                rag_query = line[4:].strip()
-            elif line.upper().startswith("KEYWORD:"):
-                kw_part = line[8:].strip()
-                if kw_part.upper() != "NONE":
-                    keyword_query = kw_part
-            elif line.upper().startswith("INTENT:"):
-                intent_part = line[7:].strip().lower()
-                # 有効なIntent値のみ受け入れ
-                if intent_part in constants.INTENT_WEIGHTS:
-                    intent = intent_part
+        intent = constants.DEFAULT_INTENT
+        
+        rag_match = re.search(r"RAG:\s*(.+)", decision_response, re.IGNORECASE)
+        kw_match = re.search(r"KEYWORD:\s*(.+)", decision_response, re.IGNORECASE)
+        intent_match = re.search(r"INTENT:\s*(\w+)", decision_response, re.IGNORECASE)
+
+        if rag_match:
+            rag_query = rag_match.group(1).strip()
+        if kw_match:
+            kw_part = kw_match.group(1).strip()
+            if kw_part.upper() != "NONE":
+                keyword_query = kw_part
+        if intent_match:
+            intent_part = intent_match.group(1).strip().lower()
+            if intent_part in constants.INTENT_WEIGHTS:
+                intent = intent_part
         
         # 後方互換: RAG:がない場合は全体をRAGクエリとして扱う
         if not rag_query and decision_response.upper() != "NONE":
@@ -1944,11 +1914,12 @@ def supervisor_node(state: AgentState):
 
     try:
         # LLMFactoryでモデル作成
+        # 【マルチモデル対応】内部モデル設定（混合編成）に基づいてモデルを取得
         # Function Callingを使用せず、純粋なテキスト生成として呼び出す
         supervisor_llm = LLMFactory.create_chat_model(
-            model_name=SUPERVISOR_MODEL,
             api_key=api_key,
-            temperature=0.0 # 決定論的にする
+            temperature=0.0, # 決定論的にする
+            internal_role="supervisor"
         )
         
         # 会話履歴の最後の方だけ渡す

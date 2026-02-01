@@ -1335,34 +1335,42 @@ def set_active_openai_profile(profile_name: str):
     """アクティブなOpenAIプロファイル名を保存する"""
     save_config_if_changed("active_openai_profile", profile_name)
 
-def get_active_openai_setting() -> Optional[Dict]:
-    """現在アクティブなOpenAIプロファイルの設定辞書を返す"""
-    profile_name = get_active_openai_profile_name()
+def get_openai_setting_by_name(profile_name: str) -> Optional[Dict]:
+    """
+    指定された名前（例: 'Groq', 'Zhipu AI'）のOpenAIプロファイル設定辞書を返す。
+    """
+    if not profile_name: return None
+    
     settings = get_openai_settings_list()
     target_setting = None
     for s in settings:
         if s.get("name") == profile_name:
             target_setting = s
             break
-    # 見つからない場合はリストの先頭を返す
-    if not target_setting and settings:
-        target_setting = settings[0]
-
+            
     if target_setting:
-        # [Dynamic Injection] グローバル設定のAPIキーをプロファイルに適用
-        # UIでキーを更新した直後など、プロファイル内のキーが古い/空の場合に対応
+        target_setting = target_setting.copy()
+        # [Dynamic Injection] 特定のプロバイダの場合はグローバルな設定からAPIキーを反映
         if target_setting.get("name") == "Zhipu AI":
             global_key = CONFIG_GLOBAL.get("zhipu_api_key")
             if global_key:
-                target_setting = target_setting.copy()
                 target_setting["api_key"] = global_key
         elif target_setting.get("name") == "Moonshot AI":
             global_key = CONFIG_GLOBAL.get("moonshot_api_key")
             if global_key:
-                target_setting = target_setting.copy()
                 target_setting["api_key"] = global_key
+        elif target_setting.get("name") == "Groq":
+            global_key = CONFIG_GLOBAL.get("groq_api_key")
+            if global_key:
+                target_setting["api_key"] = global_key
+                
+        return target_setting
+    return None
 
-    return target_setting
+def get_active_openai_setting() -> Optional[Dict]:
+    """現在アクティブなOpenAIプロファイルの設定辞書を返す"""
+    profile_name = get_active_openai_profile_name()
+    return get_openai_setting_by_name(profile_name)
 
 def is_tool_use_enabled(room_name: str = None) -> bool:
     """
@@ -1485,15 +1493,24 @@ def get_effective_internal_model(role: str) -> Tuple[str, str]:
         (provider, model_name) のタプル
     """
     settings = get_internal_model_settings()
-    provider = settings.get("provider", "google")
     
+    # ロールごとのプロバイダキー・モデルキーのマッピング
+    provider_key_map = {
+        "processing": "processing_provider",
+        "summarization": "summarization_provider",
+        "supervisor": "supervisor_provider",
+    }
     model_key_map = {
         "processing": "processing_model",
         "summarization": "summarization_model",
         "supervisor": "supervisor_model",
     }
     
+    provider_key = provider_key_map.get(role, "processing_provider")
     model_key = model_key_map.get(role, "processing_model")
+    
+    # 設定から取得。未設定の場合は全体設定("provider")またはデフォルト値を参照
+    provider = settings.get(provider_key, settings.get("provider", "google"))
     model_name = settings.get(model_key, constants.INTERNAL_PROCESSING_MODEL)
     
     return (provider, model_name)

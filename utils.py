@@ -17,9 +17,31 @@ from bs4 import BeautifulSoup
 import io
 import contextlib
 
-_model_token_limits_cache: Dict[str, Dict[str, int]] = {}
 LOCK_FILE_PATH = Path.home() / ".nexus_ark.global.lock"
  
+# --- [Phase 7] システム通知バッファ ---
+# フォールバックなどの警告を一時的に保持し、チャット応答時にユーザーに提示する
+SYSTEM_NOTICES: List[Dict[str, str]] = []
+
+def add_system_notice(msg: str, level: str = "warning"):
+    """
+    システム通知を追加する。
+    level: "warning", "info", "error"
+    """
+    # 重複を避ける
+    if any(n["message"] == msg for n in SYSTEM_NOTICES):
+        return
+    SYSTEM_NOTICES.append({"message": msg, "level": level, "timestamp": datetime.datetime.now().isoformat()})
+    print(f"--- [System Notice Added] {msg} (Level: {level}) ---")
+
+def consume_system_notices() -> List[Dict[str, str]]:
+    """
+    溜まっている通知をすべて返し、バッファをクリアする。
+    """
+    global SYSTEM_NOTICES
+    notices = SYSTEM_NOTICES.copy()
+    SYSTEM_NOTICES.clear()
+    return notices
 def sanitize_model_name(model_name: str) -> str:
     """
     モデル名からお気に入りマークや注釈（カッコ書き）を除去する。

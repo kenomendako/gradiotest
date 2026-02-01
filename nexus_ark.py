@@ -2489,6 +2489,8 @@ try:
                                 with gr.Column():
                                     gr.Markdown("### 🔍 記憶索引 (RAG) の再構築")
                                     memory_reindex_button = gr.Button("記憶の索引を更新", variant="secondary")
+                                    full_reindex_button = gr.Button("🗑️ 索引を初期化して再構築", variant="stop")
+                                    gr.Markdown("<small>⚠️ モデル変更時はこちらを使用してください</small>")
                                     memory_reindex_status = gr.Textbox(label="記憶索引ステータス", interactive=False)
                                 
                                 with gr.Column():
@@ -3233,10 +3235,10 @@ try:
             fn=ui_handlers.handle_create_room,
             inputs=[new_room_name, new_user_display_name, new_agent_display_name, new_room_description, initial_system_prompt],
             outputs=[
-                room_dropdown,
-                manage_room_selector,
-                alarm_room_dropdown,
-                timer_room_dropdown,
+                room_dropdown,             # メインルーム選択
+                manage_room_selector,      # 管理タブ
+                alarm_room_dropdown,       # アラーム
+                timer_room_dropdown,       # タイマー
                 new_room_name,
                 new_user_display_name,
                 new_agent_display_name,
@@ -4798,6 +4800,12 @@ try:
             fn=ui_handlers.handle_memory_reindex,
             inputs=[current_room_name, current_api_key_name_state],
             outputs=[memory_reindex_status, memory_reindex_button]
+        )
+
+        full_reindex_button.click(
+            fn=ui_handlers.handle_full_reindex,
+            inputs=[current_room_name, current_api_key_name_state],
+            outputs=[memory_reindex_status, memory_reindex_button] # 既存のステータスとボタンを共有
         )
 
         current_log_reindex_button.click(

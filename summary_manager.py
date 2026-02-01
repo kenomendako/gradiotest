@@ -100,8 +100,8 @@ def generate_summary(
     既存の要約がある場合は、それと新しいメッセージを統合して再要約。
     """
     import room_manager
-    from google import genai
-    import google.genai.errors
+    from llm_factory import LLMFactory
+    import config_manager
     
     # メッセージをテキストに変換
     conversation_text = ""
@@ -150,32 +150,24 @@ def generate_summary(
 
 【要約】"""
 
-
-    max_retries = 3
-    base_retry_delay = 5
-    
-    for attempt in range(max_retries):
-        try:
-            client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=f"models/{constants.SUMMARIZATION_MODEL}",
-                contents=[prompt]
-            )
-            return response.text.strip()
+    try:
+        # 【マルチモデル対応】内部モデル設定（混合編成）に基づいてモデルを取得
+        effective_settings = config_manager.get_effective_settings(room_name)
+        llm = LLMFactory.create_chat_model(
+            api_key=api_key,
+            generation_config=effective_settings,
+            internal_role="summarization",
+            room_name=room_name
+        )
         
-        except (google.genai.errors.ClientError, google.genai.errors.ServerError) as e:
-            wait_time = base_retry_delay * (2 ** attempt)
-            if attempt < max_retries - 1:
-                print(f"  - [Summary] APIエラー ({e.__class__.__name__})。{wait_time}秒待機してリトライ... ({attempt + 1}/{max_retries})")
-                time.sleep(wait_time)
-            else:
-                print(f"  - [Summary] 最大リトライ回数に達しました: {e}")
-                return None
+        # invoke で呼び出し
+        response = llm.invoke(prompt)
+        return response.content.strip() if response and response.content else None
         
-        except Exception as e:
-            print(f"要約生成エラー: {e}")
-            traceback.print_exc()
-            return None
+    except Exception as e:
+        print(f"要約生成エラー: {e}")
+        traceback.print_exc()
+        return None
     
     return None
 

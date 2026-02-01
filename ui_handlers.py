@@ -1380,6 +1380,15 @@ def _stream_and_handle_response(
             screenshot_mode=screenshot_mode,
             redaction_rules=redaction_rules            
         )
+        
+        # [Phase 7] システム通知の取得と反映
+        system_notices = utils.consume_system_notices()
+        for notice in system_notices:
+            notice_msg = f"⚠️ **システム警告**: {notice['message']}"
+            chatbot_history.append((None, notice_msg))
+            # ログにも保存
+            utils.save_message_to_log(main_log_f, "## SYSTEM:Nexus Ark", notice_msg)
+            
         chatbot_history.append((None, "▌"))
         yield (chatbot_history, mapping_list, gr.update(value={'text': '', 'files': []}),
                *([gr.update()] * 8),
@@ -1955,7 +1964,9 @@ def handle_message_submission(
     if not user_prompt_from_textbox and not file_input_list:
         # 戻り値の数は unified_streaming_outputs の要素数と一致させる必要がある (16個)
         # 既存のUIの状態を維持するため、全て gr.update() を返す
-        yield (gr.update(),) * 16  # [v21] 16要素
+        yield (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+               gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
         return
     # --- [ガードここまで] ---
 
@@ -2387,7 +2398,7 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, new_agent
     # 1. 入力検証
     if not new_room_name or not new_room_name.strip():
         gr.Warning("ルーム名は必須です。")
-        # nexus_ark.pyのoutputsは9つ
+        # nexus_ark.pyのoutputsは9個
         return (gr.update(),) * 9
 
     try:
@@ -2428,13 +2439,10 @@ def handle_create_room(new_room_name: str, new_user_display_name: str, new_agent
         # フォームのクリア（5つのフィールド分）
         clear_form = (gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=""), gr.update(value=""))
 
-        # ドロップダウンの選択肢を更新（選択値は変更しない）
-        main_dd = gr.update(choices=updated_room_list)
-        manage_dd = gr.update(choices=updated_room_list)
-        alarm_dd = gr.update(choices=updated_room_list)
-        timer_dd = gr.update(choices=updated_room_list)
+        # ドロップダウンの選択肢を更新（4つの主要ドロップダウン分）
+        dd_updates = (gr.update(choices=updated_room_list),) * 4
 
-        return main_dd, manage_dd, alarm_dd, timer_dd, *clear_form
+        return (*dd_updates, *clear_form)
 
     except Exception as e:
         gr.Error(f"ルームの作成に失敗しました。詳細はターミナルを確認してください。: {e}")
@@ -6380,7 +6388,7 @@ def handle_log_punctuation_correction(
     【v3: 堅牢化版】
     選択行以降のAGENT応答を「思考ログ」と「本文」に分離し、それぞれ安全に読点修正を行ってから再結合する。
     """
-    if not str(confirmed).lower() == 'true':
+    if not confirmed or str(confirmed).lower() != 'true':
         yield gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), ""
         return
 
@@ -7419,12 +7427,14 @@ def handle_knowledge_reindex(room_name: str, api_key_name: str):
     """知識ベースの索引を作成/更新する。RAGManagerを使用。"""
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
-        return gr.update(), gr.update()
+        yield gr.update(), gr.update()
+        return
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー「{api_key_name}」が無効です。")
-        return gr.update(), gr.update()
+        yield gr.update(), gr.update()
+        return
 
     # 処理開始を通知
     yield "処理中: 知識ドキュメントのインデックスを構築しています...", gr.update(interactive=False)
@@ -7547,12 +7557,14 @@ def handle_memory_reindex(room_name: str, api_key_name: str):
     """記憶の索引（過去ログ、エピソード記憶、夢日記、日記ファイル）を更新する（リアルタイム進捗表示付き）。"""
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
-        return gr.update(), gr.update()
+        yield gr.update(), gr.update()
+        return
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー「{api_key_name}」が無効です。")
-        return gr.update(), gr.update()
+        yield gr.update(), gr.update()
+        return
 
     yield "開始中...", gr.update(interactive=False)
 
@@ -7576,16 +7588,71 @@ def handle_memory_reindex(room_name: str, api_key_name: str):
         yield error_msg, gr.update(interactive=True)
         return
 
-def handle_current_log_reindex(room_name: str, api_key_name: str):
-    """現行ログ（log.txt）の索引を更新する（リアルタイム進捗表示付き）。"""
+def handle_full_reindex(room_name: str, api_key_name: str):
+    """すべての索引を削除し、現在のモデル設定で完全に作成し直す（リアルタイム進捗表示付き）。"""
     if not room_name or not api_key_name:
         gr.Warning("ルームとAPIキーを選択してください。")
-        return gr.update(), gr.update()
+        yield gr.update(), gr.update()
+        return
 
     api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
     if not api_key or api_key.startswith("YOUR_API_KEY"):
         gr.Error(f"APIキー「{api_key_name}」が無効です。")
-        return gr.update(), gr.update()
+        yield gr.update(), gr.update()
+        return
+
+    yield "インデックス消去中...", gr.update(interactive=False)
+
+    try:
+        manager = rag_manager.RAGManager(room_name, api_key)
+        
+        last_message = ""
+        # manager.rebuild_all_indices は内部で進捗を callback で報告するように作る（または generator 化する）
+        # 現状の update_memory_index_with_progress 方式を流用するため、直接 rebuild メソッドを generator として定義するか、
+        # rebuild メソッド内で yield させる。
+        
+        # 修正: rebuild_all_indices を generator 化するのは大変なので、まず消去して、そのあと通常の進捗付きを呼ぶ
+        def status_callback(msg):
+            nonlocal last_message
+            last_message = msg
+        
+        # 索引消去 & 再構築 (これは rag_manager のメソッド)
+        # ※ rebuild_all_indices が generator でない場合は、こちらで yield する。
+        # rag_manager に追加した rebuild_all_indices は generator ではないため、
+        # update_memory_index_with_progress 等を直接呼ぶようにここで展開するか、
+        # rag_manager 側を yield 対応にする。
+        
+        # 面倒なのでここで「消去」を行ってから handle_memory_reindex のロジックを呼ぶ
+        manager.rebuild_all_indices(status_callback=lambda m: print(f"[Rebuild Status] {m}"))
+        
+        # 上記で消去済みなので、改めて進捗付きで実行
+        for current_step, total_steps, status_message in manager.update_memory_index_with_progress():
+            last_message = status_message
+            yield f"再構築中: {status_message}", gr.update(interactive=False)
+            
+        gr.Info(f"✅ インデックスの完全再構築が完了しました")
+        last_updated = _get_rag_index_last_updated(room_name, "memory")
+        yield f"再構築完了（最終更新: {last_updated}）", gr.update(interactive=True)
+
+    except Exception as e:
+        error_msg = f"再構築中にエラーが発生しました: {e}"
+        gr.Error(error_msg)
+        traceback.print_exc()
+        yield error_msg, gr.update(interactive=True)
+        return
+
+def handle_current_log_reindex(room_name: str, api_key_name: str):
+    """現行ログ（log.txt）の索引を更新する（リアルタイム進捗表示付き）。"""
+    if not room_name or not api_key_name:
+        gr.Warning("ルームとAPIキーを選択してください。")
+        yield gr.update(), gr.update()
+        return
+
+    api_key = config_manager.GEMINI_API_KEYS.get(api_key_name)
+    if not api_key or api_key.startswith("YOUR_API_KEY"):
+        gr.Error(f"APIキー「{api_key_name}」が無効です。")
+        yield gr.update(), gr.update()
+        return
 
     yield "開始中...", gr.update(interactive=False)
 
